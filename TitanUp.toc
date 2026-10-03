@@ -1,0 +1,43 @@
+## Interface: 120100, 120105
+## Title: Titan Up
+## Notes: The Titan Up guild toolkit: TitanBoard live raid strategy board, a loot tracker, Death Roll, Wheel of Fortune, and more.
+## Author: Ryan (Titan Up - Medivh)
+## Version: 0.13.0
+## SavedVariables: TitanUpDB, TitanBoardDB
+## IconTexture: Interface\AddOns\TitanUp\Media\TitanUp
+## X-Category: Raid
+
+Libs\LibStub\LibStub.lua
+Libs\LibDeflate\LibDeflate.lua
+
+Core.lua
+Widgets.lua
+Nav.lua
+
+Board\Rooms.lua
+Board\Content.lua
+Board\Model.lua
+Board\Comms.lua
+Board\Sync.lua
+Board\Presence.lua
+Board\Board.lua
+Board\Laser.lua
+Board\Invite.lua
+Board\ImportExport.lua
+Board\RaidstratsImport.lua
+Board\Sim.lua
+
+DeathRoll\DeathRoll.lua
+DeathRoll\Ledger.lua
+DeathRoll\DeathRollUI.lua
+
+WheelOfFortune\Wheel.lua
+WheelOfFortune\WheelUI.lua
+
+Loot\Loot.lua
+Loot\LootUI.lua
+
+RaidCheck\RaidCheck.lua
+RaidCheck\RaidCheckUI.lua
+
+Hub.lua
