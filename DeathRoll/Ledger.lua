@@ -33,9 +33,12 @@
 -- (one record each) so the other player sees them within a second or two.
 --
 -- Messages (prefix TitanUpDR):
---   H count hash                 digest of the sender's own games
+--   H count hash from            digest of the sender's own games with t >= from
+--                                (their newest MAX_SHARE in the window; `from`
+--                                is 0.31.2 - without it, the old window is meant)
 --   Z name                       "name, please send your games"
---   E id w l g t r paid          one game record (sender must be w or l)
+--   E id w l g t r paid          one game record (sender must be w or l, and the
+--                                id starts with w's or l's name)
 --   C id                         "is this debt paid?" - the winner's addon answers
 --                                with its record (the winner is the source of truth)
 local ADDON, ns = ...
@@ -44,19 +47,36 @@ local L = {}
 ns.DRLedger = L
 
 local SEP = "^"
--- seconds between queued record messages: slower than the send queue's
--- ~2 a second, so sharing a long history never holds up a game's own messages
-local SEND_RATE = 0.6
+-- Sharing a long history never holds up a game's own messages: the ledger
+-- keeps its own count of the prefix's send allowance (WoW's burst of 10,
+-- then one more a second - the game's messages counted too), never uses
+-- the last RESERVE of it, and pauses YIELD seconds whenever a game sends
+-- something. It checks every PUMP_EVERY seconds.
+local BURST, REFILL, RESERVE = 10, 1, 2
+local PUMP_EVERY, YIELD = 0.5, 2
 local MAX_SHARE = 150       -- most recent games each player shares
 local KEEP_OTHERS = 1000    -- games between other players kept (all of yours are kept)
 local ARCHIVE_DAYS = 90     -- settled games older than this are folded into per-player totals
+local PENDING_DAYS = 7      -- a game only one player ever reported is dropped after this
+local DAY = 86400
 
 local queue = {}
 local sendNow              -- defined below (declared here so everything above can use it)
 local requested = {}        -- [name] = time we last asked them
 
 local function games() return ns.udb.deathroll.games end
-local function now() return (GetServerTime and GetServerTime()) or time() end
+local now = ns.Now
+local int = ns.DeathRoll.Int
+-- a number from a message, cut to lo..hi (nil for nan or none)
+local function clamp(v, lo, hi)
+    v = tonumber(v)
+    if v and v == v then return math.max(lo, math.min(hi, math.floor(v))) end
+end
+local function isMine(rec) return (rec.w == ns.me or rec.l == ns.me) and rec.src and rec.src[ns.me] end
+-- one game record as an E message
+local function recMsg(rec)
+    return table.concat({ "E", rec.id, rec.w, rec.l, rec.g, rec.t, rec.r or 0, rec.paid or 0 }, SEP)
+end
 
 local function hash(s)
     local h = 5381
@@ -77,9 +97,12 @@ local function refresh()
     end)
 end
 
--- Per-player digest cache, cleared whenever one of their games changes.
+-- Per-player digest cache, cleared whenever one of their games changes
+-- (and the newest-first list, cleared on any change).
 local digestCache = {}
+local recent
 local function dirty(rec)
+    recent = nil
     if rec then
         if rec.w then digestCache[rec.w] = nil end
         if rec.l then digestCache[rec.l] = nil end
@@ -108,13 +131,10 @@ function L:Init()
             L:ScheduleDigest(4)
         end
     end)
-    ns.On("PLAYER_REGEN_ENABLED", function() C_Timer.After(1, function() if not L:Quiet() then L:FlushDeferred() end end) end)
-    ns.On("ENCOUNTER_END", function() C_Timer.After(2, function() if not L:Quiet() then L:FlushDeferred() end end) end)
-    local function zoneCheck()
-        if not L:Quiet() then L:FlushDeferred() end
+    -- after a fight (or a loading screen): send what was held back
+    for ev, delay in pairs({ PLAYER_REGEN_ENABLED = 1, ENCOUNTER_END = 2, PLAYER_ENTERING_WORLD = 3, ZONE_CHANGED_NEW_AREA = 3 }) do
+        ns.On(ev, function() C_Timer.After(delay, function() if not L:Quiet() then L:FlushDeferred() end end) end)
     end
-    ns.On("PLAYER_ENTERING_WORLD", function() C_Timer.After(3, zoneCheck) end)
-    ns.On("ZONE_CHANGED_NEW_AREA", function() C_Timer.After(3, zoneCheck) end)
     C_Timer.After(6, function() L:ScheduleDigest(0) end)
     C_Timer.After(20, function() if not L:Quiet() then L:Archive() end end)     -- fold settled games older than 3 months
     self:Trim()
@@ -128,7 +148,11 @@ end
 function L:RecordGame(room)
     if room.sim then return nil end          -- practice games are never recorded
     local id = room.id
-    if games()[id] then return games()[id] end
+    local old = games()[id]
+    -- the same game already in: keep it. A record under this id between
+    -- other players (or for another amount) is someone squatting the id:
+    -- the game you just played replaces it.
+    if old and old.w == room.winner and old.l == room.loser and old.g == room.wager then return old end
     local rec = {
         id = id, w = room.winner, l = room.loser, g = room.wager, t = now(),
         r = #room.rolls, paid = 0, src = { [ns.me] = true },
@@ -143,7 +167,7 @@ function L:RecordGame(room)
 end
 
 function L:ShareGame(rec)
-    queue[#queue + 1] = table.concat({ "E", rec.id, rec.w, rec.l, rec.g, rec.t, rec.r or 0, rec.paid or 0 }, SEP)
+    queue[#queue + 1] = recMsg(rec)
     self:StartPump()
 end
 
@@ -217,18 +241,18 @@ function L:CheckDebt(id)
     end
     ns.Print(("Asking %s's addon about your %sg debt..."):format(who, ns.DeathRoll.Fmt(rec.g)))
     C_Timer.After(4, function()
-        local now = checks[id]
-        if not now then return end
+        local st = checks[id]
+        if not st then return end
         if (rec.paid or 0) >= rec.g then
             ns.Print(("%s confirmed your payment - debt cleared."):format(who))
-        elseif now.replied then
+        elseif st.replied then
             local part = (rec.paid or 0) > 0 and (" (" .. ns.DeathRoll.Fmt(rec.paid) .. " of " .. ns.DeathRoll.Fmt(rec.g) .. " confirmed so far)") or ""
             ns.Print(("%s's addon hasn't confirmed payment yet%s. Trade them the gold, or ask them to click Mark paid."):format(who, part))
         else
             ns.Print(("No answer from %s yet - they may be offline or in combat. You'll be told if they answer."):format(who))
             -- keep listening: a winner in combat answers once their fight ends
-            now.waiting = true
-            C_Timer.After(600, function() if checks[id] == now then checks[id] = nil end end)
+            st.waiting = true
+            C_Timer.After(600, function() if checks[id] == st then checks[id] = nil end end)
             return
         end
         checks[id] = nil
@@ -254,11 +278,12 @@ function L:MarkPaid(id)
     if rec and rec.w == ns.me then self:SetPaid(rec, rec.g) end
 end
 
--- Your games that still have gold outstanding, oldest first.
+-- Your confirmed games that still have gold outstanding, oldest first (a
+-- game only one player reported isn't a debt yet).
 function L:MyUnpaid()
     local out = {}
     for _, rec in pairs(games()) do
-        if (rec.w == ns.me or rec.l == ns.me) and not rec.conflict and self:Owed(rec) > 0 then out[#out + 1] = rec end
+        if (rec.w == ns.me or rec.l == ns.me) and not rec.conflict and self:Confirmed(rec) and self:Owed(rec) > 0 then out[#out + 1] = rec end
     end
     table.sort(out, function(a, b) return a.t < b.t end)
     return out
@@ -295,11 +320,13 @@ function L:Stats()
     return list, by
 end
 
-function L:Recent(limit)
+-- Every game, newest first (kept until a record changes).
+function L:Recent()
+    if recent then return recent end
     local list = {}
     for _, rec in pairs(games()) do list[#list + 1] = rec end
     table.sort(list, function(a, b) return (a.t or 0) > (b.t or 0) end)
-    if limit then while #list > limit do table.remove(list) end end
+    recent = list
     return list
 end
 
@@ -319,7 +346,7 @@ function L:OnTradeComplete(partner, gave, got)
                 match = rec.l == ns.me and rec.w == partner      -- you're paying them
                     and math.max(rec.paid or 0, rec.sent or 0) < rec.g
             end
-            if match and not rec.conflict and self:Owed(rec) > 0 then list[#list + 1] = rec end
+            if match and not rec.conflict and self:Confirmed(rec) and self:Owed(rec) > 0 then list[#list + 1] = rec end
         end
         table.sort(list, function(a, b) return a.t < b.t end)
         local total = 0
@@ -354,15 +381,19 @@ end
 -- ---------------------------------------------------------------------
 -- Sync
 -- ---------------------------------------------------------------------
--- the same recent window on every client (from the start of the day), so
--- archived games never make two digests differ
-function L.DigestWindow() return math.floor(now() / 86400) * 86400 - ARCHIVE_DAYS * 86400 end
+-- The digest window starts at the beginning of a day 89 days back - always
+-- after every client's archive cut-off (now - 90 days, whatever time of day
+-- it ran), so games a guildmate has already archived never make two
+-- digests differ.
+function L.DigestWindow() return math.floor(now() / DAY) * DAY - (ARCHIVE_DAYS - 1) * DAY end
+-- (what versions before 0.31.2 count: a day earlier, and every game)
+local function oldWindow() return math.floor(now() / DAY) * DAY - ARCHIVE_DAYS * DAY end
 
-function L:Digest(player)
-    local from = L.DigestWindow()
-    if self.digestFrom ~= from then wipe(digestCache); self.digestFrom = from end
+-- count and hash of `player`'s own games with t >= from
+function L:Digest(player, from)
+    from = from or L.DigestWindow()
     local c = digestCache[player]
-    if c then return c[1], c[2] end
+    if c and c.from == from then return c.count, c.sum end
     local count, sum = 0, 0
     for id, rec in pairs(games()) do
         if (rec.w == player or rec.l == player) and rec.src and rec.src[player] and (rec.t or 0) >= from then
@@ -370,13 +401,44 @@ function L:Digest(player)
             sum = (sum + hash(id .. ":" .. (rec.paid or 0))) % 2147483647
         end
     end
-    digestCache[player] = { count, tostring(sum) }
+    digestCache[player] = { from = from, count = count, sum = tostring(sum) }
     return count, tostring(sum)
+end
+
+-- Your digest (and ShareMine) covers your newest MAX_SHARE games in the
+-- window: where that set starts.
+function L:MineFrom()
+    local from, ts = L.DigestWindow(), {}
+    for _, rec in pairs(games()) do
+        if isMine(rec) and (rec.t or 0) >= from then ts[#ts + 1] = rec.t end
+    end
+    if #ts > MAX_SHARE then
+        table.sort(ts, function(a, b) return a > b end)
+        from = ts[MAX_SHARE]
+    end
+    return from
+end
+
+-- what's left of the send allowance after spending n
+local allowance, allowanceAt = BURST, 0
+local function spend(n)
+    local t = GetTime()
+    allowance = math.min(BURST, allowance + (t - allowanceAt) * REFILL) - n
+    allowanceAt = t
+    return allowance
 end
 
 -- Everything goes over the guild channel (guild members only).
 sendNow = function(msg)
-    return not (ns.DeathRoll.sim or ns.InLockdown()) and ns.SendFields("TitanUpDR", msg)
+    if ns.DeathRoll.sim or not ns.SendFields("TitanUpDR", msg) then return false end
+    spend(1)
+    return true
+end
+
+-- A game's own message just went out: the ledger waits a moment.
+function L:Yield()
+    spend(1)
+    self.yieldUntil = GetTime() + YIELD
 end
 
 -- The send timer only runs while records are queued.
@@ -385,34 +447,42 @@ function L:Pump()
         if self.pumpTicker then self.pumpTicker:Cancel(); self.pumpTicker = nil end
         return
     end
-    if self:Quiet() then return end                 -- hold until the fight is over
+    if self:Quiet() then return end                                 -- hold until the fight is over
+    if GetTime() < (self.yieldUntil or 0) or spend(0) < 1 + RESERVE then return end
     sendNow(table.remove(queue, 1))
 end
 
 function L:StartPump()
-    if not self.pumpTicker and #queue > 0 then self.pumpTicker = C_Timer.NewTicker(SEND_RATE, function() L:Pump() end) end
+    if not self.pumpTicker and #queue > 0 then self.pumpTicker = C_Timer.NewTicker(PUMP_EVERY, function() L:Pump() end) end
 end
 
 -- Keep every game you played; of everyone else's, keep the newest KEEP_OTHERS.
 -- Settled games older than 3 months are folded into per-player totals
 -- (wins / losses / net / games) and their records dropped, so the ledger
 -- stays small. Unpaid games are never archived. Old unconfirmed games never
--- counted, so they're just dropped. Games from before the cut-off that a
--- guildmate re-sends are ignored (they're already in the totals).
+-- counted, so they're just dropped (a game only one player reported after
+-- a week; one dated in the future at once). Games from before the cut-off
+-- that a guildmate re-sends are ignored (they're already in the totals).
 function L:Archive()
-    local cutoff = now() - ARCHIVE_DAYS * 86400
+    local t0 = now()
+    local cutoff = t0 - ARCHIVE_DAYS * DAY
     local d = ns.udb.deathroll
     d.archive = d.archive or { totals = {}, before = 0 }
     local a = d.archive
     local changed = 0
     for id, rec in pairs(games()) do
-        if (rec.t or 0) < cutoff then
-            if not self:Confirmed(rec) or rec.conflict then
+        local t = rec.t or 0
+        local confirmed = self:Confirmed(rec)
+        if t > t0 + DAY or (not confirmed and not rec.conflict and t < t0 - PENDING_DAYS * DAY) then
+            games()[id] = nil
+            changed = changed + 1
+        elseif t < cutoff then
+            if not confirmed or rec.conflict then
                 games()[id] = nil
                 changed = changed + 1
             elseif self:Owed(rec) <= 0 and rec.w and rec.l then
-                local function t(name) a.totals[name] = a.totals[name] or { wins = 0, losses = 0, net = 0, games = 0 } return a.totals[name] end
-                local w, l = t(rec.w), t(rec.l)
+                local function tot(name) a.totals[name] = a.totals[name] or { wins = 0, losses = 0, net = 0, games = 0 } return a.totals[name] end
+                local w, l = tot(rec.w), tot(rec.l)
                 w.wins, w.net, w.games = w.wins + 1, w.net + (rec.g or 0), w.games + 1
                 l.losses, l.net, l.games = l.losses + 1, l.net - (rec.g or 0), l.games + 1
                 games()[id] = nil
@@ -426,7 +496,7 @@ end
 
 function L:Trim()
     local others = {}
-    for id, rec in pairs(games()) do
+    for _, rec in pairs(games()) do
         if rec.w ~= ns.me and rec.l ~= ns.me then others[#others + 1] = rec end
     end
     if #others <= KEEP_OTHERS then return end
@@ -441,38 +511,64 @@ function L:ScheduleDigest(delay)
     self._digestTimer = true
     C_Timer.After(delay or 0, function()
         L._digestTimer = nil
-        local count, h = L:Digest(ns.me)
-        if count > 0 then sendNow(table.concat({ "H", count, h }, SEP)) end
+        local from = L:MineFrom()
+        local count, h = L:Digest(ns.me, from)
+        if count > 0 then sendNow(table.concat({ "H", count, h, from }, SEP)) end
     end)
 end
 
-function L:ShareMine()
+-- Send your games (the set your digest covers). One guildmate asking again
+-- while your games haven't changed gets nothing new from a second round, so
+-- that's skipped for half an hour (others asking still get it).
+local sharedTo = {}         -- [name] = { at, digest }
+function L:ShareMine(asker)
+    local from = self:MineFrom()
+    local _, h = self:Digest(ns.me, from)
+    local last = asker and sharedTo[asker]
+    if last and last.h == h and GetTime() - last.at < 1800 then return end
     if self._sharedAt and GetTime() - self._sharedAt < 20 then return end
     self._sharedAt = GetTime()
+    if asker then sharedTo[asker] = { at = GetTime(), h = h } end
     local mine = {}
     for _, rec in pairs(games()) do
-        if (rec.w == ns.me or rec.l == ns.me) and rec.src and rec.src[ns.me] then mine[#mine + 1] = rec end
+        if isMine(rec) and (rec.t or 0) >= from then mine[#mine + 1] = rec end
     end
     table.sort(mine, function(a, b) return a.t > b.t end)
-    for i = 1, math.min(#mine, MAX_SHARE) do
-        local r = mine[i]
-        queue[#queue + 1] = table.concat({ "E", r.id, r.w, r.l, r.g, r.t, r.r or 0, r.paid or 0 }, SEP)
-    end
+    for _, r in ipairs(mine) do queue[#queue + 1] = recMsg(r) end
     self:StartPump()
 end
 
+-- A record from the guild. Only a game's own two players speak for it: for
+-- a new record the sender must be its winner or loser and the id must
+-- start with one of their names; for one you have, the sender must be one
+-- of ITS players (whatever the message says). Numbers are checked: whole
+-- gold 1..9,999,999, dated within the last 90 days (and not tomorrow).
 function L:Merge(f, sender)
     local id, w, l = f[2], f[3], f[4]
-    local g, t, r, paid = tonumber(f[5]), tonumber(f[6]), tonumber(f[7]), tonumber(f[8])
-    if not id or id == "" or not w or not l or not g or not t then return end
+    local t0 = now()
+    local g, t = int(f[5], 1, ns.DeathRoll.MAX_WAGER), int(f[6], 0, t0 + DAY)
+    local r, paid = clamp(f[7], 0, 1000) or 0, tonumber(f[8])
+    if not id or id == "" or not w or not l or w == l or not g or not t then return end
     if sender ~= w and sender ~= l then return end          -- only your own games
-    local arch = ns.udb.deathroll.archive
-    if arch and arch.before and t < arch.before and not games()[id] then return end   -- already in the archived totals
     local rec = games()[id]
+    if rec and sender ~= rec.w and sender ~= rec.l then
+        -- not one of this game's players: ignored (and noted)
+        rec.rejected = (rec.rejected or 0) + 1
+        rec.rejectedBy = sender
+        refresh()
+        return
+    end
+    if not rec then
+        local idName = id:match("^(.-)%-%d+$")
+        if idName ~= ns.Short(w) and idName ~= ns.Short(l) then return end
+        if t < t0 - ARCHIVE_DAYS * DAY then return end
+    end
+    local arch = ns.udb.deathroll.archive
+    if arch and arch.before and t < arch.before and not rec then return end   -- already in the archived totals
     if not rec then
         rec = {
-            id = id, w = w, l = l, g = g, t = t, r = r or 0, src = { [sender] = true },
-            paid = (sender == w) and math.min(g, paid or 0) or 0,      -- only the winner vouches for payment
+            id = id, w = w, l = l, g = g, t = t, r = r, src = { [sender] = true },
+            paid = (sender == w) and clamp(paid, 0, g) or 0,      -- only the winner vouches for payment
         }
         games()[id] = rec
         self._added = (self._added or 0) + 1
@@ -492,8 +588,9 @@ function L:Merge(f, sender)
             rec.conflict = true
         else
             rec.src[sender] = true
+            paid = clamp(paid, 0, rec.g)
             if sender == rec.w and paid and paid > (rec.paid or 0) then
-                rec.paid = math.min(rec.g, paid)
+                rec.paid = paid
                 rec.paidT = now()
             end
         end
@@ -509,16 +606,21 @@ function L:OnMessage(f, sender)
     if kind == "H" then
         if self:Quiet() then return end           -- in combat: compare notes later
         local count, h = tonumber(f[2]), f[3]
-        local myCount, myHash = self:Digest(sender)
-        if count and (count ~= myCount or h ~= myHash) then
-            if requested[sender] and GetTime() - requested[sender] < 30 then return end
-            requested[sender] = GetTime()
+        -- 0.31.2+ say where their digest starts; older versions mean the old window
+        local from = (f[4] == nil or f[4] == "") and oldWindow() or int(f[4], now() - ARCHIVE_DAYS * DAY, now() + DAY)
+        if not count or not from then return end
+        local myCount, myHash = self:Digest(sender, from)
+        if count ~= myCount or h ~= myHash then
+            -- asking again about the same digest won't help: at most every half hour
+            local q = requested[sender]
+            if q and GetTime() - q.at < (q.h == h and 1800 or 30) then return end
+            requested[sender] = { at = GetTime(), h = h }
             C_Timer.After(0.5 + math.random() * 1.5, function() sendNow("Z" .. SEP .. sender) end)
         end
     elseif kind == "Z" then
         if f[2] ~= ns.me then return end
         if self:Quiet() then self._deferShare = true return end
-        self:ShareMine()
+        self:ShareMine(sender)
     elseif kind == "C" then
         -- someone asks whether their debt to us is paid: answer with our record
         local rec = games()[f[2] or ""]

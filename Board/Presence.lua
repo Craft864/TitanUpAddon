@@ -12,7 +12,7 @@ P.roster = {}
 local lastPing = 0
 P.tunedIn = {}   -- [name] = time they opened the board (for the "tuned in" highlight)
 
-local function timeout() return 45 end
+local TIMEOUT = 45      -- seconds of silence before someone drops off the list
 
 function P:MyState()
     local B = ns.Board
@@ -23,7 +23,9 @@ end
 function P:Announce(kind)
     if ns.Comms:Mode() == "local" then return end
     lastPing = GetTime()
-    ns.Comms:Send(kind or "P", ns.VERSION .. "," .. self:MyState(), "presence")
+    kind = kind or "P"
+    -- (H and P coalesce separately: a queued hello must not turn into a ping)
+    ns.Comms:Send(kind, ns.VERSION .. "," .. self:MyState(), "presence:" .. kind)
 end
 
 function P:OnMessage(kind, payload, sender)
@@ -32,7 +34,10 @@ function P:OnMessage(kind, payload, sender)
     local known = self.roster[sender]
     state = tonumber(state)
     local wasWatching = known and (known.state == 1 or known.state == 3)
-    if (state == 1 or state == 3) and not wasWatching then self.tunedIn[sender] = GetTime() end
+    if (state == 1 or state == 3) and not wasWatching then
+        self.tunedIn[sender] = GetTime()
+        C_Timer.After(6.1, function() if ns.Board then ns.Board:UpdateViewers() end end)   -- "tuned in" fades
+    end
     self.roster[sender] = { ver = ver, state = state, last = GetTime() }
     if kind == "H" and not known then
         C_Timer.After(math.random() * 2, function() P:Announce("P") end)
@@ -41,10 +46,9 @@ function P:OnMessage(kind, payload, sender)
 end
 
 function P:Prune()
-    local now, members = GetTime(), {}
-    for _, n in ipairs(ns.GroupNames()) do members[n] = true end
+    local now = GetTime()
     for name, e in pairs(self.roster) do
-        if not members[name] or now - e.last > timeout() then self.roster[name] = nil end
+        if not ns.InMyGroup(name) or now - e.last > TIMEOUT then self.roster[name] = nil end
     end
 end
 
@@ -121,9 +125,11 @@ function P:Init()
             if next(P.roster) then wipe(P.roster) end
             return                      -- solo: nothing to announce or prune
         end
+        ns.Model:PruneLive(10)          -- strokes whose author stopped mid-draw (left, reloaded)
         if InCombatLockdown() then return end   -- no check-ins mid-fight; resumes after the pull
         if GetTime() - lastPing >= 20 then P:Announce("P") end
         P:Prune()
+        ns.Board:UpdateViewers()
     end)
     ns.On("GROUP_ROSTER_UPDATE", function()
         if P._rosterTimer then return end
@@ -166,10 +172,10 @@ local function onLink(link)
 end
 
 function Invite:Init()
+    -- the game hands "addon:" links to EventRegistry; older clients only to SetItemRef
     if EventRegistry and EventRegistry.RegisterCallback then
         EventRegistry:RegisterCallback("SetItemRef", function(_, link) onLink(link) end, Invite)
-    end
-    if SetItemRef then
+    elseif SetItemRef then
         hooksecurefunc("SetItemRef", function(link) onLink(link) end)
     end
 end

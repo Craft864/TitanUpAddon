@@ -175,16 +175,26 @@ function WD:RequestStandings()
     ns.Send(PREFIX, "Q", ch)
 end
 
+-- a whole number from a message within lo..hi, else nil (nan / inf too)
+local function int(v, lo, hi)
+    local n = tonumber(v)
+    if n and n == n and n % 1 == 0 and n >= lo and n <= hi then return n end
+end
+
 function WD:OnMessage(msg, sender)
     local f = ns.Split(msg, "^")
     if f[1] == "R" then
-        local r = { day = tonumber(f[2]), n = tonumber(f[3]), played = tonumber(f[4]), wins = tonumber(f[5]),
-                    streak = tonumber(f[6]), best = tonumber(f[7]), sum = tonumber(f[8]) }
-        if not (r.day and r.n and r.played and r.wins) then return end
-        if r.n < -1 or r.n > WD.MAX_GUESSES or r.wins > r.played then return end
+        -- every number checked: a day near today (so it's pruned in time), counts that add up
+        local today = WD.Today()
+        local r = { day = int(f[2], today - WD.PRUNE_DAYS, today + 1), n = int(f[3], -1, WD.MAX_GUESSES), played = int(f[4], 0, 100000) }
+        if not (r.day and r.n and r.played) then return end
+        r.wins = int(f[5], 0, r.played)
+        if not r.wins then return end
+        r.streak, r.best, r.sum = int(f[6], 0, r.played) or 0, int(f[7], 0, r.played) or 0, int(f[8], 0, r.wins * WD.MAX_GUESSES) or 0
         db().standings[sender] = r
         self:Prune()
-        if ns.WowdleUI then ns.WowdleUI:Refresh() end
+        -- a request brings a burst of answers: one redraw for them all
+        ns.Debounce("wowdle-standings", 0.3, function() if ns.WowdleUI then ns.WowdleUI:Refresh() end end)
     elseif f[1] == "Q" then
         -- answer after a short random wait so a guild doesn't reply all at once
         if (db().stats.played or 0) == 0 or self.replyQueued then return end
@@ -327,6 +337,10 @@ function V:Create()
         self.stRows[i] = r
     end
     self.stEmpty = UI.Text(st, "GameFontHighlightSmall", C.muted, "No results yet. Standings fill in as guildmates play.", "TOPLEFT", 8, -30)
+    -- more players than rows: the mouse wheel scrolls
+    self.stOffset = 0
+    st:EnableMouseWheel(true)
+    st:SetScript("OnMouseWheel", function(_, d) V.stOffset = V.stOffset - d; V:Refresh() end)
     self.typed = ""
 end
 
@@ -408,8 +422,9 @@ function V:Refresh()
     if self.standings:IsShown() then
         local rows = WD:Standings()
         self.stEmpty:SetShown(#rows == 0)
+        self.stOffset = math.max(0, math.min(#rows - #self.stRows, self.stOffset or 0))
         for i, r in ipairs(self.stRows) do
-            local e = rows[i]
+            local e = rows[i + self.stOffset]
             r.name:SetText(e and (ns.Short and ns.Short(e.name) or e.name) or "")
             r.today:SetText(e and ((e.today > 0 and ("%d/6"):format(e.today)) or (e.today == 0 and "|cffff5a5aX/6|r") or "|cff8a8f9c-|r") or "")
             r.won:SetText(e and ("%d/%d"):format(e.wins, e.played) or "")

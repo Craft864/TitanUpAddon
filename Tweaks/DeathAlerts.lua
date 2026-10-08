@@ -48,7 +48,12 @@ function DA:Init()
     ns.On("UNIT_DIED", function(guid) DA:OnUnitDied(guid) end)
     ns.On("PLAYER_REGEN_DISABLED", function() DA:OnCombatStart() end)
     ns.On("ENCOUNTER_START", function() DA:OnCombatStart(true) end)
-    ns.On("PLAYER_REGEN_ENABLED", function() DA:OnCombatEnd() end)
+    ns.On("PLAYER_REGEN_ENABLED", function()
+        -- dying in a raid boss fight takes you out of combat, but the pull
+        -- goes on: there the boss fight's end closes it
+        if ns.InRaidInstance() and ns.Safe.Call(IsEncounterInProgress) then return end
+        DA:OnCombatEnd()
+    end)
     ns.On("ENCOUNTER_END", function() DA:OnCombatEnd() end)
 end
 
@@ -92,34 +97,15 @@ local function whereOK()
     return inInstance and (kind == "raid" or kind == "party")
 end
 
-local function unitForGUID(guid)
-    if UnitTokenFromGUID then
-        local u = UnitTokenFromGUID(guid)
-        if u and not ns.IsSecret(u) then return u end
-    end
-    if UnitGUID("player") == guid then return "player" end
-    for _, u in ipairs(ns.GroupUnits and ns.GroupUnits() or {}) do
-        if UnitGUID(u) == guid then return u end
-    end
-end
-
 function DA:OnUnitDied(guid)
-    if not db().enabled or not guid or ns.IsSecret(guid) then return end
-    if not whereOK() then return end
-    local unit = unitForGUID(guid)
-    if not unit then return end
-    local isMe = ns.Safe.Bool(UnitIsUnit(unit, "player")) or false
-    if not isMe and not (ns.Safe.Call(UnitInParty, unit) or ns.Safe.Call(UnitInRaid, unit)) then return end
-    local dead = UnitIsDead(unit)
-    if ns.IsSecret(dead) then dead = true end              -- can't tell: treat as a real death
-    if not dead then return end                              -- feign death
-    local name = ns.Safe.Text(UnitName(unit))
-    if not name then return end
-    local role = ns.Safe.Text(UnitGroupRolesAssigned(unit)) or "NONE"
-    local class = ns.Safe.Class(unit)
-    local inInstance, kind = IsInInstance()
-    if db().tankHealOnly and inInstance and kind == "raid" and not isMe and role ~= "TANK" and role ~= "HEALER" then return end
-    self:Add({ name = name, role = role, class = class, me = isMe })
+    if not db().enabled or not whereOK() then return end
+    -- a real death of someone in the group (Feign Death filtered out)
+    ns.PullReport.GroupDeath(guid, function(unit, full, class, isMe)
+        local role = ns.Safe.Text(UnitGroupRolesAssigned(unit)) or "NONE"
+        local inInstance, kind = IsInInstance()
+        if db().tankHealOnly and inInstance and kind == "raid" and not isMe and role ~= "TANK" and role ~= "HEALER" then return end
+        DA:Add({ name = ns.Short(full), role = role, class = class, me = isMe })
+    end)
 end
 
 -- fight time from the Combat Timer, if it's running
@@ -280,7 +266,10 @@ function DA:Animate()
             local age = now - e.shownAt
             local slide = math.min(1, age / 0.18)
             r:SetAlpha(math.min(slide, math.max(0, (e.hideAt - now) / 0.6)))
-            r.text:SetPoint("LEFT", r.icon, "RIGHT", 8 + (1 - slide) * 30, 0)
+            if r.slidIn ~= e then                                   -- (once in place, it stays put)
+                r.text:SetPoint("LEFT", r.icon, "RIGHT", 8 + (1 - slide) * 30, 0)
+                if slide >= 1 then r.slidIn = e end
+            end
             if now < e.hideAt then any = true end
         end
     end
@@ -458,11 +447,10 @@ function DA:BuildPage(parent)
     -- bottom: test / move / reset, and the last pull's deaths
     local test = UI.Button(pg, 90, 24, "Test", "Show sample alerts (and the wipe banner)", function() DA:Test() end)
     test:SetPoint("TOPLEFT", 18, y - 6)
-    self.anchorBtn = UI.IconButton(pg, 24, ns.MEDIA .. "Anchor", "Move the alerts: click to unlock and drag, click again to lock", function()
-        DA:SetUnlocked(not DA.unlocked); DA:RefreshPage()
-    end)
+    local reset
+    self.anchorBtn, reset = ns.Tweaks.MoveControls(pg, DA, { after = function() DA:RefreshPage() end,
+        tip = "Move the alerts: click to unlock and drag, click again to lock" })
     self.anchorBtn:SetPoint("LEFT", test, "RIGHT", 8, 0)
-    local reset = UI.Button(pg, 92, 22, "Reset position", nil, function() DA:ResetPosition() end)
     reset:SetPoint("LEFT", self.anchorBtn, "RIGHT", 8, 0)
     y = y - 42
     UI.Text(pg, "GameFontNormalSmall", C.accent, "LAST PULL'S DEATHS", "TOPLEFT", 18, y)
@@ -473,7 +461,6 @@ function DA:BuildPage(parent)
         self.logRows[i] = t
     end
     self.pageHeight = -(y - 18 - 4 * 16) + 16
-    pg:SetScript("OnHide", function() if DA.unlocked then DA:SetUnlocked(false) end end)
     return pg
 end
 

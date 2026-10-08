@@ -15,7 +15,9 @@
 --     makes it soulbound for good). Needs Titan Up on the owner's side.
 --
 -- Every client builds the same id for the same drop (server date, boss or
--- instance, winner, item), so shared trade/equip updates line up.
+-- instance, winner, item), so shared trade/equip updates line up. A drop
+-- seen again later (the Loot window re-reads the loot history) keeps the
+-- record it already has, even when 00:00 UTC has passed in between.
 -- Only the two people in a trade can report it; only the person who
 -- equipped an item can report that.
 --
@@ -30,11 +32,13 @@ ns.Loot = LT
 local PREFIX = "TitanUpLT"
 local SEP = "^"
 local KEEP = 1500             -- newest drops kept
+local SAME_DROP = 12 * 3600   -- the same drop seen again within this long is the same record
+local SLIM_AFTER = 7 * 86400  -- older drops keep only the winner's roll and yours
 
 LT.ROLL_NAMES = { [0] = "Need", [1] = "Need (off-spec)", [2] = "Transmog", [3] = "Greed", [4] = "No roll", [5] = "Pass" }
 
 local function db() return ns.udb.loot end
-local function now() return (GetServerTime and GetServerTime()) or time() end
+local now = ns.Now
 local function day() return date("!%Y%m%d", now()) end
 
 function LT.ItemID(link) return tonumber(tostring(link or ""):match("item:(%d+)")) end
@@ -56,14 +60,14 @@ function LT.ItemLevel(link)
     return ok and lvl or nil
 end
 
-local function bad(v) return v == nil or ns.IsSecret(v) end
+local Text, Num = ns.Safe.Text, ns.Safe.Num
 
 local function refresh()
     if ns.LootUI and ns.LootUI:IsShown() then ns.LootUI:Refresh() end
 end
 
 function LT:Wanted(link)
-    if bad(link) or not LT.ItemID(link) then return false end
+    if not Text(link) or not LT.ItemID(link) then return false end
     local q = LT.Quality(link)
     return q ~= nil and q >= (db().minQuality or 4)
 end
@@ -80,8 +84,8 @@ function LT:Init()
     ns.On("CHAT_MSG_LOOT", function(msg) LT:OnLootMessage(msg) end)
     -- the boss a bonus roll belongs to (the prompt follows the kill)
     ns.On("ENCOUNTER_END", function(encounterID, name)
-        if bad(encounterID) then return end
-        LT.lastBoss = { id = encounterID, name = not bad(name) and name or nil, at = now() }
+        if not Num(encounterID) then return end
+        LT.lastBoss = { id = encounterID, name = Text(name), at = now() }
     end)
     ns.On("CHALLENGE_MODE_START", function() LT.keyRun = true end)
     ns.On("PLAYER_ENTERING_WORLD", function()
@@ -95,11 +99,12 @@ function LT:Init()
         for i = 1, 6 do
             local give = GetTradePlayerItemLink and GetTradePlayerItemLink(i)
             local get = GetTradeTargetItemLink and GetTradeTargetItemLink(i)
-            t.give[i] = (not bad(give)) and give or nil
-            t.get[i] = (not bad(get)) and get or nil
+            t.give[i] = Text(give)
+            t.get[i] = Text(get)
         end
     end, function(t) LT:OnTradeComplete(t) end)
     ns.Listen(PREFIX, "guild", function(text, sender) LT:OnMessage(text, sender) end)
+    C_Timer.After(15, function() LT:SlimOld() end)                 -- once per login, after it settles
 end
 
 local function instanceInfo()
@@ -110,9 +115,36 @@ end
 -- ---------------------------------------------------------------------
 -- Recording
 -- ---------------------------------------------------------------------
+-- The id without its date ("G-77-Kev-Medivh-1234-3"): the same drop seen
+-- on both sides of 00:00 UTC gets two dated ids but one undated key.
+local function undated(id) return (id:gsub("^(%a)%-%d+%-", "%1-")) end
+local byKey                    -- undated id -> records (built on first use)
+
+local function index()
+    if not byKey then
+        byKey = {}
+        for id, r in pairs(db().drops) do
+            local k = undated(id)
+            byKey[k] = byKey[k] or {}
+            table.insert(byKey[k], r)
+        end
+    end
+    return byKey
+end
+
+-- the record already kept for this drop: the same id, or the same drop
+-- (boss/instance, winner, item, loot list) recorded within 12 hours of t
+function LT:Existing(id, t)
+    local drops = db().drops
+    if drops[id] then return drops[id] end
+    for _, r in ipairs(index()[undated(id)] or {}) do
+        if drops[r.id] == r and math.abs((r.t or 0) - t) < SAME_DROP then return r end
+    end
+end
+
 function LT:Add(id, rec)
     local drops = db().drops
-    local have = drops[id]
+    local have = self:Existing(id, rec.t or now())
     if have then
         -- fill in anything the first sighting didn't have (rolls, ilvl)
         for k, v in pairs(rec) do if have[k] == nil then have[k] = v end end
@@ -122,6 +154,11 @@ function LT:Add(id, rec)
     rec.chain = rec.chain or {}
     rec.owner = rec.owner or rec.winner
     drops[id] = rec
+    if byKey then
+        local k = undated(id)
+        byKey[k] = byKey[k] or {}
+        table.insert(byKey[k], rec)
+    end
     self._added = (self._added or 0) + 1
     if self._added % 100 == 0 then self:Trim() end
     refresh()
@@ -134,17 +171,46 @@ function LT:Trim()
     if #list <= KEEP then return end
     table.sort(list, function(a, b) return (a.t or 0) > (b.t or 0) end)
     for i = KEEP + 1, #list do db().drops[list[i].id] = nil end
+    byKey = nil
+end
+
+-- Drops older than a week keep only the rolls anyone still looks at - the
+-- winner's and yours (the 2-hour trade window is long gone); the drops
+-- themselves stay. Once per login, 200 drops a frame, so a big list saved
+-- by an older version doesn't stall the game.
+function LT:SlimOld()
+    local cutoff, me = now() - SLIM_AFTER, ns.me
+    local ids = {}
+    for id, r in pairs(db().drops) do
+        if (r.t or 0) < cutoff and r.rolls and #r.rolls > 2 then ids[#ids + 1] = id end
+    end
+    local i = 0
+    local function batch()
+        for _ = 1, 200 do
+            i = i + 1
+            local id = ids[i]
+            if not id then return end
+            local r = db().drops[id]
+            if r and r.rolls then
+                local keep = {}
+                for _, x in ipairs(r.rolls) do if x.n == r.winner or x.n == me then keep[#keep + 1] = x end end
+                r.rolls = keep
+            end
+        end
+        C_Timer.After(0, batch)
+    end
+    batch()
 end
 
 -- Raid group loot: one finished roll
 function LT:OnDrop(encounterID, lootListID)
-    if not (C_LootHistory and C_LootHistory.GetSortedInfoForDrop) or bad(encounterID) or bad(lootListID) then return end
+    if not (C_LootHistory and C_LootHistory.GetSortedInfoForDrop) or not Num(encounterID) or not Num(lootListID) then return end
     local ok, drop = pcall(C_LootHistory.GetSortedInfoForDrop, encounterID, lootListID)
     if ok and drop then self:RecordGroupDrop(encounterID, drop) end
 end
 
 function LT:SweepEncounter(encounterID)
-    if not (C_LootHistory and C_LootHistory.GetSortedDropsForEncounter) or bad(encounterID) then return end
+    if not (C_LootHistory and C_LootHistory.GetSortedDropsForEncounter) or not Num(encounterID) then return end
     local ok, drops = pcall(C_LootHistory.GetSortedDropsForEncounter, encounterID)
     if not ok or type(drops) ~= "table" then return end
     for _, drop in ipairs(drops) do self:RecordGroupDrop(encounterID, drop) end
@@ -153,19 +219,19 @@ end
 function LT:RecordGroupDrop(encounterID, drop)
     local link = drop.itemHyperlink
     local w = drop.winner
-    if not w or bad(w.playerName) or not self:Wanted(link) then return end
+    if not w or not Text(w.playerName) or not self:Wanted(link) then return end
     local winner = ns.NormalizeSender(w.playerName)
     local itemID = LT.ItemID(link)
     local id = table.concat({ "G", day(), encounterID, winner, itemID, drop.lootListID or 0 }, "-")
     local boss
     if C_LootHistory.GetInfoForEncounter then
         local ok, info = pcall(C_LootHistory.GetInfoForEncounter, encounterID)
-        boss = ok and info and not bad(info.encounterName) and info.encounterName or nil
+        boss = ok and info and Text(info.encounterName) or nil
     end
     local inst, kind, _, diffName = instanceInfo()
     local rolls = {}
     for _, r in ipairs(drop.rollInfos or {}) do
-        if not bad(r.playerName) then
+        if Text(r.playerName) then
             rolls[#rolls + 1] = { n = ns.NormalizeSender(r.playerName), s = r.state, r = r.roll, c = r.playerClass }
         end
     end
@@ -178,7 +244,7 @@ end
 
 -- Personal loot (dungeons, Mythic+): no roll, the game picks who gets it
 function LT:OnPersonalLoot(link, player, class, encounterID)
-    if bad(player) or not self:Wanted(link) then return end
+    if not Text(player) or not self:Wanted(link) then return end
     local inst, kind, diffID, diffName, instID = instanceInfo()
     if kind == "raid" then return end          -- raids are recorded from the loot history
     local who = ns.NormalizeSender(player)
@@ -198,7 +264,7 @@ end
 
 -- Raid bonus roll: someone's bonus roll paid out (no group roll)
 function LT:OnBonusLoot(link, player)
-    if bad(player) or not self:Wanted(link) then return end
+    if not Text(player) or not self:Wanted(link) then return end
     local inst, kind, _, diffName = instanceInfo()
     if kind ~= "raid" then return end
     local who = ns.NormalizeSender(player)
@@ -210,7 +276,7 @@ function LT:OnBonusLoot(link, player)
     self:Add(id, {
         t = now(), kind = "raid", bonus = true, inst = inst, diff = diffName,
         encID = boss and boss.id, boss = boss and boss.name, link = link, item = itemID, ilvl = LT.ItemLevel(link),
-        winner = who, class = (not bad(class)) and class or nil, rolls = {},
+        winner = who, class = Text(class), rolls = {},
     })
 end
 
@@ -236,7 +302,7 @@ local function buildPatterns()
 end
 
 function LT:OnLootMessage(msg)
-    if bad(msg) then return end
+    if not Text(msg) then return end
     local inInstance, kind = IsInInstance()
     if not lootPatterns then buildPatterns() end
     if inInstance and kind == "raid" then
@@ -313,9 +379,9 @@ function LT:OnTradeComplete(t)
 end
 
 function LT:OnEquip(slot)
-    if bad(slot) then return end
-    local link = GetInventoryItemLink("player", slot)
-    if bad(link) then return end
+    if not Num(slot) then return end
+    local link = Text(GetInventoryItemLink("player", slot))
+    if not link then return end
     local rec = self:FindOwned(ns.me, link)
     if rec then self:SetEquipped(rec, ns.me, true) end
 end
@@ -323,14 +389,12 @@ end
 -- ---------------------------------------------------------------------
 -- Sharing trades/equips
 -- ---------------------------------------------------------------------
-function LT:Send(...)
-    if not ns.InLockdown() then ns.SendFields(PREFIX, ...) end
-end
+function LT:Send(...) ns.SendFields(PREFIX, ...) end
 
 function LT:OnMessage(text, sender)
     local f = ns.Split(text, SEP)
     local kind, id = f[1], f[2]
-    local rec = id and db().drops[id]
+    local rec = id and id ~= "" and self:Existing(id, now())      -- (a raider may have dated it the other side of 00:00 UTC)
     if not rec then return end
     if kind == "T" then
         local from, to = f[3], f[4]

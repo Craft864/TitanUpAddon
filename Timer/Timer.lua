@@ -49,12 +49,10 @@ function T:Init()
     end)
 end
 
-T.InRaidInstance = ns.InRaidInstance
-
 -- The automatic rules. Every decision is printed with /tu timer debug.
 function T:OnEvent(what, label)
     local d = db()
-    local raid = T.InRaidInstance()
+    local raid = ns.InRaidInstance()
     local inInstance = IsInInstance()
     local decision
     if what == "combat start" or what == "boss pull" then
@@ -96,7 +94,7 @@ end
 
 -- what kind of fight this is, for the chat line
 function T.Where(by)
-    if by == "boss" and T.InRaidInstance() then return "raid" end
+    if by == "boss" and ns.InRaidInstance() then return "raid" end
     local inInstance, kind = IsInInstance()
     if inInstance and kind == "party" then
         local active = C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive()
@@ -164,8 +162,6 @@ function T:Stop()
     end
     if ns.TimerUI then ns.TimerUI:Refresh() end
 end
-
-function T:Running() return self.startAt ~= nil end
 
 -- Hide unless it's running, unlocked for moving, or being previewed.
 function T:HideIfIdle()
@@ -292,12 +288,16 @@ function V:Create()
         onShow = function() T:SetPreview(true); V:Refresh() end })
     f:SetScript("OnHide", function() T:SetPreview(false) end)
 
-    -- top line: the anchor (move the timer) next to the X
-    self.anchorBtn = UI.IconButton(f, 22, ns.MEDIA .. "Anchor", "Move the timer: click to unlock and drag it anywhere, click again to lock it in place", function()
-        T:SetUnlocked(not T.unlocked)
-        V:Refresh()
-    end)
+    -- top line: the anchor (move the timer) next to the X; a small reset in
+    -- the bottom-right corner
+    local reset
+    self.anchorBtn, reset = ns.Tweaks.MoveControls(f, T, { size = 22, resetH = 18, after = function() V:Refresh() end,
+        tip = "Move the timer: click to unlock and drag it anywhere, click again to lock it in place",
+        resetTip = "Put the timer back at the top of the screen" })
     self.anchorBtn:SetPoint("RIGHT", self.header.close, "LEFT", -6, 0)
+    reset.label:SetFontObject("GameFontHighlightSmall")
+    reset:SetPoint("BOTTOMRIGHT", -10, 10)
+    self.resetBtn = reset
     local when = UI.Text(f, "GameFontHighlightSmall", C.muted, "Times boss fights in raids, and any combat everywhere else.", "TOPLEFT", 18, -12)
     when:SetPoint("RIGHT", self.anchorBtn, "LEFT", -10, 0)
     when:SetJustifyH("LEFT")
@@ -402,11 +402,6 @@ function V:Create()
     y = y - 34
     self.instanceBtn = toggleRow("Only in dungeons & raids", "instanceOnly", "Don't run the timer in the open world")
 
-    -- small reset in the bottom-right corner
-    local reset = UI.Button(f, 92, 18, "Reset position", "Put the timer back at the top of the screen", function() T:ResetPosition() end)
-    reset.label:SetFontObject("GameFontHighlightSmall")
-    reset:SetPoint("BOTTOMRIGHT", -10, 10)
-    self.resetBtn = reset
     -- recent fights (last 10, newest first), in the right-hand column
     local sep = f:CreateTexture(nil, "ARTWORK")
     sep:SetColorTexture(C.line[1], C.line[2], C.line[3], 1)

@@ -16,8 +16,9 @@
 -- Docked in the Loot Rolls window (0.30.1): while that window is open (out
 -- of combat), Blizzard's real bonus roll frame is moved into a "Bonus roll"
 -- strip along the window's bottom - only its position changes (no reparent,
--- no scripts). Closing the window puts it back where Blizzard had it. With
--- protection on, the covers and confirm panels work the same there.
+-- no scripts). Closing the window puts it back in its place in Blizzard's
+-- loot column. It's never moved in combat (any move waits for combat to
+-- end). With protection on, the covers and confirm panels work the same there.
 local ADDON, ns = ...
 
 local UI = ns.UI
@@ -31,6 +32,7 @@ local BONUS_ROLL_PROMPT = (Enum and Enum.SpellConfirmationPromptType and Enum.Sp
     or LE_SPELL_CONFIRMATION_PROMPT_TYPE_BONUS_ROLL or 1
 
 local function db() return ns.udb.tweaks end
+local function inCombat() return InCombatLockdown and InCombatLockdown() end
 function BG:Enabled() return db().bonusGuard and true or false end
 
 function BG:Init()
@@ -53,10 +55,10 @@ function BG:Watch()
     BonusRollFrame:HookScript("OnShow", function() BG:Dock(); BG:Check() end)
     BonusRollFrame:HookScript("OnHide", function() BG:Off(); BG:Undock() end)
     -- Blizzard lays the frame out again when its loot container changes:
-    -- put it back in the strip afterwards
+    -- note its new place (to go back to), then put it back in the strip
     if hooksecurefunc then
         for _, fn in ipairs({ "GroupLootContainer_Update", "GroupLootContainer_AddFrame" }) do
-            if _G[fn] then hooksecurefunc(fn, function() if BG.docked then BG:Place() end end) end
+            if _G[fn] then hooksecurefunc(fn, function() if BG.docked then BG:NoteHome(); BG:Place() end end) end
         end
     end
 end
@@ -71,17 +73,23 @@ function BG.Buttons()
     if type(roll) == "table" and type(pass) == "table" then return roll, pass end
 end
 
+-- the spec functions moved to C_SpecializationInfo (11.2); old globals as fallback
+local function spec(fn, ...)
+    local f = (C_SpecializationInfo and C_SpecializationInfo[fn]) or _G[fn]
+    if f then return f(...) end
+end
+
 -- "Holy (current spec)": the spec the roll's loot is for
 function BG.LootSpec()
-    local specID = GetLootSpecialization and GetLootSpecialization()
-    if specID and not ns.IsSecret(specID) and specID > 0 and GetSpecializationInfoByID then
-        local _, name = GetSpecializationInfoByID(specID)
-        if name then return name end
+    local specID = ns.Safe.Num(spec("GetLootSpecialization"))
+    if specID and specID > 0 then
+        local _, name = spec("GetSpecializationInfoByID", specID)
+        if ns.Safe.Text(name) then return name end
     end
-    local index = GetSpecialization and GetSpecialization()
-    if index and GetSpecializationInfo then
-        local _, name = GetSpecializationInfo(index)
-        if name then return name .. " (current spec)" end
+    local index = ns.Safe.Num(spec("GetSpecialization"))
+    if index then
+        local _, name = spec("GetSpecializationInfo", index)
+        if ns.Safe.Text(name) then return name .. " (current spec)" end
     end
     return "unknown"
 end
@@ -246,13 +254,11 @@ function BG:Dock()
     local f = BonusRollFrame
     local win = ns.LootRolls and ns.LootRolls.V.frame
     if not (f and f:IsShown() and win and win:IsShown()) then return self:Undock() end
-    if self.docked then return self:Place() end
-    if InCombatLockdown and InCombatLockdown() then return end        -- after combat (PLAYER_REGEN_ENABLED)
+    if self.docked then self.strip:Show(); return self:Place() end
+    if inCombat() then return end                                   -- after combat (PLAYER_REGEN_ENABLED)
     local st = self:Strip()
     if not st then return end
-    -- remember where Blizzard put it, to put it back
-    self.home = {}
-    for i = 1, (f.GetNumPoints and f:GetNumPoints() or 0) do self.home[i] = { f:GetPoint(i) } end
+    self:NoteHome()                                                  -- to put it back
     self.docked = true
     st.hint:SetText(self:Enabled() and "Roll or pass here - Titan Up asks first." or "Roll or pass here.")
     st:Show()
@@ -261,15 +267,27 @@ end
 
 function BG:Place()
     local f, st = BonusRollFrame, self.strip
-    if not (f and st and self.docked) then return end
+    if not (f and st and self.docked) or inCombat() then return end    -- (re-placed after combat)
     f:ClearAllPoints()
     f:SetPoint("LEFT", st.slot, "LEFT", 0, 0)
 end
 
--- back where Blizzard had it
+-- Where Blizzard has the frame: noted when docking and again each time
+-- Blizzard lays its loot column out while it's docked (its slot moves as
+-- rolls end or are handed back), so undocking puts it in its current slot.
+function BG:NoteHome()
+    local f, st = BonusRollFrame, self.strip
+    if not (f and f.GetNumPoints) then return end
+    local _, rel = f:GetPoint(1)
+    if self.docked and st and rel == st.slot then return end         -- that's our strip, not Blizzard's place
+    self.home = {}
+    for i = 1, f:GetNumPoints() do self.home[i] = { f:GetPoint(i) } end
+end
+
+-- back in its place in Blizzard's loot column; in combat, once combat ends
 function BG:Undock()
     if self.strip then self.strip:Hide() end
-    if not self.docked then return end
+    if not self.docked or inCombat() then return end
     self.docked = nil
     local f = BonusRollFrame
     if f and self.home and #self.home > 0 then

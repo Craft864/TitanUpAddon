@@ -19,7 +19,6 @@
 --   frontal sweep                      -> pie covering the sweep (or a beam)
 --   tether                             -> line between the two
 --   pulse / fade / bounce ...          -> dropped (cosmetic)
--- All decoding here is TitanBoard's own code.
 local ADDON, ns = ...
 
 local RS = {}
@@ -35,131 +34,20 @@ function RS.IsRaidstrats(text)
 end
 
 -- ---------------------------------------------------------------------
--- Base64
+-- Base64 and JSON: the game's own decoders (C_EncodingUtil, since 11.1)
 -- ---------------------------------------------------------------------
-local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-local B64DEC = {}
-for i = 1, 64 do B64DEC[B64:byte(i)] = i - 1 end
-B64DEC[("-"):byte()] = 62    -- URL-safe variants
-B64DEC[("_"):byte()] = 63
-
 local function decodeBase64(s)
-    local out, bits, nbits = {}, 0, 0
-    for i = 1, #s do
-        local v = B64DEC[s:byte(i)]
-        if v then
-            bits = bits * 64 + v
-            nbits = nbits + 6
-            if nbits >= 8 then
-                nbits = nbits - 8
-                local byte = math.floor(bits / 2 ^ nbits)
-                out[#out + 1] = string.char(byte)
-                bits = bits - byte * 2 ^ nbits
-            end
-        elseif s:sub(i, i) ~= "=" then
-            return nil
-        end
-    end
-    return table.concat(out)
-end
-
--- ---------------------------------------------------------------------
--- JSON (WoW's built-in parser when available, otherwise a small one)
--- ---------------------------------------------------------------------
-local function utf8char(cp)
-    if cp < 0x80 then return string.char(cp) end
-    if cp < 0x800 then return string.char(0xC0 + math.floor(cp / 64), 0x80 + cp % 64) end
-    return string.char(0xE0 + math.floor(cp / 4096), 0x80 + math.floor(cp / 64) % 64, 0x80 + cp % 64)
-end
-
-local function parseJSON(str)
-    local pos = 1
-    local function err(msg) error(("JSON %s at %d"):format(msg, pos), 0) end
-    local function ws() pos = str:find("[^ \t\r\n]", pos) or #str + 1 end
-    local value
-    local function parseString()
-        pos = pos + 1
-        local parts = {}
-        while true do
-            local c = str:sub(pos, pos)
-            if c == "" then err("unterminated string") end
-            if c == '"' then pos = pos + 1 break end
-            if c == "\\" then
-                local e = str:sub(pos + 1, pos + 1)
-                local map = { b = "\b", f = "\f", n = "\n", r = "\r", t = "\t", ['"'] = '"', ["\\"] = "\\", ["/"] = "/" }
-                if e == "u" then
-                    local cp = tonumber(str:sub(pos + 2, pos + 5), 16) or 63
-                    parts[#parts + 1] = utf8char(cp)
-                    pos = pos + 6
-                else
-                    parts[#parts + 1] = map[e] or e
-                    pos = pos + 2
-                end
-            else
-                local j = str:find('["\\]', pos) or #str + 1
-                parts[#parts + 1] = str:sub(pos, j - 1)
-                pos = j
-            end
-        end
-        return table.concat(parts)
-    end
-    function value()
-        ws()
-        local c = str:sub(pos, pos)
-        if c == "{" then
-            local obj = {}
-            pos = pos + 1
-            ws()
-            if str:sub(pos, pos) == "}" then pos = pos + 1 return obj end
-            while true do
-                ws()
-                if str:sub(pos, pos) ~= '"' then err("expected key") end
-                local k = parseString()
-                ws()
-                if str:sub(pos, pos) ~= ":" then err("expected ':'") end
-                pos = pos + 1
-                obj[k] = value()
-                ws()
-                local d = str:sub(pos, pos)
-                pos = pos + 1
-                if d == "}" then return obj end
-                if d ~= "," then err("expected ',' or '}'") end
-            end
-        elseif c == "[" then
-            local arr = {}
-            pos = pos + 1
-            ws()
-            if str:sub(pos, pos) == "]" then pos = pos + 1 return arr end
-            while true do
-                arr[#arr + 1] = value()
-                ws()
-                local d = str:sub(pos, pos)
-                pos = pos + 1
-                if d == "]" then return arr end
-                if d ~= "," then err("expected ',' or ']'") end
-            end
-        elseif c == '"' then
-            return parseString()
-        elseif str:sub(pos, pos + 3) == "true" then pos = pos + 4 return true
-        elseif str:sub(pos, pos + 4) == "false" then pos = pos + 5 return false
-        elseif str:sub(pos, pos + 3) == "null" then pos = pos + 4 return nil
-        else
-            local num = str:match("^-?%d+%.?%d*[eE]?[-+]?%d*", pos)
-            if not num or num == "" then err("unexpected character") end
-            pos = pos + #num
-            return tonumber(num)
-        end
-    end
-    local result = value()
-    return result
+    local E = C_EncodingUtil
+    if not (E and E.DecodeBase64) then return nil end
+    s = s:gsub("%-", "+"):gsub("_", "/")              -- URL-safe variant
+    local ok, out = pcall(E.DecodeBase64, s)
+    return ok and type(out) == "string" and out or nil
 end
 
 local function decodeJSON(s)
-    if C_EncodingUtil and C_EncodingUtil.DeserializeJSON then
-        local ok, res = pcall(C_EncodingUtil.DeserializeJSON, s)
-        if ok and type(res) == "table" then return res end
-    end
-    local ok, res = pcall(parseJSON, s)
+    local E = C_EncodingUtil
+    if not (E and E.DeserializeJSON) then return nil, "this game version can't read JSON" end
+    local ok, res = pcall(E.DeserializeJSON, s)
     if ok and type(res) == "table" then return res end
     return nil, res
 end
@@ -185,12 +73,14 @@ local function parseColor(c)
         local h = s:sub(2)
         if #h == 3 then h = h:sub(1, 1):rep(2) .. h:sub(2, 2):rep(2) .. h:sub(3, 3):rep(2) end
         if #h >= 6 then
-            return tonumber(h:sub(1, 2), 16) / 255, tonumber(h:sub(3, 4), 16) / 255, tonumber(h:sub(5, 6), 16) / 255,
-                #h >= 8 and tonumber(h:sub(7, 8), 16) / 255 or 1
+            local r, g, b = tonumber(h:sub(1, 2), 16), tonumber(h:sub(3, 4), 16), tonumber(h:sub(5, 6), 16)
+            if not (r and g and b) then return nil end
+            return r / 255, g / 255, b / 255, #h >= 8 and (tonumber(h:sub(7, 8), 16) or 255) / 255 or 1
         end
     end
     local r, g, b, a = s:match("^rgba?%(([%d%.]+),([%d%.]+),([%d%.]+),?([%d%.]*)%)$")
-    if r then return tonumber(r) / 255, tonumber(g) / 255, tonumber(b) / 255, tonumber(a) or 1 end
+    r, g, b = tonumber(r), tonumber(g), tonumber(b)
+    if r and g and b then return r / 255, g / 255, b / 255, tonumber(a) or 1 end
     return nil
 end
 
@@ -309,12 +199,18 @@ local function convertItem(item, ops, notes)
     notes.skipped = (notes.skipped or 0) + 1
 end
 
+-- items[index + 1] when it's a real item (indexes in their file start at 0)
+local function itemAt(items, index)
+    local it = tonumber(index) and items[tonumber(index) + 1]
+    return type(it) == "table" and it or nil
+end
+
 local function resolveItem(anim, items)
-    local idx = tonumber(anim.itemIndex)
-    if idx and idx >= 0 and items[idx + 1] then return items[idx + 1] end
+    local it = itemAt(items, anim.itemIndex)
+    if it then return it end
     if anim.objectId ~= nil then
-        for _, it in ipairs(items) do
-            if it.id ~= nil and tostring(it.id) == tostring(anim.objectId) then return it end
+        for _, o in ipairs(items) do
+            if type(o) == "table" and o.id ~= nil and tostring(o.id) == tostring(anim.objectId) then return o end
         end
     end
     return nil
@@ -327,7 +223,6 @@ end
 
 local function convertAnimation(anim, items, ops, notes)
     local item = resolveItem(anim, items)
-    local color = item and paletteIndex(item.fill, 3) or 3
 
     -- movement: arrow along the route (path points are the item's top-left)
     if type(anim.path) == "table" and #anim.path >= 2 then
@@ -338,13 +233,20 @@ local function convertAnimation(anim, items, ops, notes)
         local n = flat and math.floor(#anim.path / 2) or #anim.path
         for i = 1, n do
             local px, py
-            if flat then px, py = anim.path[2 * i - 1], anim.path[2 * i] else px, py = anim.path[i][1], anim.path[i][2] end
-            px, py = num(px, 0), num(py, 0)
-            if px <= 1.5 and py <= 1.5 then px, py = px * 100, py * 100 end
-            pts[#pts + 1] = bx(px + w / 2)
-            pts[#pts + 1] = by(py + h / 2)
+            if flat then
+                px, py = anim.path[2 * i - 1], anim.path[2 * i]
+            elseif type(anim.path[i]) == "table" then
+                px, py = anim.path[i][1], anim.path[i][2]
+            end
+            if px ~= nil then
+                px, py = num(px, 0), num(py, 0)
+                if px <= 1.5 and py <= 1.5 then px, py = px * 100, py * 100 end
+                pts[#pts + 1] = bx(px + w / 2)
+                pts[#pts + 1] = by(py + h / 2)
+            end
         end
         local count = #pts / 2
+        if count < 2 then return end              -- not a route
         if count >= 3 then
             local body = {}
             for i = 1, #pts - 2 do body[i] = pts[i] end
@@ -357,7 +259,7 @@ local function convertAnimation(anim, items, ops, notes)
 
     -- frontal: from the parent item (usually the boss) outward
     if anim.isFrontalSweepAnimation == true or anim.isFrontalSweepAnimation == 1 then
-        local parent = (tonumber(anim.parentItemIndex) and items[tonumber(anim.parentItemIndex) + 1]) or item
+        local parent = itemAt(items, anim.parentItemIndex) or item
         local cx, cy = 50, 50
         if parent then cx, cy = itemCenter(parent) end
         local a0 = num(anim.startAngle, 0)
@@ -379,7 +281,7 @@ local function convertAnimation(anim, items, ops, notes)
 
     -- tether: a line between follower and the item it's tied to
     if anim.isTetherAnimation == true or anim.isTetherAnimation == 1 then
-        local main = tonumber(anim.parentItemIndex) and items[tonumber(anim.parentItemIndex) + 1]
+        local main = itemAt(items, anim.parentItemIndex)
         if item and main then
             local x1, y1 = itemCenter(item)
             local x2, y2 = itemCenter(main)
@@ -421,22 +323,14 @@ local function findEncounter(bossName)
     return nil
 end
 
--- Returns data in the same shape ImportExport uses: { inst, enc, map, name,
--- slides = { { name, view, ops } } }, plus .notes for a summary.
-function RS:Decode(text)
-    local body = text:gsub("^%s+", ""):gsub("%s+$", "")
-    body = body:sub(#PREFIX + 1):gsub("%s+", "")
-    local raw = decodeBase64(body)
-    if not raw or raw == "" then return nil, "The Raidstrats string isn't valid base64." end
-    local json = raw
-    if raw:byte(1) == 1 then
-        json = ns.Codec.Decompress(raw:sub(2))
-        if not json then return nil, "Couldn't decompress the Raidstrats string - is it complete?" end
-    end
-    local plan, jerr = decodeJSON(json)
-    if not plan then return nil, "Couldn't read the Raidstrats plan (" .. tostring(jerr) .. ")." end
-    if type(plan.scenes) ~= "table" or #plan.scenes == 0 then return nil, "That Raidstrats plan has no scenes." end
+-- An op that would survive the board's own save format (a broken one,
+-- e.g. a point missing, is dropped instead of breaking the board).
+local function valid(o)
+    local ok, ser = pcall(ns.Model.Serialize, o, "rs:1")
+    return ok and ns.Model.Deserialize(ser) ~= nil
+end
 
+local function convert(plan)
     local notes = {}
     local data = { name = ns.Model.CleanName((type(plan.planName) == "string" and plan.planName ~= "") and plan.planName or "Raidstrats import"), slides = {}, notes = notes }
     data.boss = plan.boss
@@ -455,9 +349,38 @@ function RS:Decode(text)
         for _, anim in ipairs(type(scene.animations) == "table" and scene.animations or {}) do
             if type(anim) == "table" then convertAnimation(anim, items, ops, notes) end
         end
-        for j, o in ipairs(ops) do o.id = "rs:" .. i .. ":" .. j end
+        local good = {}
+        for j, o in ipairs(ops) do
+            o.id = "rs:" .. i .. ":" .. j
+            if valid(o) then good[#good + 1] = o else notes.skipped = (notes.skipped or 0) + 1 end
+        end
         local name = (type(scene.name) == "string" and scene.name ~= "") and scene.name or ("Scene " .. i)
-        data.slides[#data.slides + 1] = { name = ns.Model.CleanName(name), view = convertView(scene), ops = ops }
+        data.slides[#data.slides + 1] = { name = ns.Model.CleanName(name), view = convertView(scene), ops = good }
+    end
+    return data
+end
+
+-- Returns data in the same shape ImportExport uses: { inst, enc, map, name,
+-- slides = { { name, view, ops } } }, plus .notes for a summary.
+function RS:Decode(text)
+    local body = text:gsub("^%s+", ""):gsub("%s+$", "")
+    body = body:sub(#PREFIX + 1):gsub("%s+", "")
+    local raw = decodeBase64(body)
+    if not raw or raw == "" then return nil, "The Raidstrats string isn't valid base64." end
+    local json = raw
+    if raw:byte(1) == 1 then
+        json = ns.Codec.Decompress(raw:sub(2))
+        if not json then return nil, "Couldn't decompress the Raidstrats string - is it complete?" end
+        if #json > ns.ImportExport.MAX_PAYLOAD then return nil, "That Raidstrats plan is too big to import." end
+    end
+    local plan, jerr = decodeJSON(json)
+    if not plan then return nil, "Couldn't read the Raidstrats plan (" .. tostring(jerr) .. ")." end
+    if type(plan.scenes) ~= "table" or #plan.scenes == 0 then return nil, "That Raidstrats plan has no scenes." end
+
+    local ok, data = pcall(convert, plan)
+    if not ok or not data then
+        ns.Debug("Raidstrats conversion failed:", data)
+        return nil, "That Raidstrats plan couldn't be read."
     end
     return data
 end

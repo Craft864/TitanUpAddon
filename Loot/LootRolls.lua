@@ -11,6 +11,9 @@
 --   * Blizzard's pop-ups are hidden only while this window is showing; close
 --     it (or turn the setting off) and any roll you haven't made goes back to
 --     a Blizzard pop-up, so a roll can't be missed.
+--   * Need / Greed on a bind-on-pickup item: the game asks first ("will
+--     bind"); the roll only counts once that's accepted, so until then the
+--     item says so and stays open (the raid sees the roll only once it's made).
 --
 -- Messages ("TitanUpLR", guildmates in your group):
 --   P item rollID tags roll note    tags: any of "BS24"; roll: 1 Need, 2 Greed,
@@ -40,14 +43,16 @@ LR.TRANSMOG = LOOT_ROLL_TYPE_TRANSMOG or 4
 LR.PASS = LOOT_ROLL_TYPE_PASS or 0
 LR.ROLL_LABEL = { [LR.NEED] = "Need", [LR.GREED] = "Greed", [LR.TRANSMOG] = "Transmog", [LR.PASS] = "Pass", [3] = "Disenchant" }
 
+local NO_ROLL = 4                 -- loot history: hasn't chosen yet
+
 LR.items = {}                    -- this session's rolls, in the order they started
 local pending = {}               -- picks that arrived before their roll started here
 
-local function bad(v) return v == nil or ns.IsSecret(v) end
+local Num, Text, Bool = ns.Safe.Num, ns.Safe.Text, ns.Safe.Bool
 local function db() return ns.udb.loot end
 function LR:Enabled() return db().rollWindow and true or false end
 
-local function clean(note) return (tostring(note or ""):gsub("[%^|\r\n]", ""):sub(1, NOTE_MAX)) end
+local function clean(note) return ns.CleanField(note, NOTE_MAX) end
 local function cleanTags(s)
     local out = ""
     for _, t in ipairs(LR.TAGS) do if tostring(s or ""):find(t[1], 1, true) then out = out .. t[1] end end
@@ -67,6 +72,11 @@ local function refresh() if LR.V.frame and LR.V.frame:IsShown() then LR.V:Refres
 function LR:Init()
     ns.On("START_LOOT_ROLL", function(rollID, rollTime) LR:OnStart(rollID, rollTime) end)
     ns.On("CANCEL_LOOT_ROLL", function(rollID) LR:OnEnd(rollID) end)
+    -- a roll that needs the "will bind" confirmation, and that confirmation
+    ns.On("CONFIRM_LOOT_ROLL", function(rollID, rollType) LR:OnConfirmAsked(rollID, rollType) end)
+    if hooksecurefunc and ConfirmLootRoll then
+        hooksecurefunc("ConfirmLootRoll", function(rollID, rollType) LR:OnConfirmed(rollID, rollType) end)
+    end
     ns.On("LOOT_HISTORY_UPDATE_DROP", function(encounterID, lootListID) LR:OnHistory(encounterID, lootListID) end)
     ns.Listen(PREFIX, "group", function(text, sender) LR:OnMessage(text, sender) end)
     -- Blizzard opens a pop-up per roll: hide the ones this window is showing
@@ -95,22 +105,21 @@ function LR:Prune()
 end
 
 function LR:OnStart(rollID, rollTime)
-    if not self:Enabled() or bad(rollID) or self:Find(rollID) then return end
+    if not self:Enabled() or not Num(rollID) or self:Find(rollID) then return end
     local ok, icon, name, count, quality, bop, canNeed, canGreed, canDE, reasonNeed, reasonGreed, _, _, canTransmog =
         pcall(GetLootRollItemInfo, rollID)
-    if not ok or bad(name) then return end
-    local link = GetLootRollItemLink and ns.Safe.Call(GetLootRollItemLink, rollID)
-    if bad(link) then link = nil end
+    if not ok or not Text(name) then return end
+    local link = GetLootRollItemLink and Text(ns.Safe.Call(GetLootRollItemLink, rollID))
     self:Prune()
     local e = {
-        rollID = rollID, t = time(), link = link, name = name, icon = ns.Safe.Num(icon) or ns.Safe.Text(icon),
-        item = ns.Loot.ItemID(link), quality = ns.Safe.Num(quality), count = ns.Safe.Num(count),
-        ilvl = link and ns.Loot.ItemLevel(link), bop = bop and not bad(bop),
-        canNeed = canNeed and not bad(canNeed), canGreed = canGreed and not bad(canGreed),
-        canTransmog = canTransmog and not bad(canTransmog), canDE = canDE and not bad(canDE),
-        reasonNeed = ns.Safe.Num(reasonNeed), reasonGreed = ns.Safe.Num(reasonGreed),
-        expires = GetTime() + (ns.Safe.Num(rollTime) or 60000) / 1000,
-        total = math.max(1, (ns.Safe.Num(rollTime) or 60000) / 1000),      -- the roll's full length (the time bar)
+        rollID = rollID, t = time(), link = link, name = name, icon = Num(icon) or Text(icon),
+        item = ns.Loot.ItemID(link), quality = Num(quality), count = Num(count),
+        ilvl = link and ns.Loot.ItemLevel(link), bop = Bool(bop) or (Num(bop) or 0) > 0,
+        canNeed = Bool(canNeed) or false, canGreed = Bool(canGreed) or false,
+        canTransmog = Bool(canTransmog) or false, canDE = Bool(canDE) or false,
+        reasonNeed = Num(reasonNeed), reasonGreed = Num(reasonGreed),
+        expires = GetTime() + (Num(rollTime) or 60000) / 1000,
+        total = math.max(1, (Num(rollTime) or 60000) / 1000),      -- the roll's full length (the time bar)
         tags = "", note = "", picks = {}, rolls = {},
     }
     self.items[#self.items + 1] = e
@@ -126,9 +135,9 @@ function LR:OnStart(rollID, rollTime)
 end
 
 function LR:OnEnd(rollID)
-    local e = not bad(rollID) and self:Find(rollID)
+    local e = Num(rollID) and self:Find(rollID)
     if not e then return end
-    e.closed = true
+    e.closed, e.pending = true, nil
     refresh()
 end
 
@@ -140,7 +149,8 @@ function LR:HideBlizzard()
     for i = 1, NUM_GROUP_LOOT_FRAMES or 4 do
         local f = _G["GroupLootFrame" .. i]
         local e = f and f:IsShown() and f.rollID and self:Find(f.rollID)
-        if e and (not e.handedBack or e.rolled) then f:Hide() end
+        -- (never while its "will bind" question is up: hiding the pop-up closes that too)
+        if e and not e.pending and (not e.handedBack or e.rolled) then f:Hide() end
     end
 end
 
@@ -160,13 +170,43 @@ end
 -- ---------------------------------------------------------------------
 -- Your choices
 -- ---------------------------------------------------------------------
+-- A roll counts as made once the game has it. Need / Greed on a
+-- bind-on-pickup item first asks "will bind" (CONFIRM_LOOT_ROLL, right
+-- after the roll); until that's accepted (ConfirmLootRoll - or your choice
+-- shows in the loot history) the item stays open and says so. No question
+-- within a moment: the roll went straight through.
+LR.CONFIRM_WAIT = 0.3
+
 function LR:Roll(e, kind)
     if e.rolled or e.closed then return end
-    if not e.sim then
-        local ok = pcall(RollOnLoot, e.rollID, kind)
-        if not ok then return ns.Print("That roll didn't go through - use Blizzard's roll pop-up for this item.") end
+    if e.sim then return self:Rolled(e, kind) end
+    e.trying, e.asked = kind, nil                 -- (set first: the game may ask while the roll is sent)
+    local ok = pcall(RollOnLoot, e.rollID, kind)
+    if not ok then
+        e.trying = nil
+        return ns.Print("That roll didn't go through - use Blizzard's roll pop-up for this item.")
     end
-    e.rolled = kind
+    C_Timer.After(LR.CONFIRM_WAIT, function()
+        if e.trying == kind and not e.asked then LR:Rolled(e, kind) end
+    end)
+end
+
+function LR:OnConfirmAsked(rollID, rollType)
+    local e = Num(rollID) and self:Find(rollID)
+    if not e or e.rolled or e.closed then return end
+    e.asked = true
+    e.pending = Num(rollType) or e.trying
+    refresh()
+end
+
+function LR:OnConfirmed(rollID, rollType)
+    local e = Num(rollID) and self:Find(rollID)
+    if e and not e.rolled and not e.closed then self:Rolled(e, Num(rollType) or e.pending or e.trying) end
+end
+
+function LR:Rolled(e, kind)
+    if e.rolled or kind == nil then return end
+    e.rolled, e.pending, e.trying = kind, nil, nil
     self:HideBlizzard()
     self:Share(e)
     refresh()
@@ -196,7 +236,6 @@ end
 
 function LR:Flush()
     self.sending = nil
-    if ns.InLockdown() then self.sending = true; return C_Timer.After(2, function() LR:Flush() end) end
     for _, e in ipairs(self.items) do
         if e.dirty then
             e.dirty = nil
@@ -217,9 +256,12 @@ function LR:OnMessage(text, sender)
     local pick = { tags = cleanTags(f[4]), roll = tonumber(f[5]), note = clean(f[6]) }
     -- the same roll here (roll ids normally match), else the newest roll of that item
     local found
-    for _, e in ipairs(self.items) do
-        if e.item == item and (not found or e.rollID == rollID) then found = e end
-        if found and found.rollID == rollID then break end
+    for i = #self.items, 1, -1 do
+        local e = self.items[i]
+        if e.item == item then
+            if e.rollID == rollID then found = e break end
+            found = found or e
+        end
     end
     if found then
         found.picks[sender] = pick
@@ -233,9 +275,9 @@ end
 -- The game's loot history: everyone's live roll choices, then the winner.
 function LR:OnHistory(encounterID, lootListID)
     if not self:Enabled() or #self.items == 0 then return end
-    if not (C_LootHistory and C_LootHistory.GetSortedInfoForDrop) or bad(encounterID) or bad(lootListID) then return end
+    if not (C_LootHistory and C_LootHistory.GetSortedInfoForDrop) or not Num(encounterID) or not Num(lootListID) then return end
     local ok, drop = pcall(C_LootHistory.GetSortedInfoForDrop, encounterID, lootListID)
-    if not ok or type(drop) ~= "table" or bad(drop.itemHyperlink) then return end
+    if not ok or type(drop) ~= "table" or not Text(drop.itemHyperlink) then return end
     local item, key = ns.Loot.ItemID(drop.itemHyperlink), encounterID .. "-" .. lootListID
     local e
     for _, x in ipairs(self.items) do if x.listKey == key then e = x break end end
@@ -247,23 +289,25 @@ function LR:OnHistory(encounterID, lootListID)
         e.listKey = key
     end
     for _, r in ipairs(drop.rollInfos or {}) do
-        if not bad(r.playerName) then
-            e.rolls[ns.NormalizeSender(r.playerName)] = { s = ns.Safe.Num(r.state), r = ns.Safe.Num(r.roll), c = ns.Safe.Text(r.playerClass) }
+        if Text(r.playerName) then
+            e.rolls[ns.NormalizeSender(r.playerName)] = { s = Num(r.state), r = Num(r.roll), c = Text(r.playerClass) }
         end
     end
+    -- your roll in the history: it went through (a "will bind" question was accepted)
+    local mine = e.rolls[ns.me]
+    if mine and mine.s and mine.s ~= NO_ROLL and (e.pending or e.trying) then self:Rolled(e, e.pending or e.trying) end
     local w = drop.winner
-    if w and not bad(w.playerName) then
-        e.winner, e.wstate, e.wroll = ns.NormalizeSender(w.playerName), ns.Safe.Num(w.state), ns.Safe.Num(w.roll)
-        e.closed = true
+    if w and Text(w.playerName) then
+        e.winner, e.wstate, e.wroll = ns.NormalizeSender(w.playerName), Num(w.state), Num(w.roll)
+        e.closed, e.pending = true, nil
     end
-    if drop.allPassed and not bad(drop.allPassed) then e.allPassed, e.closed = true, true end
+    if Bool(drop.allPassed) then e.allPassed, e.closed, e.pending = true, true, nil end
     refresh()
 end
 
 -- ---------------------------------------------------------------------
 -- What the window shows for one item
 -- ---------------------------------------------------------------------
-local NO_ROLL = 4                 -- loot history: hasn't chosen yet
 
 -- one line per raider: you, Titan Up picks, and the game's rolls
 function LR:Raiders(e)
@@ -305,9 +349,10 @@ function LR:Raiders(e)
 end
 
 -- "Kev tagged it BIS, but Mossy won it as a Sidegrade - a trade could help."
-function LR:TradeHint(e)
+-- (list: LR:Raiders(e), if already built)
+function LR:TradeHint(e, list)
     if not e.winner then return nil end
-    local list = self:Raiders(e)
+    list = list or self:Raiders(e)
     local winner
     for _, x in ipairs(list) do if x.won then winner = x end end
     local wTags = winner and winner.tags or ""
@@ -386,7 +431,23 @@ function V:Open()
     if not self.frame:IsShown() then self.frame:Show() end
     if not self.sel or not tContains(LR.items, self.sel) then self.sel = LR.items[#LR.items] end
     self:Refresh()
+    self:Tick()
     LR:HideBlizzard()
+end
+
+-- The countdowns tick twice a second while a roll is still open; once
+-- every roll is made or over, the window only redraws when something changes.
+local function anyOpen()
+    for _, e in ipairs(LR.items) do if not e.rolled and not e.closed then return true end end
+    return false
+end
+
+function V:Tick()
+    if self.ticker or not (self.frame and self.frame:IsShown()) or not anyOpen() then return end
+    self.ticker = C_Timer.NewTicker(0.5, function()
+        V:Refresh()
+        if not anyOpen() and V.ticker then V.ticker:Cancel(); V.ticker = nil end
+    end)
 end
 
 function V:Hide() if self.frame then self.frame:Hide() end end
@@ -408,14 +469,15 @@ function V:Create()
     local x = UI.Button(f, 22, 20, "X", "Close (rolls you haven't made go back to Blizzard's pop-ups)", function() f:Hide() end)
     x:SetPoint("TOPRIGHT", -8, -8)
     f:SetScript("OnShow", function()
-        if V.ticker then V.ticker:Cancel() end
-        V.ticker = C_Timer.NewTicker(0.5, function() V:Refresh() end)
+        V:Tick()
         if ns.BonusRollGuard then ns.BonusRollGuard:Dock() end      -- a bonus roll showing moves in
     end)
     f:SetScript("OnHide", function()
         if V.ticker then V.ticker:Cancel(); V.ticker = nil end
-        LR:HandBack()
+        -- the bonus roll goes back first, so Blizzard's re-layout for the
+        -- handed-back rolls places it too
         if ns.BonusRollGuard then ns.BonusRollGuard:Undock() end
+        LR:HandBack()
     end)
 
     -- left: the items
@@ -543,6 +605,7 @@ local function status(e)
         return "|cff66e08cWon by|r " .. UI.Named(e.winner) .. "  |cffffd94d" .. how .. (e.wroll and (" " .. e.wroll) or "") .. "|r"
     end
     if e.allPassed then return "Everyone passed" end
+    if e.pending and not e.closed then return "|cffffd94dConfirm Blizzard's \"will bind\" pop-up|r to " .. (LR.ROLL_LABEL[e.pending] or "roll") end
     if e.rolled then return "You: |cffffd94d" .. (LR.ROLL_LABEL[e.rolled] or "?") .. "|r" .. (e.closed and "" or "  - waiting for the raid") end
     if e.closed then return "|cff8a8f9cRolls finished|r" end
     return nil
@@ -566,6 +629,7 @@ function V:Refresh()
             local bits = {}
             if e.ilvl then bits[#bits + 1] = "item level " .. e.ilvl end
             if e.bop then bits[#bits + 1] = "binds on pickup" end
+            if e.pending and not e.closed then bits[#bits + 1] = "|cffffd94dconfirm the bind pop-up|r" end
             if others > 0 then bits[#bits + 1] = "|cff4fc3f7" .. others .. (others == 1 and " raider tagged it|r" or " raiders tagged it|r") end
             row.info:SetText(table.concat(bits, "  -  "))
             row.hl:SetShown(self.sel == e)
@@ -613,8 +677,8 @@ function V:RefreshDetail()
     self.dEmpty:SetText("")
     self.dTitle:SetText(e.link or e.name or "?")
     self.dWinner:SetText(status(e) or ("|cff8a8f9cRolling - " .. UI.Clock(math.max(0, e.expires - GetTime())) .. " left|r"))
-    self.dHint:SetText(LR:TradeHint(e) or "")
     local list = LR:Raiders(e)
+    self.dHint:SetText(LR:TradeHint(e, list) or "")
     self.dOffset = math.max(0, math.min(math.max(0, #list - RAIDER_ROWS), self.dOffset or 0))
     local top = -46 - ((self.dHint:GetText() or "") ~= "" and 40 or 0)
     for i, r in ipairs(self.dRows) do

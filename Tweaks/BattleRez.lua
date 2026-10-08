@@ -2,9 +2,10 @@
 -- Battle rez tracker (a UI Tweak, off until turned on): the Rebirth icon with
 -- the number of battle-rez charges the group has. At zero it greys out, with
 -- a cooldown sweep and a countdown to the next charge.
---   * Shows only while you're in combat during a raid boss encounter or a
---     Mythic+ key - the times the game keeps a shared battle-rez pool (which
---     it reports through Rebirth's charges, for every class).
+--   * Shows for the whole of a raid boss encounter or a Mythic+ key - the
+--     times the game keeps a shared battle-rez pool (which it reports
+--     through Rebirth's charges, for every class) - including while you're
+--     dead (dying takes you out of combat, just when a rez matters most).
 --   * Move it with the anchor on its settings page.
 --   * Updates only while it's showing: when the charges change, plus a
 --     once-a-second tick for the countdown.
@@ -23,30 +24,30 @@ BR.SIZES = { { "small", "Small", 32 }, { "medium", "Medium", 44 }, { "large", "L
 local function db() return ns.udb.brez end
 
 function BR:Init()
-    -- combat from the events themselves (the game reports "in combat" a moment
-    -- after the entering-combat event fires)
-    ns.On("PLAYER_REGEN_DISABLED", function() BR.combat = true; BR:Check() end)
-    ns.On("PLAYER_REGEN_ENABLED", function() BR.combat = false; BR:Check() end)
-    for _, ev in ipairs({ "CHALLENGE_MODE_START", "CHALLENGE_MODE_COMPLETED", "CHALLENGE_MODE_RESET", "ZONE_CHANGED_NEW_AREA" }) do
-        ns.On(ev, function() BR:Check() end)
+    -- a finished key can still report itself active until you leave
+    ns.On("CHALLENGE_MODE_START", function() BR.keyDone = nil; BR:Check() end)
+    for _, ev in ipairs({ "CHALLENGE_MODE_COMPLETED", "CHALLENGE_MODE_RESET" }) do
+        ns.On(ev, function() BR.keyDone = true; BR:Check() end)
     end
+    ns.On("ZONE_CHANGED_NEW_AREA", function() BR:Check() end)
     ns.On("ENCOUNTER_START", function() BR.encounter = true; BR:Check() end)
     ns.On("ENCOUNTER_END", function() BR.encounter = false; BR:Check() end)
     ns.On("SPELL_UPDATE_CHARGES", function() if BR.shown then BR:Update() end end)
 end
 
 local function inKey()
+    if BR.keyDone then return false end
     return C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive() or false
 end
 
 local function inRaidEncounter() return BR.encounter and ns.InRaidInstance() end
 
--- Should it be on screen right now?
+-- Should it be on screen right now? The whole encounter or key - in or out
+-- of combat, alive or dead.
 function BR:Wanted()
     if self.unlocked then return true end
     if not db().enabled then return false end
-    local fighting = self.combat or (InCombatLockdown and InCombatLockdown())
-    return fighting and (inRaidEncounter() or inKey()) or false
+    return (inRaidEncounter() or inKey()) and true or false
 end
 
 function BR:Check()
@@ -175,15 +176,11 @@ function BR:BuildPage(parent)
     self.sizeBtn:SetPoint("TOPRIGHT", -18, y)
     y = y - 34
     UI.Text(pg, "GameFontHighlight", C.text, "Move it", "TOPLEFT", 18, y - 5)
-    self.anchorBtn = UI.IconButton(pg, 24, ns.MEDIA .. "Anchor", "Click to show it and drag it anywhere; click again to lock it in place", function()
-        BR:SetUnlocked(not BR.unlocked); BR:RefreshPage()
-    end)
+    self.anchorBtn, self.resetBtn = ns.Tweaks.MoveControls(pg, BR, { resetW = 100, after = function() BR:RefreshPage() end,
+        tip = "Click to show it and drag it anywhere; click again to lock it in place" })
     self.anchorBtn:SetPoint("TOPRIGHT", -18, y)
-    local reset = UI.Button(pg, 100, 22, "Reset position", nil, function() BR:ResetPosition() end)
-    reset:SetPoint("RIGHT", self.anchorBtn, "LEFT", -8, 0)
-    self.resetBtn = reset
+    self.resetBtn:SetPoint("RIGHT", self.anchorBtn, "LEFT", -8, 0)
     self.pageHeight = -(y - 24) + 20
-    pg:SetScript("OnHide", function() if BR.unlocked then BR:SetUnlocked(false) end end)
     return pg
 end
 

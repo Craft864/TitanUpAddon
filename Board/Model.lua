@@ -31,11 +31,13 @@ end
 
 local VALID = { P = true, L = true, A = true, C = true, T = true, M = true, W = true, D = true }
 
+-- a board coordinate, rounded and kept on the board
 local function clampU(v)
     v = math.floor(v + 0.5)
     if v < 0 then return 0 elseif v > U then return U end
     return v
 end
+Model.ClampU = clampU
 
 function Model.PackPoints(pts, first, last)
     first = first or 1
@@ -61,12 +63,19 @@ function Model.UnpackPoints(s)
     return pts
 end
 
--- Strip anything that would break the wire format or chat escapes.
+-- Strip anything that would break the wire format or chat escapes (cut to
+-- 60 bytes without splitting a letter). Text is cleaned when an item is
+-- made, so the author sees what everyone else sees.
 function Model.CleanText(t)
-    t = tostring(t or ""):gsub("[%c|~^]", "")
-    return t:sub(1, 60)
+    return ns.CleanField(t, 60, "~")
 end
 
+-- IMPORTANT: Serialize's output must stay byte-identical across versions.
+-- Board checksums are sums of hash(Serialize(op)), and viewers resync when
+-- theirs differs from the leader's - so any change here (a new field,
+-- different rounding, other CleanText rules) makes every older client in
+-- the raid mismatch forever, re-requesting snapshots in a loop. New op data
+-- has to travel in a new message kind, or be left out of the hash.
 function Model.Serialize(op, idOverride, packedPts)
     return table.concat({
         op.t, idOverride or op.id, op.c or 1, op.w or 3, op.k or 0,
@@ -162,7 +171,7 @@ Model.MAX_SLIDES = MAX_SLIDES
 function Model.CleanName(t, max)
     t = tostring(t or ""):gsub("[%c|~^:,]", "")
     t = t:gsub("^%s+", ""):gsub("%s+$", "")
-    return t:sub(1, max or 24)
+    return ns.Truncate(t, max or 24)
 end
 
 -- bg: which room image the slide shows (rooms are in Content.lua); nil = default.
@@ -189,10 +198,22 @@ local function render(op, page)
     if plan and page == plan.page and ns.Board then ns.Board:RenderOp(op) end
 end
 
+-- A finished op counts toward its slide's checksum. Its serialized form is
+-- kept (op._s) for saving and snapshots, until the op changes again.
+local function commit(sl, op)
+    op._s = Model.Serialize(op)
+    op._h = hash(op._s)
+    sl.sum = (sl.sum + op._h) % MOD
+end
+
+local function uncommit(sl, op)
+    if op._h then sl.sum = (sl.sum - op._h) % MOD end
+    op._h, op._s = nil, nil
+end
+
 local function insertHashed(sl, op)
     if sl.byId[op.id] then return end
-    op._h = hash(Model.Serialize(op))
-    sl.sum = (sl.sum + op._h) % MOD
+    commit(sl, op)
     sl.ops[#sl.ops + 1] = op
     sl.byId[op.id] = op
 end
@@ -206,19 +227,18 @@ function Model:Apply(op, page)
     if not pg then return end
     local old = pg.byId[op.id]
     if old and old ~= op then
-        if old._h then pg.sum = (pg.sum - old._h) % MOD; old._h = nil end
+        uncommit(pg, old)
         old.t, old.c, old.w, old.k, old.pts, old.text, old.live =
             op.t, op.c, op.w, op.k, op.pts, op.text, op.live
         op = old
     elseif old == op then
-        if op._h then pg.sum = (pg.sum - op._h) % MOD; op._h = nil end
+        uncommit(pg, op)
     else
         pg.ops[#pg.ops + 1] = op
         pg.byId[op.id] = op
     end
     if not op.live then
-        op._h = hash(Model.Serialize(op))
-        pg.sum = (pg.sum + op._h) % MOD
+        commit(pg, op)
         self:Touch()
     end
     render(op, page)
@@ -234,18 +254,39 @@ function Model:ApplyLive(page, mode, op)
     local old = pg.byId[op.id]
     if old then
         if not old.live then return end   -- already finalized
+        old._liveT = GetTime()
+        old.c, old.w, old.k = op.c, op.w, op.k
         if mode == "a" then
+            local from = #old.pts / 2 + 1
             for i = 1, #op.pts do old.pts[#old.pts + 1] = op.pts[i] end
+            if page == plan.page and ns.Board then ns.Board:AppendSegments(old, from) end   -- only the new part
         else
             old.pts = op.pts
+            render(old, page)
         end
-        old.c, old.w, old.k = op.c, op.w, op.k
-        render(old, page)
     else
-        op.live = true
+        op.live, op._liveT = true, GetTime()
         pg.ops[#pg.ops + 1] = op
         pg.byId[op.id] = op
         render(op, page)
+    end
+end
+
+-- Someone else's stroke that stopped updating mid-draw (they left, reloaded
+-- or lost connection) is dropped instead of staying on the board for good.
+function Model:PruneLive(maxAge)
+    local plan = self.plan
+    if not plan then return end
+    local now = GetTime()
+    for _, pg in ipairs(plan.pages) do
+        for i = #pg.ops, 1, -1 do
+            local op = pg.ops[i]
+            if op.live and op.author ~= ns.me and now - (op._liveT or 0) > maxAge then
+                table.remove(pg.ops, i)
+                pg.byId[op.id] = nil
+                if ns.Board then ns.Board:ReleaseOp(op) end
+            end
+        end
     end
 end
 
@@ -301,7 +342,7 @@ end
 function Model:SerializePage(p)
     local list = {}
     for _, op in ipairs(self.plan.pages[p].ops) do
-        if not op.live then list[#list + 1] = Model.Serialize(op) end
+        if not op.live then list[#list + 1] = op._s or Model.Serialize(op) end
     end
     return list
 end
@@ -335,8 +376,10 @@ end
 -- Returns { { name, view, ops = { op, ... } }, ... } or nil. Slide i's ops
 -- are in opFields[first + i - 1] (first defaults to 1).
 function Model.DecodeSlides(meta, opFields, sender, first)
+    local metas = ns.Split(meta or "", "~")
+    if #metas > MAX_SLIDES then return nil end
     local slides = {}
-    for i, m in ipairs(ns.Split(meta or "", "~")) do
+    for i, m in ipairs(metas) do
         local name, z, cx, cy, bg = m:match("^([^:]*):(%d+):(%d+):(%d+):?(%w*)$")
         if not name then return nil end
         local sl = { name = (name ~= "" and name) or ("Slide " .. i), ops = {}, bg = (bg ~= "" and bg) or nil }
@@ -351,30 +394,38 @@ function Model.DecodeSlides(meta, opFields, sender, first)
         end
         slides[i] = sl
     end
-    if #slides == 0 or #slides > MAX_SLIDES then return nil end
+    if #slides == 0 then return nil end
     return slides
 end
 
--- Replace the whole current plan's slides (snapshot from the leader, or
--- an import). reid = give every op a fresh id owned by you.
-function Model:SetSlides(name, slides, reid)
-    local plan = self.plan
-    if not plan then return end
-    self:ReleaseAll()
-    plan.name = name or plan.name
-    plan.pages = {}
+-- { { name, view, bg, ops = { op, ... } }, ... } -> a plan's pages (at
+-- least one). reid = give every op a fresh id owned by you.
+local function buildPages(slides, reid)
+    local pages = {}
     for i, sd in ipairs(slides) do
-        local sl = newSlide(sd.name, sd.view, sd.bg)
-        for _, op in ipairs(sd.ops) do
+        local sl = newSlide(sd.name or ("Slide " .. i), sd.view, sd.bg)
+        for _, op in ipairs(sd.ops or {}) do
             if reid then
                 op.id = ns.me .. ":" .. ns.NextId()
                 op.author = ns.me
             end
             insertHashed(sl, op)
         end
-        plan.pages[i] = sl
+        pages[i] = sl
     end
-    if #plan.pages == 0 then plan.pages[1] = newSlide("Slide 1") end
+    if #pages == 0 then pages[1] = newSlide("Slide 1") end
+    return pages
+end
+
+-- Replace the whole current plan's slides (snapshot from the leader, or
+-- an import). Nothing changes if the slides can't be built.
+function Model:SetSlides(name, slides, reid)
+    local plan = self.plan
+    if not plan then return end
+    local pages = buildPages(slides, reid)
+    self:ReleaseAll()
+    plan.name = name or plan.name
+    plan.pages = pages
     plan.page = math.max(1, math.min(plan.page or 1, #plan.pages))
 end
 
@@ -412,7 +463,7 @@ function Model:DuplicateSlide(p)
         src.view and { z = src.view.z, cx = src.view.cx, cy = src.view.cy }, src.bg)
     for _, op in ipairs(src.ops) do
         if not op.live then
-            local dup = Model.Deserialize(Model.Serialize(op))
+            local dup = Model.Deserialize(op._s or Model.Serialize(op))
             dup.id = ns.me .. ":" .. ns.NextId()
             dup.author = ns.me
             insertHashed(copy, dup)
@@ -483,24 +534,25 @@ function Model:Entry(key, create)
     return e
 end
 
+-- Following someone else's board (not the owner): the plan is theirs, and
+-- plan.remote says whose, so it's never saved over a plan of yours.
 function Model:Load(ctx, planName)
-    local entry = ns.IsOwner() and self:Entry(ctx.key)
+    local owner = ns.IsOwner()
+    local entry = owner and self:Entry(ctx.key)
     planName = planName or (entry and entry.active) or "Default"
     local plan = newPlan(ctx, planName)
+    plan.remote = (not owner) and (ns.LeaderName() or "leader") or nil
     self.plan = plan
     local saved = entry and entry.list[planName]
     if not saved then return end
     plan.keep = true
-    plan.pages = {}
+    local slides = {}
     for i, sd in ipairs(saved.slides or {}) do
-        local sl = newSlide(sd.name or ("Slide " .. i), sd.view, sd.bg)
-        for _, s in ipairs(sd.ops or {}) do
-            local op = Model.Deserialize(s)
-            if op then insertHashed(sl, op) end
-        end
-        plan.pages[i] = sl
+        local ops = {}
+        for _, s in ipairs(sd.ops or {}) do ops[#ops + 1] = Model.Deserialize(s) end
+        slides[i] = { name = sd.name, view = sd.view, bg = sd.bg, ops = ops }
     end
-    if #plan.pages == 0 then plan.pages[1] = newSlide("Slide 1") end
+    plan.pages = buildPages(slides)
 end
 
 local function isBlank(plan)
@@ -511,7 +563,7 @@ end
 
 function Model:Save()
     local plan = self.plan
-    if not plan or not ns.IsOwner() then return end
+    if not plan or plan.remote or not ns.IsOwner() then return end
     if isBlank(plan) and not plan.keep then return end
     local entry = self:Entry(plan.ctx.key, true)
     local slides = {}
@@ -523,6 +575,18 @@ function Model:Save()
 end
 
 function Model:Touch()
+    local plan = self.plan
+    -- The first change once a plan you were following is yours to edit (the
+    -- lead passed to you, or the group ended) keeps it as a copy named after
+    -- its owner - never over your own plan of the same name.
+    -- And changes while you follow someone (their drawings landing on the
+    -- plan you had open when you joined) make it theirs, too.
+    if plan and plan.remote and ns.IsOwner() then
+        plan.name = self:UniquePlanName(plan.name .. " (" .. ns.Short(plan.remote) .. ")")
+        plan.remote, plan.keep = nil, true
+    elseif plan and not plan.remote and not ns.IsOwner() then
+        plan.remote = ns.LeaderName() or "leader"
+    end
     if not self._saveTimer then
         self._saveTimer = true
         C_Timer.After(1.5, function()
@@ -572,7 +636,7 @@ end
 function Model:SaveAs(name)
     self:Save()
     self.plan.name = self:UniquePlanName(name)
-    self.plan.keep = true
+    self.plan.keep, self.plan.remote = true, nil
     self:Save()
 end
 
@@ -594,3 +658,8 @@ function Model:DeletePlan(name)
         self.plan = newPlan(plan.ctx, "Default")
     end
 end
+
+-- /reload or logout right after a change: save it (the timer may not get to).
+ns.On("PLAYER_LOGOUT", function()
+    if Model.plan then Model:Save() end
+end)

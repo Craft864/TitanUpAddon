@@ -9,7 +9,7 @@
 --     favoring higher keys.
 --   * Vote: Titan Up users click a button; anyone can type the number or
 --     short name in party chat. Ties are settled by a spin.
---   * Result: posted to party chat, and Titan Up users get a popup with the
+--   * Result: posted to group chat, and Titan Up users get a popup with the
 --     dungeon and a Teleport button (set up after combat if needed).
 local ADDON, ns = ...
 
@@ -21,6 +21,7 @@ ns.Keys = KR
 
 local PREFIX = "TitanUpKR"
 local VOTE_SECONDS = 20
+local VOTE_MIN, VOTE_MAX, VOTE_GRACE = 5, 60, 10      -- a vote someone else started ends by itself after its time + grace
 local SPIN_SECONDS = 3.6
 
 local function db() return ns.udb.keys end
@@ -59,6 +60,8 @@ function KR:Init()
         if KR.popupPending then C_Timer.After(0.5, function() KR:SetupTeleport() end) end
         if ns.KeysUI and ns.KeysUI:IsShown() then C_Timer.After(0.5, function() ns.KeysUI:SetupIconTeleports() end) end
     end)
+    -- the spellbook changed: look the teleports up again
+    ns.On("SPELLS_CHANGED", function() wipe(KR.tpCache) end)
     -- spell buttons must be hidden before combat locks them
     ns.On("PLAYER_REGEN_DISABLED", function() if ns.KeysUI then ns.KeysUI:HideIconTeleports(true) end end)
     -- other addons' keystone libraries (read locally)
@@ -128,7 +131,7 @@ function KR:Collect()
             local level = C_MythicPlus.GetOwnedKeystoneLevel and C_MythicPlus.GetOwnedKeystoneLevel()
             if mapID and level and level > 0 then k = { mapID = mapID, level = level, source = "You" } end
         end
-        k = k or self.fromGuild[m.full] or self.fromLib[m.full]
+        k = k or self:GuildKey(m.full) or self.fromLib[m.full]
         if not k then
             local o = lor[m.full] or lor[m.short]
             if o and (o.level or 0) > 0 and (o.challengeMapID or o.mythicPlusMapID) then
@@ -146,10 +149,19 @@ function KR:Collect()
 end
 
 -- Ask for fresh keys: guildmates over the guild channel, everyone else
--- through BigWigs / Details if they're installed.
+-- through BigWigs / Details if they're installed. A guildmate's key from
+-- before the latest request still shows for a few seconds while answers
+-- come in, then counts as gone (someone without a key doesn't answer).
+local KEY_GRACE = 5
+function KR:GuildKey(name)
+    local k = self.fromGuild[name]
+    if k and (not self.lastRequest or k.at > self.lastRequest or GetTime() - self.lastRequest < KEY_GRACE) then return k end
+end
+
 function KR:RequestKeys()
     if self.lastRequest and GetTime() - self.lastRequest < 5 then return end
     self.lastRequest = GetTime()
+    C_Timer.After(KEY_GRACE + 0.1, function() if ns.KeysUI and ns.KeysUI:IsShown() then ns.KeysUI:Refresh() end end)
     local ch = ns.DataChannel()
     if ch and IsInGroup() then ns.Send(PREFIX, "Q", ch) end
     local LKS = LibStub and LibStub("LibKeystone", true)
@@ -189,6 +201,14 @@ end
 --   W map level owner   the winner
 function KR:Send(msg) ns.SendFields(PREFIX, msg) end
 
+-- A line in group chat: the right channel (party, raid or instance), never
+-- during an encounter, and a refusal from the game doesn't stop the rest.
+local function say(text)
+    local channel = ns.GroupChannel()
+    local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
+    if channel and send and not ns.InLockdown() then pcall(send, text, channel) end
+end
+
 function KR:OnMessage(msg, sender)
     local f = ns.Split(msg, "^")
     if f[1] == "Q" then
@@ -200,7 +220,7 @@ function KR:OnMessage(msg, sender)
     elseif f[1] == "K" then
         local mapID, level = tonumber(f[2]), tonumber(f[3])
         if mapID and level and level > 0 and level < 40 then
-            self.fromGuild[sender] = { mapID = mapID, level = level, source = "Titan Up" }
+            self.fromGuild[sender] = { mapID = mapID, level = level, source = "Titan Up", at = GetTime() }
             if ns.KeysUI then ns.KeysUI:Refresh() end
         end
     elseif f[1] == "V" then
@@ -210,7 +230,14 @@ function KR:OnMessage(msg, sender)
             if m then list[#list + 1] = { mapID = tonumber(m), level = tonumber(l), owner = o, short = short(o) } end
         end
         if #list >= 2 then
-            self.vote = { id = f[2], keys = list, votes = {}, endsAt = GetTime() + (tonumber(f[3]) or VOTE_SECONDS), host = sender }
+            local secs = tonumber(f[3]) or VOTE_SECONDS
+            secs = (secs == secs) and math.max(VOTE_MIN, math.min(VOTE_MAX, secs)) or VOTE_SECONDS
+            local v = { id = f[2], keys = list, votes = {}, endsAt = GetTime() + secs, host = sender }
+            self.vote = v
+            -- if the starter never announces a winner (reload, disconnect), the vote just ends
+            C_Timer.After(secs + VOTE_GRACE, function()
+                if KR.vote == v then KR.vote = nil; if ns.KeysUI then ns.KeysUI:Refresh() end end
+            end)
             if ns.KeysUI then ns.KeysUI:Show(); ns.KeysUI:Refresh() end
         end
     elseif f[1] == "B" then
@@ -252,9 +279,7 @@ function KR:StartVote(list)
     local id = tostring(time())
     self.vote = { id = id, keys = list, votes = {}, endsAt = GetTime() + VOTE_SECONDS, host = ns.me }
     self:Send(("V^%s^%d^%s"):format(id, VOTE_SECONDS, table.concat(parts, ",")))
-    if IsInGroup() then
-        C_ChatInfo.SendChatMessage(("Keystone vote (%ds) - type the number or short name: %s"):format(VOTE_SECONDS, table.concat(chat, "   ")), "PARTY")
-    end
+    say(("Keystone vote (%ds) - type the number or short name: %s"):format(VOTE_SECONDS, table.concat(chat, "   ")))
     C_Timer.After(VOTE_SECONDS, function() KR:FinishVote(id) end)
     return true
 end
@@ -306,9 +331,7 @@ function KR:Announce(k, how)
     local name = KR.MapInfo(k.mapID)
     local owner = k.short or short(k.owner)
     local who = owner .. ((owner:sub(-1) == "s") and "'" or "'s")
-    if IsInGroup() then
-        C_ChatInfo.SendChatMessage(("Keystone Roulette: %s %s +%d - %s"):format(who, name, k.level, KR.JOKES[math.random(1, #KR.JOKES)]), "PARTY")
-    end
+    say(("Keystone Roulette: %s %s +%d - %s"):format(who, name, k.level, KR.JOKES[math.random(1, #KR.JOKES)]))
     self:Send(("W^%d^%d^%s"):format(k.mapID, k.level, k.owner))
     self:Remember(k.mapID, k.level, k.owner, how)
     self:ShowPopup(k.mapID, k.level, k.owner)
@@ -330,9 +353,22 @@ local FALLBACK = { [161] = 159898, [402] = 393273, [399] = 393256 }
 -- in case a patch changes the picture layout.
 KR.ART_CROP = { 0.09, 0.65, 0.06, 0.63 }
 
-function KR.Teleport(mapID)
-    local dungeon = KR.MapInfo(mapID):lower()
-    if GetNumFlyouts and GetFlyoutID and GetFlyoutInfo and GetFlyoutSlotInfo then
+local function spellKnown(id)
+    return ((C_SpellBook and C_SpellBook.IsSpellKnown and C_SpellBook.IsSpellKnown(id)) or (IsSpellKnown and IsSpellKnown(id))) and true or false
+end
+
+-- The flyout search, by the dungeon's full name and then by the part before
+-- a ":" or " - " ("Operation: Mechagon - Workshop" -> "operation"). Returns
+-- the spell and whether the flyout says it's known; a third value true
+-- when some descriptions hadn't loaded yet (so a miss isn't final).
+local function findTeleport(mapID)
+    local full = KR.MapInfo(mapID):lower()
+    local names = { full }
+    local head = full:match("^(.-)%s*:") or full:match("^(.-)%s+%-%s")
+    if head and head ~= "" then names[2] = head end
+    local pending = false
+    if not (GetNumFlyouts and GetFlyoutID and GetFlyoutInfo and GetFlyoutSlotInfo) then return nil, false, false end
+    for _, dungeon in ipairs(names) do
         for i = 1, GetNumFlyouts() do
             local fid = GetFlyoutID(i)
             local _, _, slots = GetFlyoutInfo(fid)
@@ -341,20 +377,31 @@ function KR.Teleport(mapID)
                 if spellID then
                     local desc = C_Spell.GetSpellDescription and C_Spell.GetSpellDescription(spellID)
                     if desc and desc ~= "" then
-                        if desc:lower():find(dungeon, 1, true) then return spellID, known and true or false end
-                    elseif C_Spell.RequestLoadSpellData then
-                        C_Spell.RequestLoadSpellData(spellID)
+                        if desc:lower():find(dungeon, 1, true) then return spellID, known, false end
+                    else
+                        pending = true
+                        if C_Spell.RequestLoadSpellData then C_Spell.RequestLoadSpellData(spellID) end
                     end
                 end
             end
         end
     end
-    local id = FALLBACK[mapID]
-    if id then
-        local known = (C_SpellBook and C_SpellBook.IsSpellKnown and C_SpellBook.IsSpellKnown(id)) or (IsSpellKnown and IsSpellKnown(id)) or false
-        return id, known and true or false
+    return nil, false, pending
+end
+
+-- mapID -> { spellID, known } for this session (cleared when the spellbook
+-- changes); whether it's known is asked fresh each time.
+KR.tpCache = {}
+function KR.Teleport(mapID)
+    local c = KR.tpCache[mapID]
+    if not c then
+        local spellID, known, pending = findTeleport(mapID)
+        if not spellID and FALLBACK[mapID] then spellID, known, pending = FALLBACK[mapID], nil, false end
+        c = { spellID = spellID, known = known }
+        if spellID or not pending then KR.tpCache[mapID] = c end
     end
-    return nil, false
+    if not c.spellID then return nil, false end
+    return c.spellID, (c.known or spellKnown(c.spellID)) and true or false
 end
 
 function KR:EnsurePopup()
@@ -386,6 +433,11 @@ function KR:EnsurePopup()
     p.fake = UI.Button(p, 170, 34, "Teleport", nil, nil)
     p.fake:SetPoint("BOTTOM", 0, 36)
     UI.SetDisabled(p.fake, true)
+    -- the secure Teleport button hangs off the popup: in combat it can't move
+    p:SetScript("OnDragStart", function(s)
+        if InCombatLockdown() and KR.tp and KR.tp:IsShown() then return end
+        s:StartMoving()
+    end)
     local close = UI.Button(p, 22, 20, "X", "Close", function() KR:HidePopup() end)
     close:SetPoint("TOPRIGHT", -6, -6)
     self.popup = p
@@ -408,10 +460,20 @@ end
 -- again when combat ends.
 function KR:SetupTeleport()
     local p = self.popup
-    if not (p and p:IsShown()) then return end
+    if not (p and p:IsShown()) then
+        -- the popup was closed (maybe in combat): its button goes too
+        if self.tp and not InCombatLockdown() then self.tp:Hide() end
+        self.popupPending = nil
+        return
+    end
     local spellID, known = KR.Teleport(p.mapID)
     if InCombatLockdown() then
         self.popupPending = true
+        if self.tp and self.tp:IsShown() and self.tp.mapID ~= p.mapID then
+            -- a new pick mid-fight: the button can't change until combat ends
+            p.status:SetText(("The button still goes to %s - it updates after combat"):format(KR.MapInfo(self.tp.mapID)))
+            return
+        end
         p.fake.label:SetText("Teleport")
         p.fake:Show()
         p.status:SetText("Ready after combat")
@@ -433,6 +495,7 @@ function KR:SetupTeleport()
     if spellID and known then
         b:SetAttribute("type", "spell")
         b:SetAttribute("spell", spellID)
+        b.mapID = p.mapID
         b:ClearAllPoints()
         b:SetPoint("BOTTOM", p, "BOTTOM", 0, 36)
         b:SetFrameLevel(p:GetFrameLevel() + 10)
@@ -602,22 +665,28 @@ function V:Create()
     f:SetScript("OnUpdate", function(_, elapsed) V:OnUpdate(elapsed) end)
 end
 
--- Wheel: texture for n slices; labels ride along at each slice's middle.
+-- Wheel: texture for n slices, and each slice's label (set once per list).
 function V:DrawWheel(list)
-    local n = math.max(1, math.min(5, #list))
-    self.wheel:SetTexture(ns.MEDIA .. "Roulette" .. n)
-    if self.wheel.SetRotation then self.wheel:SetRotation(self.angle) end
+    self.wheelN = math.max(1, math.min(5, #list))
+    self.wheel:SetTexture(ns.MEDIA .. "Roulette" .. self.wheelN)
     for i, t in ipairs(self.sliceLabels) do
         local k = list[i]
-        if k and i <= 5 then
+        t:SetShown(k ~= nil)
+        if k then t:SetText(("%s\n+%d"):format(KR.Abbrev(k.mapID), k.level)) end
+    end
+    self:TurnWheel()
+end
+
+-- Turned to self.angle: the labels ride along at each slice's middle (per frame while spinning).
+function V:TurnWheel()
+    local n = self.wheelN or 1
+    if self.wheel.SetRotation then self.wheel:SetRotation(self.angle) end
+    for i, t in ipairs(self.sliceLabels) do
+        if i <= n then
             local a = (i - 0.5) * (2 * math.pi / n) - self.angle
             local r = WHEEL * 0.31
             t:ClearAllPoints()
             t:SetPoint("CENTER", self.wheelBox, "CENTER", r * math.sin(a), r * math.cos(a))
-            t:SetText(("%s\n+%d"):format(KR.Abbrev(k.mapID), k.level))
-            t:Show()
-        else
-            t:Hide()
         end
     end
 end
@@ -640,6 +709,7 @@ function V:SpinTo(list, target, how)
     self.spinning = { list = list, target = target, how = how, from = start, delta = delta, t0 = GetTime(), lastSlice = -1 }
     self.angle = start
     self.flash = nil
+    self:DrawWheel(list)
     self:Refresh()
 end
 
@@ -655,15 +725,16 @@ function V:OnUpdate()
             s.lastSlice = slice
             if PlaySound and SOUNDKIT and SOUNDKIT.U_CHAT_SCROLL_BUTTON then PlaySound(SOUNDKIT.U_CHAT_SCROLL_BUTTON) end
         end
-        self:DrawWheel(s.list)
+        self:TurnWheel()
         if p >= 1 then
             self.spinning = nil
             self.landed = s.list[s.target]
             KR:Announce(s.list[s.target], s.how)
         end
     elseif KR.vote then
+        -- once a second while it counts down (not forever if it was never closed)
         local left = KR.vote.endsAt - GetTime()
-        if math.floor(left) ~= self.lastSecond then self.lastSecond = math.floor(left); self:Refresh() end
+        if left >= -VOTE_GRACE and math.floor(left) ~= self.lastSecond then self.lastSecond = math.floor(left); self:Refresh() end
     end
 end
 

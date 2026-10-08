@@ -7,7 +7,10 @@
 -- from the game's own system message ("Ryan rolls 2756 (1-100000)"), the
 -- same text everyone in the group sees, and only accepts a roll from the
 -- player whose turn it is with exactly the range they owe. Addon messages
--- are only used to set up the room (create, join, accept, cancel).
+-- are only used to set up the room (create, join, accept, cancel). Every
+-- client trusts a message about a room only from that room's host and
+-- seated player as it recorded them itself, never from names inside the
+-- message, and a room id always starts with its host's name.
 --
 -- Messages ("TitanUpDR", fields joined by ^):
 --   N id wager start target   new room (sender = host; target "" = anyone)
@@ -20,16 +23,20 @@
 --   V id total name,name,...  the spectator list (from the challenger)
 --   D id                      the challenged/seated player declines (game stays open)
 --   O id                      the challenger opens a reserved challenge to anyone
---   K id n roll max           echo of the sender's OWN roll #n (a fallback if
---                             someone's client couldn't read it from chat)
+--   K id n roll max           echo of the sender's OWN roll #n: used only when
+--                             this client saw a matching roll line in chat that
+--                             it couldn't read itself (so nobody can pick a roll)
 --   Q id                      "send me this room" (spectators, after combat, after /reload)
 --   F id host wager start target opp state rolls   room state reply (from a player of the room)
+--   U id part n chunk         an F too long for one message, in parts (0.31.2;
+--                             older versions ignore it)
 --
 -- Robustness: rolls can't be read during an encounter (chat text is hidden
 -- from addons), so the Roll button pauses in combat/encounters; a roll that
 -- couldn't be read simply doesn't count and is rolled again; after combat
 -- (and after a /reload) the two players compare roll lists and keep the
--- longest one that follows the rules.
+-- longest one that follows the rules - on a player's own client, a roll it
+-- hasn't seen itself counts only if it saw a matching roll line in chat.
 local ADDON, ns = ...
 
 local DR = {}
@@ -38,6 +45,7 @@ ns.DeathRoll = DR
 local PREFIX = "TitanUpDR"
 local SEP = "^"
 DR.MAX_ROLL = 1000000            -- WoW's /roll limit
+DR.MAX_WAGER = 9999999           -- the gold cap
 DR.OPEN_TIMEOUT = 300            -- unanswered challenges expire after 5 minutes
 DR.rooms = {}                    -- [id] = room
 DR.mine = nil                    -- id of the room you're playing in
@@ -46,10 +54,22 @@ DR.mine = nil                    -- id of the room you're playing in
 -- Helpers
 -- ---------------------------------------------------------------------
 function DR.Fmt(n)
-    local s = tostring(math.floor(tonumber(n) or 0))
-    local out = s:reverse():gsub("(%d%d%d)", "%1,"):reverse()
-    return (out:gsub("^,", ""))
+    n = math.floor(tonumber(n) or 0)
+    if n ~= n or math.abs(n) == math.huge then n = 0 end           -- nan / inf
+    if BreakUpLargeNumbers then return BreakUpLargeNumbers(n) end  -- the client's own separators
+    local out = ("%.0f"):format(math.abs(n)):reverse():gsub("(%d%d%d)", "%1,"):reverse()
+    return (n < 0 and "-" or "") .. out:gsub("^,", "")
 end
+
+-- A whole number from a message within lo..hi, else nil (nan / inf too).
+local function int(v, lo, hi)
+    local n = tonumber(v)
+    if n and n == n and n % 1 == 0 and n >= lo and n <= hi then return n end
+end
+DR.Int = int
+
+-- A room id starts with its host's name ("Ryan-17900000001").
+local function hostsId(id, name) return id:sub(1, #ns.Short(name) + 1) == ns.Short(name) .. "-" end
 
 local rollPattern
 local function buildPattern()
@@ -101,6 +121,42 @@ function DR:Log(text)
     while #self.debugLog > 15 do table.remove(self.debugLog) end
 end
 
+-- Roll lines this client saw in chat while a game was rolling, newest
+-- first: { at, name, noRealm, roll, lo, hi } - or { at, text } for a line
+-- that looked like a roll but couldn't be read. A roll that didn't come
+-- from this client's own chat (a K echo, an F from the other player) only
+-- counts if one of these lines backs it up.
+DR.lines = {}
+local function noteLine(e)
+    e.at = GetTime()
+    table.insert(DR.lines, 1, e)
+    while #DR.lines > 40 do table.remove(DR.lines) end
+end
+
+-- The oldest unused line since `since` that shows `who` rolling `roll`
+-- (1-max). A line that couldn't be read matches when it holds the same
+-- numbers. `used` keeps one line from backing up two rolls.
+function DR:SawRoll(who, roll, max, since, used)
+    local range = "%f[%d]1%s*%-%s*" .. max .. "%f[%D]"
+    for i = #self.lines, 1, -1 do
+        local l = self.lines[i]
+        if l.at >= since and not (used and used[l]) then
+            local ok
+            if l.name then
+                ok = (self.SameName(l.name, who) or (l.noRealm and ns.Short(l.name) == ns.Short(who)))
+                    and l.roll == roll and l.lo == 1 and l.hi == max
+            else
+                local rest, found = l.text:gsub(range, "", 1)
+                ok = found > 0 and rest:find("%f[%d]" .. roll .. "%f[%D]") ~= nil
+            end
+            if ok then
+                if used then used[l] = true end
+                return l
+            end
+        end
+    end
+end
+
 function DR:Other(room, name)
     if name == room.host then return room.opponent end
     return room.host
@@ -134,8 +190,13 @@ function DR:Paused() return ns.Busy() end
 -- Messaging
 -- ---------------------------------------------------------------------
 -- (practice mode: nothing leaves your client)
+-- (during an encounter the send queue holds them until it ends; a game's own
+-- messages also make the ledger's history sharing wait its turn)
 function DR:Send(kind, ...)
-    if not self.sim and IsInGroup() and not ns.InLockdown() then ns.SendFields(PREFIX, kind, ...) end
+    if not self.sim and IsInGroup() then
+        ns.SendFields(PREFIX, kind, ...)
+        if ns.DRLedger.Yield then ns.DRLedger:Yield() end
+    end
 end
 
 local function sayInGroup(text)
@@ -170,8 +231,10 @@ function DR:OnMessage(text, sender)
     local room = self.rooms[id]
 
     if kind == "N" then
-        local wager, start = tonumber(f[3]), tonumber(f[4])
-        if not wager or not start or start < 2 or start > self.MAX_ROLL then return end
+        -- a new room: never one that already exists, and only under the sender's own name
+        if room or not hostsId(id, sender) then return end
+        local wager, start = int(f[3], 1, self.MAX_WAGER), int(f[4], 2, self.MAX_ROLL)
+        if not wager or not start or start > wager then return end
         room = {
             id = id, host = sender, wager = wager, start = start,
             target = (f[5] and f[5] ~= "") and f[5] or nil,
@@ -179,6 +242,13 @@ function DR:OnMessage(text, sender)
         }
         self.rooms[id] = room
         changed(room, "new")
+    elseif kind == "U" then
+        -- a room state in parts (too long for one message)
+        local part, n, chunk = text:match("^U%^[^%^]*%^(%d+)%^(%d+)%^(.*)$")
+        self.stateParts = self.stateParts or {}
+        local full = part and ns.Reassemble(self.stateParts, sender .. ":" .. id, part, n, chunk, 10)
+        local g = full and ns.Split(full, SEP)
+        if g and g[1] == "F" and g[2] == id then self:ApplyState(g, sender) end
     elseif not room then
         if kind == "F" then self:ApplyState(f, sender) end
         return
@@ -195,10 +265,17 @@ function DR:OnMessage(text, sender)
             changed(room, "seated")
         end
     elseif kind == "S" then
-        if sender ~= room.host then return end
-        room.opponent = f[3]
+        local opp = f[3]
+        if sender ~= room.host or room.state ~= "open" or not opp or opp == "" or opp == room.host then return end
+        if room.target and opp ~= room.target then return end
+        if opp == ns.me then
+            if not room.joinRequested then return end      -- nobody gets seated without asking
+            self.mine = id
+        elseif not ns.InMyGroup(opp) then
+            return
+        end
+        room.opponent = opp
         room.state = "seated"
-        if room.opponent == ns.me then self.mine = id end
         changed(room, "seated")
     elseif kind == "Y" then
         if not self:IsPlayer(room, sender) or room.state ~= "seated" then return end
@@ -206,8 +283,9 @@ function DR:OnMessage(text, sender)
         changed(room, "ready")
         self:MaybeStart(room)
     elseif kind == "G" then
-        if sender ~= room.host or room.state ~= "seated" then return end
-        self:BeginRolling(room, f[3])
+        if sender ~= room.host or room.state ~= "seated" or not room.opponent then return end
+        if room.opponent == ns.me and not room.ready[ns.me] then return end   -- not before you accept
+        self:BeginRolling(room, room.host)          -- the challenger always rolls first
     elseif kind == "X" then
         if not self:IsPlayer(room, sender) or room.state == "done" then return end
         cancel(room, sender)
@@ -222,15 +300,22 @@ function DR:OnMessage(text, sender)
         room.target, room.declinedBy = nil, nil
         changed(room, "opened")
     elseif kind == "K" then
-        -- a player's echo of their own roll: use it if chat didn't deliver it
-        local n, roll, max = tonumber(f[3]), tonumber(f[4]), tonumber(f[5])
-        if not n or not roll or not max then return end
+        -- a player's echo of their own roll: used only when this client saw a
+        -- roll line with those numbers that it couldn't match (an unreadable
+        -- line, or the name came through differently) - never on its word alone
+        local n, roll, max = int(f[3], 1, 10000), int(f[4], 1, self.MAX_ROLL), int(f[5], 1, self.MAX_ROLL)
+        if not n or not roll or not max or roll > max then return end
         if not self:IsPlayer(room, sender) then return end
         C_Timer.After(1.5, function()
             if room.state ~= "rolling" or not DR.SameName(room.turn, sender) then return end   -- already applied from chat
-            if #room.rolls + 1 ~= n or max ~= room.max or roll < 1 or roll > max then return end
-            DR:Log(("used %s's roll report (%s, 1-%s) - their roll line never arrived in a readable form"):format(ns.Short(sender), DR.Fmt(roll), DR.Fmt(max)))
-            DR:ApplyRoll(room, sender, roll, true)
+            if #room.rolls + 1 ~= n or max ~= room.max then return end
+            local line = DR:SawRoll(sender, roll, max, room.turnAt or 0)
+            if not line then
+                DR:Log(("ignored %s's roll report (%s, 1-%s) - no roll line like it in chat"):format(ns.Short(sender), DR.Fmt(roll), DR.Fmt(max)))
+                return
+            end
+            DR:Log(("used %s's roll report (%s, 1-%s) - their roll line came through in a form this client couldn't match"):format(ns.Short(sender), DR.Fmt(roll), DR.Fmt(max)))
+            DR:ApplyRoll(room, room.turn, roll, true, line.at)
         end)
     elseif kind == "W" then
         -- the challenger keeps the official spectator list
@@ -241,7 +326,7 @@ function DR:OnMessage(text, sender)
         if was ~= (room.spectators[sender] ~= nil) then self:BroadcastSpectators(room) end
     elseif kind == "V" then
         if sender ~= room.host then return end
-        room.specTotal = tonumber(f[3]) or 0
+        room.specTotal = int(f[3], 0, 10000) or 0
         room.specList = {}
         for n in (f[4] or ""):gmatch("[^,]+") do room.specList[#room.specList + 1] = n end
         changed(room, "spectators")
@@ -255,12 +340,17 @@ function DR:OnMessage(text, sender)
 end
 
 -- Full room state: for spectators who open the window late, and so the two
--- players can compare notes after combat or a /reload.
+-- players can compare notes after combat or a /reload. A long game's state
+-- goes out in parts (U), since one message can carry only 255 bytes.
+local STATE_MAX, STATE_CHUNK = 255, 200
 function DR:SendState(room)
     local rolls = {}
     for _, r in ipairs(room.rolls) do rolls[#rolls + 1] = r.who .. ":" .. r.roll .. ":" .. r.max end
-    self:Send("F", room.id, room.host, room.wager, room.start, room.target or "", room.opponent or "",
+    local text = ns.Join("F", room.id, room.host, room.wager, room.start, room.target or "", room.opponent or "",
         room.state, table.concat(rolls, ","))
+    if #text <= STATE_MAX then return self:Send(text) end
+    local parts = ns.Chunks(text, STATE_CHUNK)
+    for i, part in ipairs(parts) do self:Send("U", room.id, i, #parts, part) end
 end
 
 -- A roll list is valid if it starts at the first roll, every roll stays in
@@ -276,6 +366,32 @@ function DR:ValidChain(room, rolls)
     return true
 end
 
+-- A longer roll list from the other side: the rolls this client already
+-- has must be the same, and on a player's own client each new roll needs a
+-- matching roll line this client saw in chat (in order). Just after a
+-- /reload (when lines were missed), the other player's rolls are taken from
+-- their answer to our question - our own never are. Returns ok, and the
+-- time of the newest roll line used.
+function DR:TrustChain(room, rolls)
+    for i, r in ipairs(room.rolls) do
+        local x = rolls[i]
+        if not x or x.who ~= r.who or x.roll ~= r.roll or x.max ~= r.max then return false end
+    end
+    local since, used = room.turnAt or 0, {}
+    if not self:IsPlayer(room) then return true, GetTime() end        -- spectators: shown only, never recorded
+    local blind = room.blindAt and GetTime() - room.blindAt < 15
+    for i = #room.rolls + 1, #rolls do
+        local r = rolls[i]
+        local line = self:SawRoll(r.who, r.roll, r.max, since, used)
+        if line then
+            since = line.at
+        elseif not blind or r.who == ns.me then
+            return false
+        end
+    end
+    return true, since
+end
+
 -- Turn, range and result always follow from the roll list itself.
 function DR:Derive(room)
     local last = room.rolls[#room.rolls]
@@ -289,45 +405,57 @@ function DR:Derive(room)
 end
 
 function DR:ApplyState(f, sender)
-    local id = f[2]
-    local host = f[3]
-    local incoming = {
-        host = host, wager = tonumber(f[4]) or 0, start = tonumber(f[5]) or 0,
-        target = (f[6] ~= "" and f[6]) or nil, opponent = (f[7] ~= "" and f[7]) or nil,
-        state = f[8] or "open", rolls = {},
-    }
+    local id, host = f[2], f[3]
+    local wager, start = int(f[4], 1, self.MAX_WAGER), int(f[5], 2, self.MAX_ROLL)
+    if not (id and host and wager and start) or start > wager then return end
+    local target = (f[6] and f[6] ~= "") and f[6] or nil
+    local opp = (f[7] and f[7] ~= "") and f[7] or nil
+    local state = f[8] or "open"
+    local rolls = {}
     for entry in (f[9] or ""):gmatch("[^,]+") do
         local who, roll, max = entry:match("^(.+):(%d+):(%d+)$")
-        if who then incoming.rolls[#incoming.rolls + 1] = { who = who, roll = tonumber(roll), max = tonumber(max) } end
+        if not who then return end
+        rolls[#rolls + 1] = { who = who, roll = tonumber(roll), max = tonumber(max) }
     end
-    -- only the room's players speak for it
-    if sender ~= incoming.host and sender ~= incoming.opponent then return end
     local room = self.rooms[id]
     if not room then
-        room = { id = id, host = host, ready = {}, created = GetTime(), rolls = {}, state = "open" }
-        for k, v in pairs(incoming) do if k ~= "rolls" then room[k] = v end end
+        -- a game this client never saw announced: only its host can describe
+        -- it, and only to a spectator (you never end up in a game this way)
+        if sender ~= host or not hostsId(id, sender) or host == ns.me or opp == ns.me then return end
+        room = { id = id, host = host, wager = wager, start = start, target = target, ready = {}, created = GetTime(), rolls = {}, state = "open" }
         self.rooms[id] = room
-    elseif room.host ~= host then
+    end
+    -- only the room's players, as this client knows them, speak for it
+    if host ~= room.host or (sender ~= room.host and sender ~= room.opponent) then return end
+    local mine = self:IsPlayer(room)
+    if state == "cancelled" then
+        if room.state ~= "done" and room.state ~= "cancelled" then cancel(room, sender) end
         return
     end
-    if incoming.state == "cancelled" and room.state ~= "done" then
-        room.state, room.cancelledBy = "cancelled", sender
-    elseif incoming.state ~= "open" or room.state == "open" then
-        room.opponent = room.opponent or incoming.opponent
-        if room.state == "open" or room.state == "seated" then room.state = incoming.state end
-        -- keep the longest roll list that follows the rules
-        if #incoming.rolls > #room.rolls and self:ValidChain(room, incoming.rolls) then
-            local before = #room.rolls
-            room.rolls = incoming.rolls
-            if self:IsPlayer(room) and before > 0 then
-                room.warning = ("Caught up on %d roll(s) you missed."):format(#incoming.rolls - before)
-            end
+    if state == "open" and room.state ~= "open" then return end
+    -- the seat comes from the host's word, and never puts you in a game
+    if not room.opponent and opp and sender == room.host and opp ~= ns.me then room.opponent = opp end
+    if (room.state == "open" or room.state == "seated") and state ~= "open" and room.opponent then
+        if not mine then
+            room.state = (state == "seated") and "seated" or "rolling"
+        elseif room.ready[ns.me] and state ~= "seated" then
+            room.state = "rolling"                       -- you accepted; the start was missed
         end
-        local wasDone = room.state == "done"
-        self:Derive(room)
-        if room.state == "done" and not wasDone then self:Finish(room) end
     end
-    if room.opponent == ns.me or room.host == ns.me then self.mine = id end
+    -- keep the longest roll list that follows the rules (and that this client can vouch for)
+    local trusted, at
+    if room.state == "rolling" and #rolls > #room.rolls and self:ValidChain(room, rolls) then trusted, at = self:TrustChain(room, rolls) end
+    if trusted then
+        local before = #room.rolls
+        room.rolls = rolls
+        room.turnAt, room.lastRollAt = at, GetTime()
+        if mine and before > 0 then
+            room.warning = ("Caught up on %d roll(s) you missed."):format(#rolls - before)
+        end
+    end
+    local wasDone = room.state == "done"
+    self:Derive(room)
+    if room.state == "done" and not wasDone then self:Finish(room) end
     changed(room, "state")
 end
 
@@ -352,6 +480,7 @@ function DR:Create(wager, target)
     end
     wager = math.floor(tonumber(wager) or 0)
     if wager < 1 then ns.Print("Enter a wager of at least 1 gold.") return nil end
+    if wager > self.MAX_WAGER then ns.Print("Wagers go up to " .. self.Fmt(self.MAX_WAGER) .. "g (the gold cap).") return nil end
     local start = wager
     if start > self.MAX_ROLL then
         start = self.MAX_ROLL
@@ -418,6 +547,7 @@ function DR:BeginRolling(room, first)
     room.turn = first
     room.max = room.start
     room.rolls = {}
+    room.turnAt, room.lastRollAt = GetTime(), GetTime()
     changed(room, "started")
     self:OnTurn(room)
 end
@@ -522,9 +652,13 @@ function DR:OnSystem(msg)
     end
     local name, roll, lo, hi, noRealm = self:ParseRoll(msg)
     if not name then
-        if type(msg) == "string" and msg:find("%d+%s*%(%d+%-%d+%)") then self:Log("couldn't read roll line: " .. msg:gsub("|", "||")) end
+        if type(msg) == "string" and msg:find("%d+%s*%(%d+%-%d+%)") then
+            self:Log("couldn't read roll line: " .. msg:gsub("|", "||"))
+            noteLine({ text = msg })
+        end
         return
     end
+    noteLine({ name = name, noRealm = noRealm, roll = roll, lo = lo, hi = hi })
     local used = false
     for _, room in pairs(self.rooms) do
         if room.state == "rolling" and (self.SameName(room.turn, name)
@@ -549,8 +683,9 @@ function DR:OnSystem(msg)
     end
 end
 
-function DR:ApplyRoll(room, name, roll, fromEcho)
+function DR:ApplyRoll(room, name, roll, fromEcho, at)
     local entry = { who = name, roll = roll, max = room.max }
+    room.turnAt, room.lastRollAt = at or GetTime(), GetTime()       -- the next roll's line comes after this
     -- my own roll: echo it to the group so nobody's stuck if their client
     -- couldn't read it from chat
     if name == ns.me and not room.sim and not fromEcho then
@@ -645,7 +780,7 @@ end
 -- (nil = you're not looking at any game).
 function DR:SetWatching(id)
     local room = id and self.rooms[id]
-    if room and (room.sim or self:IsPlayer(room, ns.me)) then room, id = nil, nil end
+    if room and (room.sim or self:IsPlayer(room, ns.me)) then id = nil end
     if self.watching == id then return end
     if self.watching then self:Send("W", self.watching, "0") end
     self.watching = id
@@ -671,10 +806,30 @@ function DR:CheckRoster()
     end
 end
 
+-- A game ends by itself when nobody has rolled for half an hour, or when the
+-- other player has been offline for two minutes (offline players stay in
+-- the group, so the roster check never sees them leave).
+DR.STALE_TIMEOUT, DR.OFFLINE_TIMEOUT = 1800, 120
+
+function DR:Offline(room, now)
+    local away = false
+    for _, n in ipairs({ room.host, room.opponent }) do
+        local unit = n ~= ns.me and ns.UnitForName(n)
+        if unit and UnitIsConnected and ns.Safe.Bool(UnitIsConnected(unit)) == false then away = true end
+    end
+    if not away then room.offlineSince = nil return false end
+    room.offlineSince = room.offlineSince or now
+    return now - room.offlineSince > self.OFFLINE_TIMEOUT
+end
+
 function DR:Expire()
     local now = GetTime()
     for id, room in pairs(self.rooms) do
         if room.state == "open" and now - room.created > self.OPEN_TIMEOUT then cancel(room, "expired") end
+        if room.state == "rolling" and not room.sim and now - (room.lastRollAt or room.created) > self.STALE_TIMEOUT then cancel(room, "stale") end
+        if (room.state == "open" or room.state == "seated" or room.state == "rolling") and not room.sim and self:Offline(room, now) then
+            cancel(room, "offline")
+        end
         if (room.state == "cancelled" or room.state == "done") and id ~= self.mine and now - room.created > 3600 then
             self.rooms[id] = nil
         end
@@ -733,6 +888,8 @@ function DR:RestoreActive()
     local room = { created = GetTime() }
     for k, v in pairs(saved) do room[k] = v end
     room.savedAt = nil
+    room.turnAt, room.lastRollAt = GetTime(), GetTime()
+    room.blindAt = GetTime()        -- roll lines were missed during the reload: see TrustChain
     self.rooms[room.id] = room
     self.mine = room.id
     self:Derive(room)
@@ -761,10 +918,12 @@ end
 function DR:IsGameRoll(msg)
     local t = self.matched[msg]
     if t and GetTime() - t < 5 then return true end
-    local name, _, lo, hi = self:ParseRoll(msg)
+    local name, _, lo, hi, noRealm = self:ParseRoll(msg)
     if not name then return false end
     for _, room in pairs(self.rooms) do
-        if room.state == "rolling" and room.turn == name and lo == 1 and hi == room.max then return true end
+        -- the same name match as OnSystem (connected-realm lines come without a realm)
+        if room.state == "rolling" and lo == 1 and hi == room.max and (self.SameName(room.turn, name)
+            or (noRealm and ns.Short(room.turn or "") == ns.Short(name))) then return true end
     end
     return false
 end

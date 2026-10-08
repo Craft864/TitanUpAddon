@@ -18,17 +18,10 @@ local LINK = "addon:TitanUp:dr:"
 
 local function fmtGold(n) return DR.Fmt(n) .. GOLD end
 
-local function classColor(name)
-    if DR.sim and name == DR.sim.opp then return 0.78, 0.61, 0.43 end   -- warrior tan
-    local class = ns.ClassOf(name)
-    local cc = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-    if cc then return cc.r, cc.g, cc.b end
-    return C.text[1], C.text[2], C.text[3]
-end
-
+-- a class-coloured short name (the practice opponent is a warrior)
 local function colored(name)
-    local r, g, b = classColor(name)
-    return ("|cff%02x%02x%02x%s|r"):format(r * 255, g * 255, b * 255, ns.Short(name))
+    if DR.sim and name == DR.sim.opp then return "|cffc79c6e" .. ns.Short(name) .. "|r" end
+    return UI.Named(name)
 end
 
 -- rightInset: stop the line early (the top heading shares its line with
@@ -56,10 +49,12 @@ function V:Init()
             V:ShowRoom(id)
         end
     end
+    -- one way in, so a click runs once (the game's own event, else a hook)
     if EventRegistry and EventRegistry.RegisterCallback then
         EventRegistry:RegisterCallback("SetItemRef", function(_, link) onLink(link) end, V)
+    elseif SetItemRef then
+        hooksecurefunc("SetItemRef", function(link) onLink(link) end)
     end
-    if SetItemRef then hooksecurefunc("SetItemRef", function(link) onLink(link) end) end
 end
 
 function V:Create()
@@ -94,7 +89,7 @@ end
 function V:CreateLobby(p)
     section(p, "NEW CHALLENGE", -6)
     UI.Text(p, "GameFontHighlightSmall", C.muted, "Wager (gold)", "TOPLEFT", 16, -30)
-    self.wager = UI.EditBox(p, 150, 26, { inset = 8, numeric = true, max = 9 })
+    self.wager = UI.EditBox(p, 150, 26, { inset = 8, numeric = true, max = 7 })      -- the gold cap: 9,999,999
     self.wager:SetPoint("TOPLEFT", 16, -46)
     self.wager:SetText("10000")
     UI.Tip(self.wager, "Wager (gold)", nil, "Also the first roll: the challenger rolls 1 to the wager.")
@@ -190,7 +185,7 @@ function V:ShowOpponentMenu()
     UI.Menu(self.oppBtn, items)
 end
 
-function V:RefreshLobby()
+function V:RefreshLobby(by)
     if self.specPanel then self.specPanel:Hide() end
     self.oppBtn.label:SetText(V.target and ns.Short(V.target) or "Anyone")
 
@@ -214,7 +209,7 @@ function V:RefreshLobby()
     end
     self.noOpen:SetShown(#open == 0)
 
-    local _, by = ns.DRLedger:Stats()
+    if not by then by = select(2, ns.DRLedger:Stats()) end
     local me = by[ns.me] or { wins = 0, losses = 0, net = 0 }
     local netText = (me.net >= 0 and "|cff66e08c+" or "|cffff5a5a-") .. DR.Fmt(math.abs(me.net)) .. "|r" .. GOLD
     self.recordText:SetText(("Won %d   Lost %d   Net %s"):format(me.wins, me.losses, netText))
@@ -344,8 +339,8 @@ end
 -- (the standings sit beside the lobby now)
 function V:ShowStandings() self:ShowLobby() end
 
-function V:RefreshStandings()
-    local list = ns.DRLedger:Stats()
+function V:RefreshStandings(list)
+    list = list or ns.DRLedger:Stats()
     local off = self.standList:Layout(#list)
     self.standEmpty:SetShown(#list == 0)
     for i, r in ipairs(self.standList.rows) do
@@ -440,8 +435,7 @@ function V:ShowLobby()
     self.lobby:Show()
     self.standings:Show()
     self.backBtn:Hide()
-    self:RefreshLobby()
-    self:RefreshStandings()
+    self:Refresh()
 end
 
 function V:ShowRoom(id)
@@ -465,8 +459,10 @@ end
 
 function V:Refresh()
     if not self.frame then return end
-    if self.roomId then self:RefreshRoom()
-    else self:RefreshLobby(); self:RefreshStandings() end
+    if self.roomId then self:RefreshRoom() return end
+    local list, by = ns.DRLedger:Stats()          -- once for both sides
+    self:RefreshLobby(by)
+    self:RefreshStandings(list)
 end
 
 local function cardState(card, room, name, isTurn, landing)
@@ -521,7 +517,8 @@ function V:RefreshRoom()
         elseif room.state == "cancelled" then
             self.bigNum:SetText("-")
             self.bigNum:SetTextColor(C.muted[1], C.muted[2], C.muted[3])
-            local why = room.cancelledBy == "expired" and "Nobody joined in time." or room.cancelledBy == "left" and "A player left the group." or "Cancelled."
+            local why = ({ expired = "Nobody joined in time.", left = "A player left the group.", offline = "A player went offline.",
+                stale = "No rolls for half an hour - the game was closed." })[room.cancelledBy] or "Cancelled."
             self.bigLabel:SetText(why)
         else
             self.bigNum:SetText(DR.Fmt(room.start))
@@ -578,9 +575,7 @@ function V:RefreshRoom()
         end
         if mine then secondary = "Cancel game" end
     elseif room.state == "done" then
-        if self.anim then
-            -- the final roll is still landing on screen: no buttons yet
-        else
+        if not self.anim then               -- (while the final roll lands on screen: no buttons yet)
             if mine then
                 action, actionOn = "Rematch", true
                 if room.loser == me and not room.sim then tertiary = "Open trade" end
@@ -823,58 +818,31 @@ end
 -- Challenge pop-up + chat link
 -- ---------------------------------------------------------------------
 function V:CreateToast()
-    local t = CreateFrame("Frame", "TitanUpDeathRollToast", UIParent, "BackdropTemplate")
-    UI.Skin(t, C.bg, C.accent)
-    t:SetSize(380, 74)
-    t:SetPoint("TOP", 0, -140)
-    t:SetFrameStrata("DIALOG")
-    t:Hide()
-    ns.Dock:Add(t)
-    local icon = t:CreateTexture(nil, "ARTWORK")
-    icon:SetTexture(ns.MEDIA .. "DeathRoll")
-    icon:SetSize(36, 36)
-    icon:SetPoint("LEFT", 12, 0)
-    t.text = UI.Text(t, "GameFontHighlight", nil, nil, "TOPLEFT", icon, "TOPRIGHT", 10, 2)
-    t.text:SetPoint("RIGHT", -10, 0)
-    t.text:SetJustifyH("LEFT")
-    t.join = UI.Button(t, 90, 22, "Join", nil, function()
-        t:Hide()
-        if t.room then DR:Join(t.room.id); V:ShowRoom(t.room.id) end
-    end)
-    t.join:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 10, -6)
-    t.watch = UI.Button(t, 70, 22, "Watch", nil, function()
-        t:Hide()
-        if t.room then t.room.watching = true; V:ShowRoom(t.room.id) end
-    end)
-    t.watch:SetPoint("LEFT", t.join, "RIGHT", 6, 0)
-    t.decline = UI.Button(t, 70, 22, "Decline", "Turn it down - the challenger can then open it to anyone", function()
-        t:Hide()
-        if t.room then DR:Decline(t.room.id) end
-    end)
-    t.decline:SetPoint("LEFT", t.join, "RIGHT", 6, 0)
-    t.close = UI.Button(t, 70, 22, "Dismiss", nil, function() t:Hide() end)
-    t.close:SetPoint("LEFT", t.watch, "RIGHT", 6, 0)
+    local t = UI.Toast("TitanUpDeathRollToast", ns.MEDIA .. "DeathRoll", {
+        { key = "join", text = "Join", w = 90, click = function(s) if s.room then DR:Join(s.room.id); V:ShowRoom(s.room.id) end end },
+        { key = "watch", text = "Watch", click = function(s) if s.room then s.room.watching = true; V:ShowRoom(s.room.id) end end },
+        { key = "decline", text = "Decline", tip = "Turn it down - the challenger can then open it to anyone",
+          click = function(s) if s.room then DR:Decline(s.room.id) end end },
+        { key = "close", text = "Dismiss" },
+    })
     self.toast = t
 end
 
+-- A challenge in your group: a pop-up (not mid-fight) and a chat link.
 function V:Toast(room, opened)
-    if not self.toast then self:CreateToast() end
-    local t = self.toast
-    t.room = room
     local forMe = room.target == ns.me
     local who = forMe and "challenges you" or (opened and "opened their death roll to anyone" or "started a death roll")
-    t.text:SetText(("%s %s for %s"):format(colored(room.host), who, fmtGold(room.wager)))
-    -- a challenge meant for you: Join / Decline / Dismiss; otherwise Join / Watch / Dismiss
-    t.decline:SetShown(forMe)
-    t.watch:SetShown(not forMe)
-    t.close:ClearAllPoints()
-    t.close:SetPoint("LEFT", forMe and t.decline or t.watch, "RIGHT", 6, 0)
-    t:Show()
-    if PlaySound and SOUNDKIT and SOUNDKIT.TELL_MESSAGE then PlaySound(SOUNDKIT.TELL_MESSAGE) end
-    local token = {}
-    t.token = token
-    C_Timer.After(20, function() if t.token == token then t:Hide() end end)
-    ns.Print(("%s %s for %s  |H%s%s|h|cff4fc3f7[Open death roll]|r|h"):format(colored(room.host), who, fmtGold(room.wager), LINK, room.id))
+    local text = ("%s %s for %s"):format(colored(room.host), who, fmtGold(room.wager))
+    if not ns.Busy() then
+        if not self.toast then self:CreateToast() end
+        local t = self.toast
+        t.room = room
+        -- a challenge meant for you: Join / Decline / Dismiss; otherwise Join / Watch / Dismiss
+        t.decline:SetShown(forMe)
+        t.watch:SetShown(not forMe)
+        t:Pop(text, 20)
+    end
+    ns.Print(("%s  |H%s%s|h|cff4fc3f7[Open death roll]|r|h"):format(text, LINK, room.id))
 end
 
 ns.RegisterModule({

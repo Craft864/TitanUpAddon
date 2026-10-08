@@ -26,6 +26,7 @@ Board\Comms.lua
 Board\Sync.lua
 Board\Presence.lua
 Board\Board.lua
+Board\BoardFrame.lua
 Board\BoardPanels.lua
 Board\Laser.lua
 Board\ImportExport.lua

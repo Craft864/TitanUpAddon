@@ -9,6 +9,8 @@
 --   * Kept by raid week (Tuesday reset), 4 weeks; clear a week or all.
 --   * Sync from raid leader: asks the leader's Titan Up for their (most
 --     complete) copy of the week, out of combat; merged without duplicates.
+--     The leader answers each week at most once a minute (raiders asking
+--     in between share that answer), one part a second, pausing in combat.
 --   * Export CSV: one row per death, for Google Sheets / Excel.
 -- Nothing runs in combat; the numbers are worked out when you open it.
 local ADDON, ns = ...
@@ -23,13 +25,22 @@ local PREFIX = "TitanUpRS"
 local WEEK = 7 * 86400
 local KEEP_WEEKS = 4
 local CHUNK = 230
-local DIFF = { [15] = "Heroic", [16] = "Mythic" }
+local DIFF = ns.RaidCheck.HEROIC_MYTHIC
+local REPLY_GAP = 60          -- the leader answers each week at most this often
+local WAIT_FIRST, WAIT_PART = 75, 30   -- the asker gives up after this long without a part
 
 local function db() return ns.udb.raidHistory end
 
 function RS:Init()
     ns.Listen(PREFIX, "guild", function(msg, sender) RS:OnMessage(msg, sender) end)
-    ns.On("PLAYER_REGEN_ENABLED", function() if RS.pendingReply then C_Timer.After(2, function() RS:SendReply() end) end end)
+end
+
+-- the window redraws only while it's showing, and once for a burst of changes
+function RS:RefreshUI()
+    ns.Debounce("raidscore-refresh", 0.5, function()
+        local V = ns.RaidScorecardUI
+        if V and V:IsShown() then V:Refresh() end
+    end)
 end
 
 -- ---------------------------------------------------------------------
@@ -90,12 +101,13 @@ function RS:Compact(pull)
 end
 
 function RS:Store(pull)
-    if not (pull and (pull.diff == 15 or pull.diff == 16)) then return end
-    local week = self:Week(RS.WeekOf(pull.start))
+    if not (pull and DIFF[pull.diff]) then return end
+    local wk = RS.WeekOf(pull.start)
+    local isNew = db().weeks[wk] == nil
     local c = self:Compact(pull)
-    week.pulls[c.key] = c
-    self:Trim()
-    if ns.RaidScorecardUI then ns.RaidScorecardUI:Refresh() end
+    self:Week(wk).pulls[c.key] = c
+    if isNew then self:Trim() end                                   -- (only a new week can push one out)
+    self:RefreshUI()
 end
 
 -- a pull under 20 seconds (not a kill): not counted, only tallied per boss
@@ -105,7 +117,7 @@ function RS:CountShort(pull)
     week.short = week.short or {}
     local name = pull.name or "Encounter"
     week.short[name] = (week.short[name] or 0) + 1
-    if ns.RaidScorecardUI then ns.RaidScorecardUI:Refresh() end
+    self:RefreshUI()
 end
 
 function RS:ShortCount(wk, boss)
@@ -277,7 +289,7 @@ function RS.Deserialize(text)
                                                 p = x[6] == "1", h = x[7] == "1", s = x[8] == "1" or nil }
                 end
             end
-            if p.start and (p.diff == 15 or p.diff == 16) then week.pulls[p.key] = p end
+            if p.start and DIFF[p.diff] then week.pulls[p.key] = p end
         end
     end
     return week
@@ -335,55 +347,99 @@ function RS:RequestSync(wk)
     local leader = self:LeaderFor(wk)
     if not leader then ns.Print("No raid leader known for that week yet - join their group, or run a pull with them first.") return end
     if leader == ns.me then ns.Print("You're the raid leader for that week - your copy is the full one.") return end
-    self.request = { id = tostring(GetServerTime and GetServerTime() or time()), from = leader, parts = {}, got = 0 }
-    ns.Send(PREFIX, ("Q^%d^%s^%s"):format(wk, leader, self.request.id), ch)
-    ns.Print(("Asking %s for that week's raid data..."):format(ns.Short and ns.Short(leader) or leader))
-    C_Timer.After(30, function()
-        if RS.request and RS.request.got == 0 then ns.Print("No answer - the raid leader may be offline or busy."); RS.request = nil end
+    local req = { id = tostring(ns.Now()), from = leader, wk = wk, got = 0, at = GetTime() }
+    self.request, self.inbox = req, {}
+    ns.Send(PREFIX, ("Q^%d^%s^%s"):format(wk, leader, req.id), ch)
+    ns.Print(("Asking %s for that week's raid data..."):format(ns.Short(leader)))
+    self:WatchRequest(req)
+end
+
+-- Give up once the answer stops coming, and say how far it got.
+function RS:WatchRequest(req)
+    local wait = req.got == 0 and WAIT_FIRST or WAIT_PART
+    C_Timer.After(wait - (GetTime() - req.at), function()
+        if self.request ~= req then return end
+        if GetTime() - req.at < (req.got == 0 and WAIT_FIRST or WAIT_PART) - 0.01 then return RS:WatchRequest(req) end
+        self.request = nil
+        if req.got == 0 then ns.Print("No answer - the raid leader may be offline or busy.")
+        else ns.Print(("Only got %d of %d parts of the raid data - try again."):format(req.got, req.n or 0)) end
     end)
 end
 
-function RS:SendReply()
-    local r = self.pendingReply
-    if not r or InCombatLockdown() then return end
-    self.pendingReply = nil
-    local ch = ns.DataChannel()
-    local week = db().weeks[r.wk]
-    if not ch or not week then return end
-    local packed = ns.Codec.Compress(RS.Serialize(week))
+-- The leader: answer a week's request. Requests that come in before the
+-- answer starts share it; after that, the week goes out again at most
+-- once a minute. Old versions match the answer by their own request id,
+-- so it carries the newest asker's.
+function RS:QueueReply(wk, id)
+    self.replies = self.replies or {}
+    local r = self.replies[wk] or {}
+    self.replies[wk] = r
+    r.id = id
+    if r.queued then return end
+    r.queued = true
+    local wait = math.max(0.5, (r.lastAt and r.lastAt + REPLY_GAP or 0) - GetTime())
+    C_Timer.After(wait, function() RS:SendReply(wk) end)
+end
+
+function RS:SendReply(wk)
+    local r = self.replies and self.replies[wk]
+    if not (r and r.queued) then return end
+    if ns.Busy() then return C_Timer.After(5, function() RS:SendReply(wk) end) end    -- after the fight
+    r.queued = nil
+    local week = db().weeks[wk]
+    local packed = week and ns.DataChannel() and ns.Codec.Compress(RS.Serialize(week))
     if not packed then return end
-    local text = ns.Codec.EncodeForPrint(packed)
-    local n = math.ceil(#text / CHUNK)
-    for i = 1, n do
-        -- spaced out so the guild channel isn't flooded
-        C_Timer.After((i - 1) * 0.15, function()
-            ns.Send(PREFIX, ("D^%s^%d^%d^%s"):format(r.id, i, n, text:sub((i - 1) * CHUNK + 1, i * CHUNK)), ch)
-        end)
+    r.lastAt = GetTime()
+    self.outgoing = self.outgoing or {}
+    table.insert(self.outgoing, { id = r.id, parts = ns.Chunks(ns.Codec.EncodeForPrint(packed), CHUNK), i = 1 })
+    self:Pump()
+end
+
+-- One part a second (what the channel allows; the first few at once), held
+-- while you're in combat or a boss fight.
+function RS:Pump()
+    local s = self.outgoing and self.outgoing[1]
+    if not s or self.pumping then return end
+    local ch = ns.DataChannel()
+    if not ch then self.outgoing = nil return end
+    if not ns.Busy() then
+        for _ = 1, (s.i == 1) and 8 or 1 do
+            ns.Send(PREFIX, ("D^%s^%d^%d^%s"):format(s.id, s.i, #s.parts, s.parts[s.i]), ch)
+            s.i = s.i + 1
+            if s.i > #s.parts then table.remove(self.outgoing, 1) break end
+        end
     end
+    self.pumping = true
+    C_Timer.After(1, function() RS.pumping = nil; RS:Pump() end)
 end
 
 function RS:OnMessage(msg, sender)
     local wk, leader, id = msg:match("^Q%^(%d+)%^([^%^]+)%^(%d+)$")
     if wk then
-        if leader ~= ns.me then return end                                   -- only the named leader answers
-        self.pendingReply = { wk = tonumber(wk), id = id, to = sender }
-        if not InCombatLockdown() then C_Timer.After(0.5, function() RS:SendReply() end) end
+        if leader == ns.me then self:QueueReply(tonumber(wk), id) end          -- only the named leader answers
         return
     end
+    -- any answer from the leader counts if it turns out to be the asked-for
+    -- week (it may be the one sent to another raider who asked first)
     local rid, part, n, chunk = msg:match("^D%^(%d+)%^(%d+)%^(%d+)%^(.*)$")
     local req = self.request
-    if not (rid and req and req.id == rid and req.from == sender) then return end
-    part, n = tonumber(part), tonumber(n)
-    if not req.parts[part] then req.parts[part] = chunk; req.got = req.got + 1 end
-    if req.got < n then return end
+    if not (rid and req and req.from == sender) then return end
+    local before = self.inbox[rid]
+    local text = ns.Reassemble(self.inbox, rid, part, n, chunk)
+    local box = self.inbox[rid] or before                            -- (how far it got, for the time-out message)
+    if box then req.at, req.got, req.n = GetTime(), box.got, box.n end
+    if not text then return end
+    local raw = ns.Codec.DecodeForPrint(text)
+    local week = raw and RS.Deserialize(ns.Codec.Decompress(raw) or "")
+    if not (week and RS.WeekOf(week.start) == RS.WeekOf(req.wk)) then
+        if rid == req.id then self.request = nil; ns.Print("The raid data didn't arrive intact - try again.")
+        else req.got, req.n = 0, nil end                             -- (someone else's week: still waiting for ours)
+        return
+    end
     self.request = nil
-    local raw = ns.Codec.DecodeForPrint(table.concat(req.parts))
-    local text = raw and ns.Codec.Decompress(raw)
-    local week = text and RS.Deserialize(text)
-    if not week then ns.Print("The raid data didn't arrive intact - try again.") return end
     local added = self:Merge(week, sender)
-    ns.Print(("Synced from %s: %d pull%s added or updated."):format(ns.Short and ns.Short(sender) or sender, added, added == 1 and "" or "s"))
-    if ns.RaidScorecardUI then ns.RaidScorecardUI:Refresh() end
+    ns.Print(("Synced from %s: %d pull%s added or updated."):format(ns.Short(sender), added, added == 1 and "" or "s"))
+    self:RefreshUI()
 end
 
 -- ---------------------------------------------------------------------

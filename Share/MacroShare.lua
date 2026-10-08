@@ -4,16 +4,19 @@
 -- and anyone in a party or raid can send one to a single guildmate in it
 -- (0.31.0; the Builder tab hands its macros here). Recipients get a
 -- toast, and the macro is listed in the Macro Share window with who sent
--- it and its full text. Dragging its icon onto a bar creates it as a
--- character macro (or updates one with the same name) and puts it on the
--- cursor in one go.
+-- it and its full text (shown as plain text: colour codes and pictures in
+-- it don't render, and a macro that runs scripts is tagged). Dragging its
+-- icon onto a bar creates it as a character macro (or updates your
+-- character macro with the same name - an account-wide macro with that
+-- name is never touched) and puts it on the cursor in one go.
 --   * To the raid, a role or a class: only in a raid, only from its leader
 --     / assistants - checked on the sender's side AND again by every
 --     recipient. To one person: anyone in the same party or raid.
 --   * Over the guild channel, to raid members running Titan Up.
 --   * WoW doesn't let addons create macros in combat: the icon says
 --     "after combat" until the fight ends.
---   * The received list lasts until you log out (X removes one).
+--   * The received list lasts until you log out (X removes one; the newest
+--     MAX_RECEIVED are kept).
 local ADDON, ns = ...
 
 local UI = ns.UI
@@ -47,6 +50,7 @@ end
 MS.IconPath = iconPath
 
 MS.received = {}          -- this session only
+MS.MAX_RECEIVED = 20
 
 function MS:Init()
     ns.Listen(PREFIX, "group", function(msg, sender) MS:OnMessage(msg, sender) end)
@@ -59,8 +63,6 @@ end
 -- ---------------------------------------------------------------------
 -- Who may share, and who gets it
 -- ---------------------------------------------------------------------
-local function unitFor(name) return ns.UnitForName(name) end
-
 -- the raid leader or an assistant (a raid only)
 function MS.IsLeadOrAssist(unit)
     if not unit then return false end
@@ -78,6 +80,7 @@ function MS.CanSend(target)
         if not MS.IsLeadOrAssist("player") then return false, "Only the raid leader or assistants can share macros with the raid - pick one person instead." end
     end
     if not ns.DataChannel() then return false, "Macro Share needs a guild." end
+    if ns.InLockdown() then return false, "Can't share during an encounter." end
     return true
 end
 
@@ -109,6 +112,21 @@ end
 function MS.CleanName(s) return (tostring(s or ""):gsub("[%c|\t]", ""):gsub("^%s+", ""):gsub("%s+$", "")):sub(1, MS.NAME_MAX) end
 function MS.CleanBody(s) return (tostring(s or ""):gsub("\r", ""):gsub("[\t%z]", " ")):sub(1, MS.BODY_MAX) end
 
+-- Macro text to show on screen: escape codes ("|c", "|T", ...) shown as
+-- typed instead of rendered, so nothing in it can hide or draw over.
+function MS.Plain(s) return (tostring(s or ""):gsub("|", "||")) end
+
+-- Does it run code when used (a /run, /script, /dump or /console line)?
+local SCRIPT_CMDS = { ["/run"] = true, ["/script"] = true, ["/dump"] = true, ["/console"] = true }
+function MS.RunsScript(body)
+    for line in tostring(body or ""):lower():gmatch("[^\n]+") do
+        line = line:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")       -- (a colour code can't hide one)
+        if SCRIPT_CMDS[line:match("^%s*(/%a+)") or ""] then return true end
+    end
+    return false
+end
+local SCRIPT_TAG = "|cffffa340runs a script|r"
+
 -- "M": from a raid leader / assistant (what every version understands);
 -- "D": from anyone, to one person (0.31.0 - older versions ignore it)
 function MS:Send(name, icon, body, target)
@@ -120,10 +138,10 @@ function MS:Send(name, icon, body, target)
     self.seq = (self.seq or 0) + 1
     local id = ("%d%d"):format((GetServerTime and GetServerTime() or time()) % 100000, self.seq)
     local payload = table.concat({ target, name, tostring(MS.CleanIcon(icon)), body }, "\t")
-    local n = math.ceil(#payload / CHUNK)
+    local parts = ns.Chunks(payload, CHUNK)
     local kind = MS.Leads() and "M" or "D"
-    for i = 1, n do
-        ns.Send(PREFIX, ("%s^%s^%d^%d^%s"):format(kind, id, i, n, payload:sub((i - 1) * CHUNK + 1, i * CHUNK)), ns.DataChannel())
+    for i, part in ipairs(parts) do
+        ns.Send(PREFIX, ("%s^%s^%d^%d^%s"):format(kind, id, i, #parts, part), ns.DataChannel())
     end
     ns.Print(("Shared \"%s\" with %s."):format(name, MS.TargetText(target)))
     return true
@@ -136,20 +154,13 @@ MS.inbox = {}
 function MS:OnMessage(msg, sender)
     local kind, id, part, n, chunk = msg:match("^([MD])%^(%d+)%^(%d+)%^(%d+)%^(.*)$")
     if not id then return end
-    part, n = tonumber(part), tonumber(n)
-    if not (part and n and n >= 1 and n <= 4 and part >= 1 and part <= n) then return end
-    local key = sender .. ":" .. (kind == "D" and "D" or "") .. id
-    for k, b in pairs(self.inbox) do if GetTime() - b.at > 60 then self.inbox[k] = nil end end   -- never finished
-    local box = self.inbox[key] or { parts = {}, got = 0, at = GetTime() }
-    self.inbox[key] = box
-    if not box.parts[part] then box.parts[part] = chunk; box.got = box.got + 1 end
-    if box.got < n then return end
-    self.inbox[key] = nil
-    local target, name, icon, body = table.concat(box.parts):match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t(.*)$")
+    local full = ns.Reassemble(self.inbox, sender .. ":" .. (kind == "D" and "D" or "") .. id, part, n, chunk, 4)
+    if not full then return end
+    local target, name, icon, body = full:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t(.*)$")
     if not target then return end
     if kind == "M" then
         -- re-checked here: a raid, and the sender leads or assists it
-        if not IsInRaid() or not MS.IsLeadOrAssist(unitFor(sender)) then return end
+        if not IsInRaid() or not MS.IsLeadOrAssist(ns.UnitForName(sender)) then return end
     else
         -- from anyone in your group, but only ever to you by name
         if target ~= "name:" .. ns.me or not ns.InMyGroup(sender) then return end
@@ -164,6 +175,7 @@ function MS:OnMessage(msg, sender)
         if r.name == name and r.from == sender then table.remove(self.received, i) end
     end
     table.insert(self.received, 1, { name = name, icon = icon, body = body, from = sender, target = target, at = time and time() or 0 })
+    while #self.received > MS.MAX_RECEIVED do table.remove(self.received) end
     self:Toast(self.received[1])
     if ns.MacroShareUI then ns.MacroShareUI:Refresh() end
 end
@@ -176,11 +188,25 @@ end
 -- ---------------------------------------------------------------------
 -- Creating it and putting it on the cursor (dragging the icon)
 -- ---------------------------------------------------------------------
+-- Your CHARACTER macro with this name (account-wide macros come first in
+-- the macro book, 1..number of account macros; character ones after).
+-- Second value: true when an account macro has the name.
+local function charMacro(name)
+    local idx = GetMacroIndexByName(name)
+    if not idx or idx == 0 then return nil, false end
+    local numAccount = GetNumMacros() or 0
+    if idx > numAccount then return idx, false end
+    for i = numAccount + 1, (MAX_ACCOUNT_MACROS or 120) + (MAX_CHARACTER_MACROS or 18) do
+        if GetMacroInfo(i) == name then return i, true end
+    end
+    return nil, true
+end
+
 function MS:PickUp(entry)
     if InCombatLockdown() then ns.Print("Macros can't be made in combat - drag it again after the fight.") return false end
-    local idx = GetMacroIndexByName(entry.name)
-    if idx and idx > 0 then
-        EditMacro(idx, entry.name, entry.icon, entry.body)            -- same name: update it
+    local idx, account = charMacro(entry.name)
+    if idx then
+        EditMacro(idx, entry.name, entry.icon, entry.body)            -- your character macro with that name: update it
     else
         local _, numChar = GetNumMacros()
         local max = MAX_CHARACTER_MACROS or 18
@@ -189,6 +215,9 @@ function MS:PickUp(entry)
             return false
         end
         idx = CreateMacro(entry.name, entry.icon, entry.body, true)
+        if account and idx and idx ~= 0 then
+            ns.Print(("You have an account-wide macro called \"%s\" - it's unchanged; this one was saved as a character macro with the same name."):format(entry.name))
+        end
     end
     if not idx or idx == 0 then ns.Print("The game didn't create the macro - try again.") return false end
     PickupMacro(idx)
@@ -202,28 +231,13 @@ end
 function MS:Toast(entry)
     local t = self.toast
     if not t then
-        t = CreateFrame("Button", "TitanUpMacroToast", UIParent, "BackdropTemplate")
-        t:SetSize(320, 46)
-        t:SetPoint("TOP", 0, -120)
-        t:SetFrameStrata("DIALOG")
-        UI.Skin(t, C.bg, C.accent)
-        t.icon = t:CreateTexture(nil, "ARTWORK")
-        t.icon:SetSize(30, 30)
-        t.icon:SetPoint("LEFT", 8, 0)
-        t.text = UI.Text(t, "GameFontHighlightSmall", C.text, nil, "LEFT", t.icon, "RIGHT", 8, 0)
-        t.text:SetPoint("RIGHT", -8, 0)
-        t.text:SetJustifyH("LEFT")
-        t:SetScript("OnClick", function(s) s:Hide(); ns.Nav:Switch("macroshare") end)
+        t = UI.Toast("TitanUpMacroToast", nil, nil, { w = 320, h = 46, y = -120, iconSize = 30, pad = 8,
+            font = "GameFontHighlightSmall", silent = true, onClick = function() ns.Nav:Switch("macroshare") end })
         self.toast = t
-        t:Hide()
-        ns.Dock:Add(t)                  -- stacks with the other pop-ups
     end
     t.icon:SetTexture(iconPath(entry.icon))
-    t.text:SetText(("%s shared a macro: |cffffffff%s|r\n|cff8a8f9cClick to open Macro Share|r"):format(UI.Short(entry.from), entry.name))
-    t:Show()
-    self.toastSeq = (self.toastSeq or 0) + 1
-    local seq = self.toastSeq
-    C_Timer.After(10, function() if MS.toastSeq == seq then t:Hide() end end)
+    t:Pop(("%s shared a macro: |cffffffff%s|r%s\n|cff8a8f9cClick to open Macro Share|r"):format(UI.Short(entry.from), entry.name,
+        MS.RunsScript(entry.body) and ("  " .. SCRIPT_TAG) or ""), 10)
 end
 
 -- ---------------------------------------------------------------------
@@ -315,7 +329,8 @@ function V:Create()
             if not r.entry then return end
             GameTooltip:SetOwner(s, "ANCHOR_LEFT")
             GameTooltip:SetText(r.entry.name, 1, 1, 1)
-            GameTooltip:AddLine(r.entry.body, 0.85, 0.87, 0.9, true)
+            GameTooltip:AddLine(MS.Plain(r.entry.body), 0.85, 0.87, 0.9, true)
+            if MS.RunsScript(r.entry.body) then GameTooltip:AddLine("Runs a script (/run, /script, /dump or /console) when used - check it before you drag it onto a bar.", 1, 0.64, 0.25, true) end
             GameTooltip:AddLine(InCombatLockdown() and "After combat: drag it onto a bar" or "Drag onto a bar (or click to pick it up)", 0.55, 0.57, 0.62)
             GameTooltip:Show()
         end)
@@ -428,8 +443,9 @@ function V:Refresh()
             r.icon.tex:SetDesaturated(combat)
             r.combat:SetShown(combat)
             r.name:SetText(e.name)
-            r.from:SetText(("from %s%s"):format(UI.Short(e.from), e.added and "  |cff66e08cadded|r" or ""))
-            r.body:SetText(e.body)
+            r.from:SetText(("from %s%s%s"):format(UI.Short(e.from), e.added and "  |cff66e08cadded|r" or "",
+                MS.RunsScript(e.body) and ("  " .. SCRIPT_TAG) or ""))
+            r.body:SetText(MS.Plain(e.body))
         end
     end
 end
