@@ -35,10 +35,10 @@ RC.RAID_BUFFS = {
     { key = "sky", spell = 462854, name = "Skyfury", class = "SHAMAN" },
 }
 -- Current-tier consumables (Midnight). Matched by name so every quality
--- rank counts; flask/food quality is checked against "approved" buffs
--- the raid leader teaches with the Learn button.
+-- rank (and the cauldron versions) counts. Any food buff counts.
 RC.FLASKS = { "Flask of Thalassian Resistance", "Flask of the Blood Knights", "Flask of the Magisters", "Flask of the Shattered Sun" }
-RC.POTIONS = { "Light's Potential", "Potion of Recklessness" }
+RC.POTIONS = { "Light's Potential", "Potion of Recklessness", "Potion of Zealotry", "Liquid Luster" }
+RC.HEALTH_POTIONS = { "Silvermoon Health Potion", "Concentrated Silvermoon Health Potion" }
 RC.WEEKLY = "Fury of the Dead"
 RC.VANTUS = "Vantus Rune"
 RC.FOOD = "Well Fed"
@@ -49,22 +49,27 @@ RC.CHECKS = {
     { key = "weapon", label = "Weapon oil / imbue" },
     { key = "vantus", label = "Vantus Rune" },
     { key = "weekly", label = "Fury of the Dead" },
-    { key = "pots", label = "Combat potions (10+)" },
+    { key = "pots", label = "Combat potions (5+)" },
+    { key = "hpots", label = "Health potions (5+)" },
     { key = "hs", label = "Healthstone", needsClass = "WARLOCK" },
     { key = "dur", label = "Durability (20%+)" },
 }
 
 local function settings() return ns.udb.raidcheck end
-local function bad(v) return v == nil or ns.IsSecret(v) end
+local function bad(v) return v == nil or ns.IsSecret(v) end          -- (see ns.Safe for the shared readers)
 
 -- ---------------------------------------------------------------------
 -- When it applies
 -- ---------------------------------------------------------------------
 function RC:Active()
-    if not IsInRaid() then return false end
+    if not IsInRaid() or not ns.DataChannel() then return false end      -- reports travel over your guild channel
     local _, kind, diffID = GetInstanceInfo()
     return kind == "raid" and (diffID == 15 or diffID == 16)    -- Heroic / Mythic
 end
+
+-- Only the raid leader gets the results window (whoever types /pull still
+-- gets the pull alert).
+function RC:IsLeader() return UnitIsGroupLeader("player") and true or false end
 
 function RC:CanLead()
     return UnitIsGroupLeader("player") or UnitIsGroupAssistant("player")
@@ -90,26 +95,37 @@ local function playerAuras()
     return list
 end
 
-local function bagCount(names)
+-- The plain item name from a link. Crafted items carry their quality icon
+-- inside the name ("[Light's Potential |A:...Tier2...|a]"), and links can
+-- hold texture/color codes too - strip all of that before comparing.
+function RC.ItemName(link)
+    local inner = link:match("|h%[(.-)%]|h") or link:match("%[(.-)%]")
+    if not inner then return nil end
+    inner = inner:gsub("|A.-|a", ""):gsub("|T.-|t", ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    return (inner:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+-- How many of these items are in your bags (by name, any quality), and
+-- their item IDs. Asking for "Healthstone" counts every kind of healthstone.
+function RC.BagCount(names)
     local want = {}
     for _, n in ipairs(names) do want[n:lower()] = true end
-    local total = 0
-    if not (C_Container and C_Container.GetContainerNumSlots) then return 0 end
+    local total, ids = 0, {}
+    if not (C_Container and C_Container.GetContainerNumSlots) then return 0, ids end
     for bag = 0, 5 do
-        local slots = C_Container.GetContainerNumSlots(bag) or 0
-        for slot = 1, slots do
+        for slot = 1, C_Container.GetContainerNumSlots(bag) or 0 do
             local info = C_Container.GetContainerItemInfo(bag, slot)
-            local link = info and info.hyperlink
-            local name = link and link:match("%[(.-)%]")
-            if name then
-                local lname = name:lower()
-                if want[lname] then total = total + (info.stackCount or 1)
-                elseif want.healthstone and lname:find("healthstone", 1, true) then total = total + (info.stackCount or 1) end
+            local name = info and info.hyperlink and RC.ItemName(info.hyperlink)
+            local lname = name and name:lower()
+            if lname and (want[lname] or (want.healthstone and lname:find("healthstone", 1, true))) then
+                total = total + (info.stackCount or 1)
+                if info.itemID then ids[info.itemID] = true end
             end
         end
     end
-    return total
+    return total, ids
 end
+local function bagCount(names) return (RC.BagCount(names)) end
 
 local function lowestDurability()
     local low = 100
@@ -141,19 +157,20 @@ function RC:Snapshot()
     return {
         buffs = table.concat(buffs), flask = flask, food = food, weapon = hasMain and 1 or 0,
         vantus = vantus, weekly = weekly, pots = bagCount(self.POTIONS), hs = bagCount({ "Healthstone" }),
+        hpots = bagCount(self.HEALTH_POTIONS),
         dur = lowestDurability(),
     }
 end
 
 local function encode(id, s)
-    return table.concat({ "R", id, s.buffs, s.flask, s.food, s.weapon, s.vantus, s.weekly, s.pots, s.hs, s.dur }, SEP)
+    return table.concat({ "R", id, s.buffs, s.flask, s.food, s.weapon, s.vantus, s.weekly, s.pots, s.hs, s.dur, s.hpots or 0 }, SEP)
 end
 
 local function decode(f)
     return {
         buffs = f[3] or "", flask = tonumber(f[4]) or 0, food = tonumber(f[5]) or 0, weapon = tonumber(f[6]) or 0,
         vantus = tonumber(f[7]) or 0, weekly = tonumber(f[8]) or 0, pots = tonumber(f[9]) or 0,
-        hs = tonumber(f[10]) or 0, dur = tonumber(f[11]) or 100,
+        hs = tonumber(f[10]) or 0, dur = tonumber(f[11]) or 100, hpots = tonumber(f[12]) or 0,
     }
 end
 
@@ -161,9 +178,7 @@ end
 -- Messaging + collecting
 -- ---------------------------------------------------------------------
 function RC:Send(...)
-    if ns.InLockdown() or not IsInGroup() then return end
-    local ch = ns.GroupChannel()
-    if ch then pcall(C_ChatInfo.SendAddonMessage, PREFIX, table.concat({ ... }, SEP), ch) end
+    if not ns.InLockdown() and IsInGroup() then ns.SendFields(PREFIX, ...) end
 end
 
 RC.current = nil      -- { id, kind, by, t, reports = { [name] = report }, watching }
@@ -176,29 +191,19 @@ function RC:NewCheck(kind, by)
 end
 
 function RC:Init()
-    ns.udb.raidcheck = ns.udb.raidcheck or {}
-    local s = ns.udb.raidcheck
-    s.approved = s.approved or { flask = {}, food = {} }
-    s.potMin = s.potMin or 10
-    s.durMin = s.durMin or 20
-    if s.pullCheck == nil then s.pullCheck = true end
-    C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
-    ns.On("CHAT_MSG_ADDON", function(prefix, text, _, sender)
-        if prefix ~= PREFIX or bad(text) or bad(sender) then return end
-        sender = ns.NormalizeSender(sender)
-        if sender and sender ~= ns.me then RC:OnMessage(text, sender) end
-    end)
-    -- Ready check: everyone reports on their own; the initiator and the
-    -- raid leader see the results.
+    ns.Listen(PREFIX, "group", function(text, sender) RC:OnMessage(text, sender) end)
+    -- Ready check: everyone reports on their own; only the raid leader sees
+    -- the results.
     ns.On("READY_CHECK", function(initiator)
         if not RC:Active() then return end
-        local by = (not bad(initiator) and ns.NormalizeSender(initiator)) or ns.LeaderName() or ns.me
+        local by = (not bad(initiator) and ns.NormalizeSender(initiator)) or ns.LeaderName() or "?"
         local check = RC:NewCheck("ready", by)
         check.id = "rc"                     -- everyone uses the same id for a ready check
         RC:Send(encode("rc", check.reports[ns.me]))
-        if by == ns.me or UnitIsGroupLeader("player") then
-            if ns.RaidCheckUI then ns.RaidCheckUI:ShowResults() end
-        end
+        if RC:IsLeader() and ns.RaidCheckUI then ns.RaidCheckUI:ShowResults() end
+    end)
+    ns.On("ENCOUNTER_START", function()
+        if ns.RaidCheckUI then ns.RaidCheckUI:CloseAll() end
     end)
     ns.On("ADDON_LOADED", function() RC:HookPull() end)
     ns.On("PLAYER_ENTERING_WORLD", function() RC:HookPull() end)
@@ -215,7 +220,7 @@ function RC:OnMessage(text, sender)
         check.reports[ns.me] = self:Snapshot()
         self.current = check
         self:Send(encode(id, check.reports[ns.me]))
-        if UnitIsGroupLeader("player") and ns.RaidCheckUI then ns.RaidCheckUI:ShowResults() end
+        if RC:IsLeader() and ns.RaidCheckUI then ns.RaidCheckUI:ShowResults() end
     elseif kind == "R" then
         local c = self.current
         if c and c.id == id then
@@ -241,12 +246,6 @@ function RC:Roster()
         out[#out + 1] = { name = m.name, class = ns.ClassOf(m.name), online = m.online }
     end
     return out
-end
-
-local function approvedOrAny(list, id)
-    if id == 0 then return false end
-    if not next(list) then return true end          -- nothing learned: any counts
-    return list[id] == true
 end
 
 -- Returns { total, buffs = { {def, have, missing = {names}} },
@@ -284,12 +283,13 @@ function RC:Evaluate(check)
             end
             for _, r in ipairs(result.checks) do
                 local k, ok = r.def.key, false
-                if k == "flask" then ok = approvedOrAny(s.approved.flask, rep.flask)
-                elseif k == "food" then ok = approvedOrAny(s.approved.food, rep.food)
+                if k == "flask" then ok = rep.flask ~= 0          -- any current-tier flask, any quality / cauldron
+                elseif k == "food" then ok = rep.food ~= 0        -- any food buff
                 elseif k == "weapon" then ok = rep.weapon == 1
                 elseif k == "vantus" then ok = rep.vantus == 1
                 elseif k == "weekly" then ok = rep.weekly == 1
                 elseif k == "pots" then ok = rep.pots >= s.potMin
+                elseif k == "hpots" then ok = rep.hpots >= s.hpotMin
                 elseif k == "hs" then ok = rep.hs >= 1
                 elseif k == "dur" then ok = rep.dur >= s.durMin end
                 if ok then r.have = r.have + 1 else r.missing[#r.missing + 1] = m.name end
@@ -304,36 +304,6 @@ function RC:Evaluate(check)
     end
     table.sort(result.noReply)
     return result
-end
-
--- ---------------------------------------------------------------------
--- Approved flask / food (taught by the raid leader)
--- ---------------------------------------------------------------------
-function RC:LearnApproved()
-    local s = settings()
-    local flaskNames = {}
-    for _, n in ipairs(self.FLASKS) do flaskNames[n] = true end
-    local learned = {}
-    for _, a in ipairs(playerAuras()) do
-        if flaskNames[a.name] and not s.approved.flask[a.spellId] then
-            s.approved.flask[a.spellId] = true
-            learned[#learned + 1] = a.name .. " (" .. a.spellId .. ")"
-        elseif a.name:find(self.FOOD, 1, true) and not s.approved.food[a.spellId] then
-            s.approved.food[a.spellId] = true
-            learned[#learned + 1] = a.name .. " (" .. a.spellId .. ")"
-        end
-    end
-    if #learned == 0 then
-        ns.Print("No new flask or food buff found on you. Eat the feast / take the flask first, then click Learn.")
-    else
-        ns.Print("Approved: " .. table.concat(learned, ", "))
-    end
-    return #learned
-end
-
-function RC:ResetApproved()
-    settings().approved = { flask = {}, food = {} }
-    ns.Print("Approved flask/food cleared - any current-tier flask and any food buff count until you Learn again.")
 end
 
 -- ---------------------------------------------------------------------

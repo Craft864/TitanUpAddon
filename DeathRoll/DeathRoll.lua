@@ -16,6 +16,12 @@
 --   Y id                      accept (ready)
 --   G id first                host starts the game
 --   X id                      cancel / leave
+--   W id 1|0                  "I'm watching / stopped watching" (to the challenger)
+--   V id total name,name,...  the spectator list (from the challenger)
+--   D id                      the challenged/seated player declines (game stays open)
+--   O id                      the challenger opens a reserved challenge to anyone
+--   K id n roll max           echo of the sender's OWN roll #n (a fallback if
+--                             someone's client couldn't read it from chat)
 --   Q id                      "send me this room" (spectators, after combat, after /reload)
 --   F id host wager start target opp state rolls   room state reply (from a player of the room)
 --
@@ -54,12 +60,45 @@ local function buildPattern()
     rollPattern = "^" .. p .. "$"
 end
 
+-- Strip player links / color codes from a name in a system message:
+-- "|Hplayer:Metasham-Medivh|h[Metasham]|h" -> "Metasham-Medivh".
+local function cleanName(name)
+    local linked = name:match("|Hplayer:([^:|]+)")
+    if linked then return linked end
+    name = name:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h", ""):gsub("|h", "")
+    name = name:gsub("^%[", ""):gsub("%]$", "")
+    return (name:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
 function DR:ParseRoll(msg)
     if type(msg) ~= "string" or ns.IsSecret(msg) then return nil end
     if not rollPattern then buildPattern() end
     local name, roll, lo, hi = msg:match(rollPattern)
     if not name then return nil end
-    return ns.NormalizeSender(name), tonumber(roll), tonumber(lo), tonumber(hi)
+    name = cleanName(name)
+    local noRealm = not name:find("-", 1, true)       -- WoW left the realm off (e.g. connected realms)
+    return ns.NormalizeSender(name), tonumber(roll), tonumber(lo), tonumber(hi), noRealm
+end
+
+-- Same player? Exact match, or the same character name when one side
+-- came through without a realm.
+function DR.SameName(a, b)
+    if not a or not b then return false end
+    if a == b then return true end
+    local ra, rb = a:find("-", 1, true), b:find("-", 1, true)
+    local function strip(r) return (r or ""):gsub("[%s']", ""):lower() end
+    local sa, sb = ns.Short(a), ns.Short(b)
+    if sa ~= sb then return false end
+    -- same name; realms equal once spaces/apostrophes are ignored
+    return strip(a:sub((ra or #a) + 1)) == strip(b:sub((rb or #b) + 1))
+end
+
+-- Diagnostics for /tu roll debug: roll lines we couldn't use, and when the
+-- echo fallback had to fill in.
+DR.debugLog = {}
+function DR:Log(text)
+    table.insert(self.debugLog, 1, date("%H:%M:%S") .. "  " .. text)
+    while #self.debugLog > 15 do table.remove(self.debugLog) end
 end
 
 function DR:Other(room, name)
@@ -82,37 +121,33 @@ local function changed(room, what, extra)
     if ns.DeathRollUI then ns.DeathRollUI:OnChange(room, what, extra) end
 end
 
--- Paused while rolls can't be read reliably (combat / encounter lockdown).
-function DR:Paused()
-    return (InCombatLockdown and InCombatLockdown()) or ns.InLockdown()
+local function cancel(room, by)
+    room.state, room.cancelledBy = "cancelled", by
+    if DR.mine == room.id then DR.mine = nil end
+    changed(room, "cancelled")
 end
+
+-- Paused while rolls can't be read reliably (combat / encounter lockdown).
+function DR:Paused() return ns.Busy() end
 
 -- ---------------------------------------------------------------------
 -- Messaging
 -- ---------------------------------------------------------------------
+-- (practice mode: nothing leaves your client)
 function DR:Send(kind, ...)
-    local msg = table.concat({ kind, ... }, SEP)
-    if self.sim then return end                       -- practice mode: nothing leaves your client
-    if not IsInGroup() or ns.InLockdown() then return end
-    local channel = ns.GroupChannel()
-    if channel then pcall(C_ChatInfo.SendAddonMessage, PREFIX, msg, channel) end
+    if not self.sim and IsInGroup() and not ns.InLockdown() then ns.SendFields(PREFIX, kind, ...) end
 end
 
 local function sayInGroup(text)
-    if DR.sim or not IsInGroup() or ns.InLockdown() then return end
-    local channel = ns.GroupChannel()
-    local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
-    if channel and send then pcall(send, "[Titan Up] " .. text, channel) end
+    if not DR.sim and IsInGroup() and not ns.InLockdown() then ns.SayGroup(text) end
 end
 
 function DR:Init()
-    C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
-    ns.On("CHAT_MSG_ADDON", function(prefix, text, channel, sender)
-        if prefix ~= PREFIX or ns.IsSecret(text) or ns.IsSecret(sender) then return end
-        sender = ns.NormalizeSender(sender)
-        if not sender or sender == ns.me then return end
-        DR:OnMessage(text, sender, channel)
-    end)
+    -- ledger sync is guild-wide; games are for guildmates in your group
+    ns.Listen(PREFIX, function(text)
+        local kind = text:sub(1, 1)
+        return (kind == "H" or kind == "Z" or kind == "E" or kind == "C") and "guild" or "group"
+    end, function(text, sender) DR:OnMessage(text, sender) end)
     ns.On("CHAT_MSG_SYSTEM", function(msg) DR:OnSystem(msg) end)
     ns.On("GROUP_ROSTER_UPDATE", function() DR:CheckRoster() end)
     for _, ev in ipairs({ "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "ENCOUNTER_START", "ENCOUNTER_END" }) do
@@ -120,16 +155,16 @@ function DR:Init()
     end
     C_Timer.NewTicker(10, function()
         if not next(DR.rooms) and not DR.filterOn then return end   -- nothing going on
+        DR:PruneSpectators()
         DR:Expire()
         DR:UpdateFilter()      -- safety net: the chat filter never outlives a game
     end)
     C_Timer.After(3, function() DR:RestoreActive() end)
 end
 
-function DR:OnMessage(text, sender, channel)
+function DR:OnMessage(text, sender)
     local f = ns.Split(text, SEP)
-    if f[1] == "H" or f[1] == "Z" or f[1] == "E" then return ns.DRLedger:OnMessage(f, sender, channel) end
-    if channel == "GUILD" then return end      -- games themselves only run inside your group
+    if f[1] == "H" or f[1] == "Z" or f[1] == "E" or f[1] == "C" then return ns.DRLedger:OnMessage(f, sender) end
     local kind, id = f[1], f[2]
     if not id or id == "" then return end
     local room = self.rooms[id]
@@ -153,6 +188,10 @@ function DR:OnMessage(text, sender, channel)
             room.opponent = sender
             room.state = "seated"
             self:Send("S", id, sender)
+            if room.spectators and room.spectators[sender] then
+                room.spectators[sender] = nil          -- they took the seat
+                self:BroadcastSpectators(room)
+            end
             changed(room, "seated")
         end
     elseif kind == "S" then
@@ -171,12 +210,45 @@ function DR:OnMessage(text, sender, channel)
         self:BeginRolling(room, f[3])
     elseif kind == "X" then
         if not self:IsPlayer(room, sender) or room.state == "done" then return end
-        room.state = "cancelled"
-        room.cancelledBy = sender
-        if self.mine == id then self.mine = nil end
-        changed(room, "cancelled")
+        cancel(room, sender)
+    elseif kind == "D" then
+        -- the challenged (or seated) player said no: the game stays open
+        local reserved = room.target == sender and room.state == "open"
+        local seated = room.opponent == sender and room.state == "seated"
+        if not reserved and not seated then return end
+        self:ApplyDecline(room, sender)
+    elseif kind == "O" then
+        if sender ~= room.host or room.state ~= "open" then return end
+        room.target, room.declinedBy = nil, nil
+        changed(room, "opened")
+    elseif kind == "K" then
+        -- a player's echo of their own roll: use it if chat didn't deliver it
+        local n, roll, max = tonumber(f[3]), tonumber(f[4]), tonumber(f[5])
+        if not n or not roll or not max then return end
+        if not self:IsPlayer(room, sender) then return end
+        C_Timer.After(1.5, function()
+            if room.state ~= "rolling" or not DR.SameName(room.turn, sender) then return end   -- already applied from chat
+            if #room.rolls + 1 ~= n or max ~= room.max or roll < 1 or roll > max then return end
+            DR:Log(("used %s's roll report (%s, 1-%s) - their roll line never arrived in a readable form"):format(ns.Short(sender), DR.Fmt(roll), DR.Fmt(max)))
+            DR:ApplyRoll(room, sender, roll, true)
+        end)
+    elseif kind == "W" then
+        -- the challenger keeps the official spectator list
+        if room.host ~= ns.me or self:IsPlayer(room, sender) then return end
+        room.spectators = room.spectators or {}
+        local was = room.spectators[sender] ~= nil
+        if f[3] == "1" then room.spectators[sender] = GetTime() else room.spectators[sender] = nil end
+        if was ~= (room.spectators[sender] ~= nil) then self:BroadcastSpectators(room) end
+    elseif kind == "V" then
+        if sender ~= room.host then return end
+        room.specTotal = tonumber(f[3]) or 0
+        room.specList = {}
+        for n in (f[4] or ""):gmatch("[^,]+") do room.specList[#room.specList + 1] = n end
+        changed(room, "spectators")
     elseif kind == "Q" then
         if self:IsPlayer(room, ns.me) then self:SendState(room) end
+        -- a new watcher also needs the current spectator list
+        if room.host == ns.me and room.spectators and next(room.spectators) then self:BroadcastSpectators(room) end
     elseif kind == "F" then
         self:ApplyState(f, sender)
     end
@@ -265,11 +337,13 @@ end
 function DR:CanPlay()
     if self.sim then return true end
     if not IsInGroup() then return false, "You need to be in a party or raid - roll results only reach your group." end
+    if not ns.DataChannel() then return false, ns.NEEDS_GUILD end
     if ns.InLockdown() then return false, "Can't start a death roll during an encounter." end
     return true
 end
 
-function DR:Create(wager, start, target)
+-- The first roll is always 1 to the wager (capped at WoW's /roll maximum).
+function DR:Create(wager, target)
     local ok, why = self:CanPlay()
     if not ok then ns.Print(why) return nil end
     if self:MyRoom() and (self:MyRoom().state == "rolling" or self:MyRoom().state == "seated") then
@@ -278,8 +352,7 @@ function DR:Create(wager, start, target)
     end
     wager = math.floor(tonumber(wager) or 0)
     if wager < 1 then ns.Print("Enter a wager of at least 1 gold.") return nil end
-    start = math.floor(tonumber(start) or 0)
-    if start < 2 then start = wager end
+    local start = wager
     if start > self.MAX_ROLL then
         start = self.MAX_ROLL
         ns.Print("WoW's /roll tops out at " .. self.Fmt(self.MAX_ROLL) .. ", so the first roll is 1-" .. self.Fmt(start) .. ".")
@@ -378,12 +451,46 @@ function DR:Cancel(id)
     local room = self.rooms[id or self.mine or ""]
     if not room or room.state == "done" or room.state == "cancelled" then return end
     if not self:IsPlayer(room) then return end
-    room.state = "cancelled"
-    room.cancelledBy = ns.me
     self:Send("X", room.id)
-    if self.mine == room.id then self.mine = nil end
-    changed(room, "cancelled")
+    cancel(room, ns.me)
     if self.sim then self.sim = nil end
+end
+
+-- Decline a challenge meant for you (or one you'd joined but not accepted).
+-- The game isn't cancelled: the challenger can open it to anyone.
+function DR:Decline(id)
+    local room = self.rooms[id or ""]
+    if not room or room.host == ns.me then return end
+    local reserved = room.target == ns.me and room.state == "open"
+    local seated = room.opponent == ns.me and room.state == "seated"
+    if not reserved and not seated then return end
+    self:Send("D", room.id)
+    self:ApplyDecline(room, ns.me)
+end
+
+function DR:ApplyDecline(room, who)
+    room.declinedBy = who
+    if room.opponent == who then
+        room.opponent = nil
+        room.state = "open"
+        room.ready = { [room.host] = true }
+        room.joinRequested = nil
+    end
+    if self.mine == room.id and room.host ~= ns.me then self.mine = nil end
+    changed(room, "declined")
+end
+
+-- Challenger: open a reserved (or declined) challenge to anyone in the group.
+function DR:OpenToAnyone(id)
+    local room = self.rooms[id or ""]
+    if not room or room.host ~= ns.me or room.state ~= "open" then return end
+    room.target, room.declinedBy = nil, nil
+    self:Send("O", room.id)
+    if ns.udb.deathroll.announce then
+        sayInGroup(("%s's death roll for %sg is now open to anyone! Open Titan Up (/tu roll) to join."):format(
+            ns.Short(ns.me), self.Fmt(room.wager)))
+    end
+    changed(room, "opened")
 end
 
 function DR:Watch(id)
@@ -396,7 +503,7 @@ function DR:Rematch(id)
     if not room or room.state ~= "done" then return end
     local opp = self:Other(room, ns.me)
     if room.sim then return self:StartSim(room.wager) end   -- practice stays practice
-    return self:Create(room.wager, room.start, opp)
+    return self:Create(room.wager, opp)
 end
 
 -- ---------------------------------------------------------------------
@@ -409,10 +516,21 @@ end
 
 function DR:OnSystem(msg)
     if not self:AnyRolling() then return end      -- most system messages: no game running
-    local name, roll, lo, hi = self:ParseRoll(msg)
-    if not name then return end
+    if ns.IsSecret(msg) then
+        self:Log("a system message arrived hidden (secret) - couldn't read it")
+        return
+    end
+    local name, roll, lo, hi, noRealm = self:ParseRoll(msg)
+    if not name then
+        if type(msg) == "string" and msg:find("%d+%s*%(%d+%-%d+%)") then self:Log("couldn't read roll line: " .. msg:gsub("|", "||")) end
+        return
+    end
+    local used = false
     for _, room in pairs(self.rooms) do
-        if room.state == "rolling" and room.turn == name then
+        if room.state == "rolling" and (self.SameName(room.turn, name)
+            or (noRealm and ns.Short(room.turn or "") == ns.Short(name))) then
+            used = true
+            name = room.turn
             if lo == 1 and hi == room.max then
                 self.matched[msg] = GetTime()
                 self:ApplyRoll(room, name, roll)
@@ -422,10 +540,22 @@ function DR:OnSystem(msg)
             end
         end
     end
+    if not used then
+        for _, room in pairs(self.rooms) do
+            if room.state == "rolling" and ns.Short(room.turn or "") == ns.Short(name) then
+                self:Log(("roll line name '%s' didn't match '%s'"):format(name, room.turn))
+            end
+        end
+    end
 end
 
-function DR:ApplyRoll(room, name, roll)
+function DR:ApplyRoll(room, name, roll, fromEcho)
     local entry = { who = name, roll = roll, max = room.max }
+    -- my own roll: echo it to the group so nobody's stuck if their client
+    -- couldn't read it from chat
+    if name == ns.me and not room.sim and not fromEcho then
+        self:Send("K", room.id, #room.rolls + 1, roll, room.max)
+    end
     room.rolls[#room.rolls + 1] = entry
     room.warning = nil
     room.pendingRoll = nil
@@ -448,15 +578,87 @@ function DR:Finish(room)
     room.finished = true
     if self:IsPlayer(room) and not room.sim then ns.DRLedger:RecordGame(room) end
     if room.host == ns.me and ns.udb.deathroll.announce then
-        sayInGroup(("%s won %sg from %s in a death roll (%d rolls)!"):format(
-            ns.Short(room.winner), self.Fmt(room.wager), ns.Short(room.loser), #room.rolls))
+        -- wait until the final roll has landed on screen, so chat can't spoil it
+        local reveal = (ns.DeathRollUI and ns.DeathRollUI.SPIN or 1.2) + 0.4
+        local text = ("%s won %sg from %s in a death roll (%d rolls)!"):format(
+            ns.Short(room.winner), self.Fmt(room.wager), ns.Short(room.loser), #room.rolls)
+        if room.sim then sayInGroup(text) else C_Timer.After(reveal, function() sayInGroup(text) end) end
     end
     if self.mine == room.id and self.sim then self.sim = nil end
 end
 
 -- ---------------------------------------------------------------------
--- Housekeeping
+-- Spectators
 -- ---------------------------------------------------------------------
+-- Watchers tell the challenger when they open/close a game and repeat it
+-- every 30s while watching; the challenger keeps the list (dropping anyone
+-- silent for 75s or no longer in the group) and shares it.
+local WATCH_EVERY, WATCH_TIMEOUT = 30, 75
+
+function DR:SpectatorNames(room)
+    if room.host == ns.me then
+        local list = {}
+        for n in pairs(room.spectators or {}) do
+            if not self:IsPlayer(room, n) then list[#list + 1] = n end      -- someone who took the seat isn't watching
+        end
+        table.sort(list)
+        return list, #list
+    end
+    local list = {}
+    for _, n in ipairs(room.specList or {}) do
+        if not self:IsPlayer(room, n) then list[#list + 1] = n end
+    end
+    local dropped = #(room.specList or {}) - #list
+    return list, math.max(#list, (room.specTotal or 0) - dropped)
+end
+
+function DR:BroadcastSpectators(room)
+    local list, total = self:SpectatorNames(room)
+    -- keep the message under the addon message size limit
+    local names, len = {}, 0
+    for _, n in ipairs(list) do
+        if len + #n + 1 > 200 then break end
+        names[#names + 1] = n
+        len = len + #n + 1
+    end
+    self:Send("V", room.id, total, table.concat(names, ","))
+    changed(room, "spectators")
+end
+
+function DR:PruneSpectators()
+    local now = GetTime()
+    for _, room in pairs(self.rooms) do
+        if room.host == ns.me and room.spectators and next(room.spectators) then
+            local dropped = false
+            for n, seen in pairs(room.spectators) do
+                if now - seen > WATCH_TIMEOUT or not ns.InMyGroup(n) then
+                    room.spectators[n] = nil
+                    dropped = true
+                end
+            end
+            if dropped then self:BroadcastSpectators(room) end
+        end
+    end
+end
+
+-- Called by the window whenever the game you're looking at changes
+-- (nil = you're not looking at any game).
+function DR:SetWatching(id)
+    local room = id and self.rooms[id]
+    if room and (room.sim or self:IsPlayer(room, ns.me)) then room, id = nil, nil end
+    if self.watching == id then return end
+    if self.watching then self:Send("W", self.watching, "0") end
+    self.watching = id
+    if self.watchTicker then self.watchTicker:Cancel(); self.watchTicker = nil end
+    if id then
+        self:Send("W", id, "1")
+        self.watchTicker = C_Timer.NewTicker(WATCH_EVERY, function()
+            local r = DR.rooms[DR.watching or ""]
+            if r and r.state ~= "cancelled" and r.state ~= "done" then DR:Send("W", r.id, "1") end
+        end)
+    end
+end
+
 function DR:CheckRoster()
     if self.sim or not next(self.rooms) then return end
     local members = {}
@@ -464,12 +666,7 @@ function DR:CheckRoster()
     for _, room in pairs(self.rooms) do
         if room.state == "open" or room.state == "seated" or room.state == "rolling" then
             local gone = (not members[room.host]) or (room.opponent and not members[room.opponent])
-            if gone or not IsInGroup() then
-                room.state = "cancelled"
-                room.cancelledBy = "left"
-                if self.mine == room.id then self.mine = nil end
-                changed(room, "cancelled")
-            end
+            if gone or not IsInGroup() then cancel(room, "left") end
         end
     end
 end
@@ -477,12 +674,7 @@ end
 function DR:Expire()
     local now = GetTime()
     for id, room in pairs(self.rooms) do
-        if room.state == "open" and now - room.created > self.OPEN_TIMEOUT then
-            room.state = "cancelled"
-            room.cancelledBy = "expired"
-            if self.mine == id then self.mine = nil end
-            changed(room, "cancelled")
-        end
+        if room.state == "open" and now - room.created > self.OPEN_TIMEOUT then cancel(room, "expired") end
         if (room.state == "cancelled" or room.state == "done") and id ~= self.mine and now - room.created > 3600 then
             self.rooms[id] = nil
         end
@@ -595,14 +787,11 @@ local function rollFilter(frame, _, msg)
     if frame then h.frames[frame] = true end
     return true
 end
-DR._rollFilter = rollFilter
 
 function DR:UpdateFilter()
-    local want = false
-    if ns.udb and ns.udb.deathroll.delayChat then
-        for _, room in pairs(self.rooms) do
-            if room.state == "rolling" then want = true break end
-        end
+    local want = false                  -- chat never spoils a roll (normal /rolls untouched)
+    for _, room in pairs(self.rooms) do
+        if room.state == "rolling" then want = true break end
     end
     local add = ChatFrame_AddMessageEventFilter or (ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter)
     local remove = ChatFrame_RemoveMessageEventFilter or (ChatFrameUtil and ChatFrameUtil.RemoveMessageEventFilter)
@@ -633,7 +822,7 @@ function DR:StartSim(wager)
     end
     local opp = SIM_OPP .. "-" .. (GetNormalizedRealmName() or "Medivh")
     self.sim = { opp = opp }
-    local room = self:Create(wager or 10000, nil, nil)
+    local room = self:Create(wager or 10000, nil)
     if not room then self.sim = nil return end
     room.sim = true
     ns.Print("Practice death roll: " .. SIM_OPP .. " will join, accept and roll against you.")

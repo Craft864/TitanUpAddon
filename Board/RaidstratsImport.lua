@@ -213,10 +213,8 @@ end
 
 local RAID_ICONS = { star = 1, circle = 2, diamond = 3, triangle = 4, moon = 5, square = 6, cross = 7, x = 7, skull = 8 }
 local ROLES = { tank = 1, healer = 2, heal = 2, rdps = 3, mdps = 3, dps = 3, damager = 3 }
-local CLASSES = { "warrior", "paladin", "hunter", "rogue", "priest", "deathknight", "shaman",
-    "mage", "warlock", "monk", "druid", "demonhunter", "evoker" }
 local CLASS_K = {}
-for i, c in ipairs(CLASSES) do CLASS_K[c] = 30 + i end   -- stamp kinds 31-43
+for i, c in ipairs(ns.Board.CLASS_ICONS) do CLASS_K[c:lower()] = 30 + i end   -- stamp kinds 31-43
 
 local function stampKind(icon)
     local key = tostring(icon or ""):lower():gsub("^.*/", ""):gsub("%.%a+$", ""):gsub("[%s_%-]", "")
@@ -244,14 +242,7 @@ local function textW(fontPct)
     return clamp(math.floor(((OUR_H * (fontPct or 4) / 100) - 10) / 2 + 0.5), 1, 15)
 end
 
-local PIE_ANGLES = { 30, 45, 60, 90, 120, 180, 270 }
-local function snapAngle(deg)
-    local best = PIE_ANGLES[1]
-    for _, a in ipairs(PIE_ANGLES) do
-        if math.abs(a - deg) < math.abs(best - deg) then best = a end
-    end
-    return best
-end
+local function snapAngle(deg) return ns.Board.Snap(deg, ns.Board.PIE_ANGLES) end
 
 -- ---------------------------------------------------------------------
 -- Conversion
@@ -439,15 +430,14 @@ function RS:Decode(text)
     if not raw or raw == "" then return nil, "The Raidstrats string isn't valid base64." end
     local json = raw
     if raw:byte(1) == 1 then
-        local LD = LibStub and LibStub:GetLibrary("LibDeflate", true)
-        json = LD and LD:DecompressDeflate(raw:sub(2))
+        json = ns.Codec.Decompress(raw:sub(2))
         if not json then return nil, "Couldn't decompress the Raidstrats string - is it complete?" end
     end
     local plan, jerr = decodeJSON(json)
     if not plan then return nil, "Couldn't read the Raidstrats plan (" .. tostring(jerr) .. ")." end
     if type(plan.scenes) ~= "table" or #plan.scenes == 0 then return nil, "That Raidstrats plan has no scenes." end
 
-    local notes = { scenes = #plan.scenes }
+    local notes = {}
     local data = { name = ns.Model.CleanName((type(plan.planName) == "string" and plan.planName ~= "") and plan.planName or "Raidstrats import"), slides = {}, notes = notes }
     data.boss = plan.boss
     data.inst, data.enc = findEncounter(plan.boss)
@@ -468,7 +458,6 @@ function RS:Decode(text)
         for j, o in ipairs(ops) do o.id = "rs:" .. i .. ":" .. j end
         local name = (type(scene.name) == "string" and scene.name ~= "") and scene.name or ("Scene " .. i)
         data.slides[#data.slides + 1] = { name = ns.Model.CleanName(name), view = convertView(scene), ops = ops }
-        if type(scene.bg or scene.background) == "string" then notes.bg = scene.bg or scene.background end
     end
     return data
 end

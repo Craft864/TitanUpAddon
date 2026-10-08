@@ -2,30 +2,34 @@
 ## Title: Titan Up
 ## Notes: The Titan Up guild toolkit: TitanBoard live raid strategy board, a loot tracker, Death Roll, Wheel of Fortune, and more.
 ## Author: Ryan (Titan Up - Medivh)
-## Version: 0.13.0
+## Version: 0.28.0
 ## SavedVariables: TitanUpDB, TitanBoardDB
 ## IconTexture: Interface\AddOns\TitanUp\Media\TitanUp
 ## X-Category: Raid
+## AddonCompartmentFunc: TitanUp_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: TitanUp_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: TitanUp_OnAddonCompartmentLeave
 
 Libs\LibStub\LibStub.lua
-Libs\LibDeflate\LibDeflate.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibSharedMedia-3.0\LibSharedMedia-3.0.lua
 
 Core.lua
 Widgets.lua
 Nav.lua
+Updates.lua
+Settings.lua
 
-Board\Rooms.lua
 Board\Content.lua
 Board\Model.lua
 Board\Comms.lua
 Board\Sync.lua
 Board\Presence.lua
 Board\Board.lua
+Board\BoardPanels.lua
 Board\Laser.lua
-Board\Invite.lua
 Board\ImportExport.lua
 Board\RaidstratsImport.lua
-Board\Sim.lua
 
 DeathRoll\DeathRoll.lua
 DeathRoll\Ledger.lua
@@ -36,8 +40,21 @@ WheelOfFortune\WheelUI.lua
 
 Loot\Loot.lua
 Loot\LootUI.lua
+Loot\LootRolls.lua
 
 RaidCheck\RaidCheck.lua
 RaidCheck\RaidCheckUI.lua
+Report\Defensives.lua
+Report\PullReport.lua
+Report\RaidScorecard.lua
+Share\MacroShare.lua
 
-Hub.lua
+Timer\Timer.lua
+Tweaks\Tweaks.lua
+Tweaks\DeathAlerts.lua
+Tweaks\StackSplitter.lua
+Tweaks\BattleRez.lua
+Keys\Keys.lua
+Wowdle\Words.lua
+Wowdle\Wowdle.lua
+

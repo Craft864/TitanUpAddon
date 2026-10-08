@@ -11,7 +11,7 @@ local DR
 local V = {}
 ns.DeathRollUI = V
 
-local W, H = 460, 560
+local W, H = 500, 530
 local GOLD = "|TInterface\\MoneyFrame\\UI-GoldIcon:0:0:2:0|t"
 local LINK = "addon:TitanUp:dr:"
 
@@ -30,29 +30,15 @@ local function colored(name)
     return ("|cff%02x%02x%02x%s|r"):format(r * 255, g * 255, b * 255, ns.Short(name))
 end
 
-local function editBox(parent, w)
-    local e = CreateFrame("EditBox", nil, parent, "BackdropTemplate")
-    UI.Skin(e, C.canvas, C.line)
-    e:SetSize(w, 26)
-    e:SetFontObject("ChatFontNormal")
-    e:SetTextInsets(8, 8, 0, 0)
-    e:SetAutoFocus(false)
-    e:SetNumeric(true)
-    e:SetMaxLetters(9)
-    e:SetScript("OnEscapePressed", e.ClearFocus)
-    e:SetScript("OnEnterPressed", e.ClearFocus)
-    return e
-end
-
-local function section(parent, text, y)
-    local t = UI.Text(parent, "GameFontNormalSmall", C.muted)
-    t:SetPoint("TOPLEFT", 16, y)
-    t:SetText(text)
+-- rightInset: stop the line early (the top heading shares its line with
+-- the window's X / cog / Lobby button)
+local function section(parent, text, y, rightInset)
+    local t = UI.Text(parent, "GameFontNormalSmall", C.muted, text, "TOPLEFT", 16, y)
     local line = parent:CreateTexture(nil, "ARTWORK")
     line:SetColorTexture(C.line[1], C.line[2], C.line[3], 1)
     line:SetHeight(1)
     line:SetPoint("LEFT", t, "RIGHT", 8, 0)
-    line:SetPoint("RIGHT", -16, 0)
+    line:SetPoint("RIGHT", -(rightInset or 16), 0)
     return t
 end
 
@@ -60,16 +46,13 @@ end
 -- Setup
 -- ---------------------------------------------------------------------
 -- Built the first time it's needed (nothing at login).
-function V:EnsureFrame()
-    if not self.frame then self:Create() end
-    return self.frame
-end
-
 function V:Init()
     DR = ns.DeathRoll
     local function onLink(link)
         if type(link) == "string" and link:find("^" .. LINK) then
-            V:ShowRoom(link:sub(#LINK + 1))
+            local id = link:sub(#LINK + 1)
+            DR:Watch(id)          -- ask the challenger for the latest state, like the Watch button
+            V:ShowRoom(id)
         end
     end
     if EventRegistry and EventRegistry.RegisterCallback then
@@ -78,43 +61,22 @@ function V:Init()
     if SetItemRef then hooksecurefunc("SetItemRef", function(link) onLink(link) end) end
 end
 
-function V:IsShown() return self.frame and self.frame:IsShown() or false end
-function V:Show() self:EnsureFrame():Show() end
-function V:Toggle() if self:IsShown() then self.frame:Hide() else self:Show() end end
-
 function V:Create()
-    local f = CreateFrame("Frame", "TitanUpDeathRoll", UIParent, "BackdropTemplate")
-    self.frame = f
-    f:SetSize(W, H)
-    f:SetPoint("CENTER", 200, 40)
-    f:SetFrameStrata("HIGH")
-    f:SetToplevel(true)
-    f:SetClampedToScreen(true)
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", f.StartMoving)
-    f:SetScript("OnDragStop", f.StopMovingOrSizing)
-    UI.Skin(f, C.bg, C.line)
-    f:Hide()
-    tinsert(UISpecialFrames, "TitanUpDeathRoll")
-    f:SetScript("OnShow", function() V:Refresh() end)
-    UI.Watermark(f, 400, 0.07, -30)
-
-    local header = ns.Nav:CreateHeader(f, "deathroll", { title = "DEATH ROLL", icon = ns.MEDIA .. "DeathRoll" })
-    self.header = header
-    self.moduleBar = header.bar
+    local f, header = ns.Nav:Window(self, "TitanUpDeathRoll", "deathroll", "DEATH ROLL", W, H, { point = { "CENTER", 200, 40 },
+        drag = true, onDragStop = function(s) s:StopMovingOrSizing(); V:PlaceSpectators() end, mark = { 400, 0.07, -30 } })
+    self:CreateSpectators(f)
     self.backBtn = UI.Button(header, 70, 22, "< Lobby", "Back to the lobby", function() V:ShowLobby() end)
-    self.backBtn:SetPoint("RIGHT", header.bar, "LEFT", -8, 0)
+    self.backBtn:SetPoint("RIGHT", header.close, "LEFT", -9, 0)
+    self.backBtn:SetFrameLevel(header.close:GetFrameLevel())
 
     self.lobby = CreateFrame("Frame", nil, f)
-    self.lobby:SetPoint("TOPLEFT", 0, -44)
+    self.lobby:SetPoint("TOPLEFT", 0, -14)
     self.lobby:SetPoint("BOTTOMRIGHT")
     self.room = CreateFrame("Frame", nil, f)
-    self.room:SetPoint("TOPLEFT", 0, -44)
+    self.room:SetPoint("TOPLEFT", 0, -14)
     self.room:SetPoint("BOTTOMRIGHT")
     self.standings = CreateFrame("Frame", nil, f)
-    self.standings:SetPoint("TOPLEFT", 0, -44)
+    self.standings:SetPoint("TOPLEFT", 0, -14)
     self.standings:SetPoint("BOTTOMRIGHT")
     self:CreateLobby(self.lobby)
     self:CreateRoom(self.room)
@@ -126,54 +88,32 @@ end
 -- Lobby
 -- ---------------------------------------------------------------------
 function V:CreateLobby(p)
-    section(p, "NEW CHALLENGE", -6)
-    local wl = UI.Text(p, "GameFontHighlightSmall", C.muted)
-    wl:SetPoint("TOPLEFT", 16, -30)
-    wl:SetText("Wager (gold)")
-    self.wager = editBox(p, 130)
+    section(p, "NEW CHALLENGE", -6, 80)          -- the cog and X share this line
+    UI.Text(p, "GameFontHighlightSmall", C.muted, "Wager (gold)", "TOPLEFT", 16, -30)
+    self.wager = UI.EditBox(p, 150, 26, { inset = 8, numeric = true, max = 9 })
     self.wager:SetPoint("TOPLEFT", 16, -46)
     self.wager:SetText("10000")
-    local sl = UI.Text(p, "GameFontHighlightSmall", C.muted)
-    sl:SetPoint("TOPLEFT", 160, -30)
-    sl:SetText("First roll (blank = wager)")
-    self.start = editBox(p, 130)
-    self.start:SetPoint("TOPLEFT", 160, -46)
-    local ol = UI.Text(p, "GameFontHighlightSmall", C.muted)
-    ol:SetPoint("TOPLEFT", 304, -30)
-    ol:SetText("Opponent")
-    self.oppBtn = UI.Button(p, 140, 26, "Anyone", "Open to anyone in your group, or challenge one person", function() V:ShowOpponentMenu() end)
-    self.oppBtn:SetPoint("TOPLEFT", 304, -46)
-
-    self.announceBtn = UI.Button(p, 196, 24, "", "Post a line in party/raid chat when a challenge starts and when it ends", function()
-        ns.udb.deathroll.announce = not ns.udb.deathroll.announce
-        V:RefreshLobby()
-    end)
-    self.announceBtn:SetPoint("TOPLEFT", 16, -84)
-    self.delayBtn = UI.Button(p, 196, 24, "", "While a game is rolling, its roll lines are held back from chat until the roll lands on screen, so chat can't spoil it. Normal /rolls are never touched.", function()
-        ns.udb.deathroll.delayChat = not ns.udb.deathroll.delayChat
-        DR:UpdateFilter()
-        V:RefreshLobby()
-    end)
-    self.delayBtn:SetPoint("TOPLEFT", 16, -112)
-    local create = UI.Button(p, 160, 28, "Create challenge", nil, function()
-        local room = DR:Create(V.wager:GetText(), V.start:GetText(), V.target)
+    UI.Tip(self.wager, "Wager (gold)", nil, "Also the first roll: the challenger rolls 1 to the wager.")
+    UI.Text(p, "GameFontHighlightSmall", C.muted, "Opponent", "TOPLEFT", 180, -30)
+    self.oppBtn = UI.Button(p, 120, 26, "Anyone", "Open to anyone in your group, or challenge one person (only they can accept)", function() V:ShowOpponentMenu() end)
+    self.oppBtn:SetPoint("TOPLEFT", 180, -46)
+    local create = UI.Button(p, 128, 26, "Create challenge", nil, function()
+        local room = DR:Create(V.wager:GetText(), V.target)
         if room then V:ShowRoom(room.id) end
     end)
-    create:SetPoint("TOPRIGHT", -16, -82)
+    create:SetPoint("TOPRIGHT", -16, -46)
     UI.SetActive(create, true)
-    local practice = UI.Button(p, 110, 22, "Practice solo", "Play against a fake opponent to try it out (/tu roll sim)", function()
-        DR:StartSim(tonumber(V.wager:GetText()))
-    end)
-    practice:SetPoint("TOPRIGHT", create, "BOTTOMRIGHT", 0, -6)
+    self.announceCheck = UI.Check(p, "Announce in chat", "Post a line in party/raid chat when a challenge starts and ends",
+        function() return ns.udb.deathroll.announce end, function(on) ns.udb.deathroll.announce = on end)
+    self.announceCheck:SetPoint("TOPLEFT", create, "BOTTOMLEFT", 0, -6)
 
-    section(p, "OPEN CHALLENGES", -150)
+    section(p, "OPEN CHALLENGES", -92)
     self.openRows = {}
     for i = 1, 5 do
         local row = CreateFrame("Frame", nil, p)
         row:SetSize(W - 32, 26)
-        row:SetPoint("TOPLEFT", 16, -170 - (i - 1) * 30)
-        row.text = UI.Text(row, "GameFontHighlightSmall")
-        row.text:SetPoint("LEFT", 4, 0)
+        row:SetPoint("TOPLEFT", 16, -112 - (i - 1) * 30)
+        row.text = UI.Text(row, "GameFontHighlightSmall", nil, nil, "LEFT", 4, 0)
         row.text:SetPoint("RIGHT", -150, 0)
         row.text:SetJustifyH("LEFT")
         row.text:SetWordWrap(false)
@@ -185,31 +125,57 @@ function V:CreateLobby(p)
         row.watch:SetPoint("RIGHT", 0, 0)
         self.openRows[i] = row
     end
-    self.noOpen = UI.Text(p, "GameFontHighlightSmall", C.muted)
-    self.noOpen:SetPoint("TOPLEFT", 20, -176)
-    self.noOpen:SetText("No challenges in your group right now.")
+    self.noOpen = UI.Text(p, "GameFontHighlightSmall", C.muted, "No challenges in your group right now.", "TOPLEFT", 20, -118)
 
-    section(p, "YOUR RECORD", -330)
-    local standingsBtn = UI.Button(p, 96, 22, "Standings", "Everyone's death roll totals, shared between Titan Up users when you group", function() V:ShowStandings() end)
-    standingsBtn:SetPoint("TOPRIGHT", -16, -324)
-    self.recordText = UI.Text(p, "GameFontNormal")
-    self.recordText:SetPoint("TOPLEFT", 16, -352)
+    section(p, "YOUR RECORD", -278)
+    local standingsBtn = UI.Button(p, 96, 22, "Standings", "Everyone's death roll totals, shared between Titan Up users in the guild", function() V:ShowStandings() end)
+    standingsBtn:SetPoint("TOPRIGHT", -16, -272)
+    self.recordText = UI.Text(p, "GameFontNormal", nil, nil, "TOPLEFT", 16, -300)
     self.debtRows = {}
     for i = 1, 5 do
         local row = CreateFrame("Frame", nil, p)
         row:SetSize(W - 32, 24)
-        row:SetPoint("TOPLEFT", 16, -378 - (i - 1) * 28)
-        row.text = UI.Text(row, "GameFontHighlightSmall")
-        row.text:SetPoint("LEFT", 4, 0)
+        row:SetPoint("TOPLEFT", 16, -326 - (i - 1) * 28)
+        row.text = UI.Text(row, "GameFontHighlightSmall", nil, nil, "LEFT", 4, 0)
         row.text:SetPoint("RIGHT", -90, 0)
         row.text:SetJustifyH("LEFT")
-        row.paid = UI.Button(row, 82, 22, "Mark paid", "They paid you some other way (mail, etc.) - mark it settled. Trades are detected automatically. Only the winner can confirm a payment.", function()
-            if row.entry then ns.DRLedger:MarkPaid(row.entry.id); V:RefreshLobby() end
+        -- winner's rows: Mark paid; loser's rows: Check (ask the winner's addon)
+        row.paid = UI.Button(row, 82, 22, "Mark paid", nil, function()
+            local e = row.entry
+            if not e then return end
+            if e.w == ns.me then ns.DRLedger:MarkPaid(e.id) else ns.DRLedger:CheckDebt(e.id) end
+            V:RefreshLobby()
+        end)
+        row.paid:SetScript("OnEnter", function(s)
+            s.hover = true; UI.Paint(s)
+            local e = row.entry
+            if not e then return end
+            GameTooltip:SetOwner(s, "ANCHOR_RIGHT")
+            if e.w == ns.me then
+                GameTooltip:SetText("Mark paid", 1, 1, 1)
+                GameTooltip:AddLine("They paid you some other way (mail, etc.). Trades are detected automatically. You're the winner, so your confirmation is what counts.", 0.8, 0.82, 0.86, true)
+            else
+                GameTooltip:SetText("Check", 1, 1, 1)
+                GameTooltip:AddLine(("Ask %s's addon whether it has confirmed your payment. The winner is the source of truth."):format(ns.Short(e.w)), 0.8, 0.82, 0.86, true)
+            end
+            GameTooltip:Show()
         end)
         row.paid:SetPoint("RIGHT")
         self.debtRows[i] = row
     end
+
+    -- temporary: practice mode, tucked into the corner
+    local practice = UI.Button(p, 64, 18, "Practice", "Play against a fake opponent to try it out (/tu roll sim)", function()
+        DR:StartSim(tonumber(V.wager:GetText()))
+    end)
+    practice.label:SetFontObject("GameFontHighlightSmall")
+    practice:SetPoint("BOTTOMRIGHT", -10, 10)
+    self.practiceBtn = practice
 end
+
+-- (Death Roll has no settings page: "Announce in chat" is a checkbox on the
+-- lobby, and rolls are always held back from chat until they land.)
+function V:RefreshOptions() if self.announceCheck then self.announceCheck:Refresh() end end
 
 function V:ShowOpponentMenu()
     local items = { { text = "Anyone in the group", checked = V.target == nil, onClick = function() V.target = nil; V:RefreshLobby() end } }
@@ -223,11 +189,8 @@ function V:ShowOpponentMenu()
 end
 
 function V:RefreshLobby()
+    if self.specPanel then self.specPanel:Hide() end
     self.oppBtn.label:SetText(V.target and ns.Short(V.target) or "Anyone")
-    self.announceBtn.label:SetText(ns.udb.deathroll.announce and "Announce in chat: ON" or "Announce in chat: OFF")
-    UI.SetActive(self.announceBtn, ns.udb.deathroll.announce)
-    self.delayBtn.label:SetText(ns.udb.deathroll.delayChat and "Delay rolls in chat: ON" or "Delay rolls in chat: OFF")
-    UI.SetActive(self.delayBtn, ns.udb.deathroll.delayChat)
 
     local open = {}
     for _, room in pairs(DR.rooms) do
@@ -242,7 +205,7 @@ function V:RefreshLobby()
         if room then
             local who = room.target and (colored(room.host) .. " vs " .. colored(room.target)) or (colored(room.host) .. " vs anyone")
             if room.opponent then who = colored(room.host) .. " vs " .. colored(room.opponent) end
-            row.text:SetText(("%s   %s   |cff8a8f9c1-%s|r"):format(who, fmtGold(room.wager), DR.Fmt(room.start)))
+            row.text:SetText(("%s   %s"):format(who, fmtGold(room.wager)))
             local canJoin = room.state == "open" and (not room.target or room.target == ns.me)
             row.join:SetShown(canJoin)
         end
@@ -263,11 +226,13 @@ function V:RefreshLobby()
             local partial = (e.paid or 0) > 0 and ("  |cff8a8f9c(" .. DR.Fmt(e.paid) .. " of " .. DR.Fmt(e.g) .. " paid)|r") or ""
             if e.w == ns.me then
                 row.text:SetText(("%s owes you %s%s"):format(colored(e.l), fmtGold(owed), partial))
+                row.paid.label:SetText("Mark paid")
                 row.paid:Show()
             else
                 local waiting = ((e.sent or 0) > (e.paid or 0)) and ("  |cff8a8f9c(sent " .. DR.Fmt(e.sent) .. " - waiting for them to confirm)|r") or partial
                 row.text:SetText(("|cffff9f40You owe|r %s %s%s"):format(colored(e.w), fmtGold(owed), waiting))
-                row.paid:Hide()          -- only the winner can confirm they were paid
+                row.paid.label:SetText("Check")         -- only the winner can confirm; you can ask
+                row.paid:Show()
             end
         end
     end
@@ -322,16 +287,11 @@ local function scrollList(parent, y, rows, rowH, onScroll)
 end
 
 function V:CreateStandings(p)
-    section(p, "GUILD STANDINGS", -6)
-    local note = UI.Text(p, "GameFontHighlightSmall", C.muted)
-    note:SetPoint("TOPLEFT", 16, -24)
-    note:SetText("Synced with your group and guild. Only games confirmed by both players count.")
+    section(p, "GUILD STANDINGS", -6, 150)       -- < Lobby, cog and X share this line
+    UI.Text(p, "GameFontHighlightSmall", C.muted, "Synced with your group and guild. Only games confirmed by both players count.", "TOPLEFT", 16, -24)
     local function header(x, text, justify, w)
-        local t = UI.Text(p, "GameFontHighlightSmall", C.muted)
-        t:SetPoint("TOPLEFT", x, -42)
-        t:SetWidth(w)
-        t:SetJustifyH(justify)
-        t:SetText(text)
+        local t = UI.Text(p, "GameFontHighlightSmall", C.muted, text, "TOPLEFT", x, -42)
+        t:SetWidth(w); t:SetJustifyH(justify)
     end
     header(20, "#  PLAYER", "LEFT", 150)
     header(176, "W-L", "CENTER", 60)
@@ -339,21 +299,19 @@ function V:CreateStandings(p)
     header(344, "UNPAID", "RIGHT", 90)
     self.standList = scrollList(p, -58, 9, 20, function() V:RefreshStandings() end)
     for _, r in ipairs(self.standList.rows) do
-        r.name = UI.Text(r, "GameFontHighlightSmall"); r.name:SetPoint("LEFT", 0, 0); r.name:SetWidth(150); r.name:SetJustifyH("LEFT")
-        r.wl = UI.Text(r, "GameFontHighlightSmall"); r.wl:SetPoint("LEFT", 160, 0); r.wl:SetWidth(60); r.wl:SetJustifyH("CENTER")
-        r.net = UI.Text(r, "GameFontHighlightSmall"); r.net:SetPoint("LEFT", 224, 0); r.net:SetWidth(100); r.net:SetJustifyH("RIGHT")
-        r.unpaid = UI.Text(r, "GameFontHighlightSmall"); r.unpaid:SetPoint("LEFT", 328, 0); r.unpaid:SetWidth(90); r.unpaid:SetJustifyH("RIGHT")
+        r.name = UI.Text(r, "GameFontHighlightSmall", nil, nil, "LEFT", 0, 0); r.name:SetWidth(150); r.name:SetJustifyH("LEFT")
+        r.wl = UI.Text(r, "GameFontHighlightSmall", nil, nil, "LEFT", 160, 0); r.wl:SetWidth(60); r.wl:SetJustifyH("CENTER")
+        r.net = UI.Text(r, "GameFontHighlightSmall", nil, nil, "LEFT", 224, 0); r.net:SetWidth(100); r.net:SetJustifyH("RIGHT")
+        r.unpaid = UI.Text(r, "GameFontHighlightSmall", nil, nil, "LEFT", 328, 0); r.unpaid:SetWidth(90); r.unpaid:SetJustifyH("RIGHT")
     end
-    self.standEmpty = UI.Text(p, "GameFontHighlightSmall", C.muted)
-    self.standEmpty:SetPoint("TOPLEFT", 20, -64)
-    self.standEmpty:SetText("No games yet - play one, or group with someone who has.")
+    self.standEmpty = UI.Text(p, "GameFontHighlightSmall", C.muted, "No games yet - play one, or group with someone who has.", "TOPLEFT", 20, -64)
 
     section(p, "RECENT GAMES", -260)
     self.gameList = scrollList(p, -280, 11, 20, function() V:RefreshStandings() end)
     for _, r in ipairs(self.gameList.rows) do
-        r.text = UI.Text(r, "GameFontHighlightSmall"); r.text:SetPoint("LEFT", 0, 0); r.text:SetPoint("RIGHT", -110, 0)
+        r.text = UI.Text(r, "GameFontHighlightSmall", nil, nil, "LEFT", 0, 0); r.text:SetPoint("RIGHT", -110, 0)
         r.text:SetJustifyH("LEFT"); r.text:SetWordWrap(false)
-        r.tag = UI.Text(r, "GameFontHighlightSmall"); r.tag:SetPoint("RIGHT", 0, 0); r.tag:SetWidth(108); r.tag:SetJustifyH("RIGHT")
+        r.tag = UI.Text(r, "GameFontHighlightSmall", nil, nil, "RIGHT", 0, 0); r.tag:SetWidth(108); r.tag:SetJustifyH("RIGHT")
         r:EnableMouse(true)
         r:SetScript("OnEnter", function(s)
             local g = s.game
@@ -381,6 +339,7 @@ end
 
 function V:ShowStandings()
     self:EnsureFrame()
+    DR:SetWatching(nil)
     self.view = "standings"
     self.roomId = nil
     self.lobby:Hide()
@@ -391,6 +350,7 @@ function V:ShowStandings()
 end
 
 function V:RefreshStandings()
+    if self.specPanel then self.specPanel:Hide() end
     local list = ns.DRLedger:Stats()
     local off = self.standList:Layout(#list)
     self.standEmpty:SetShown(#list == 0)
@@ -434,32 +394,25 @@ local function playerCard(parent, x)
     UI.Skin(c, C.panel, C.line)
     c:SetSize(200, 64)
     c:SetPoint("TOPLEFT", x, -54)
-    c.name = UI.Text(c, "GameFontNormalLarge")
-    c.name:SetPoint("TOP", 0, -12)
-    c.status = UI.Text(c, "GameFontHighlightSmall", C.muted)
-    c.status:SetPoint("TOP", c.name, "BOTTOM", 0, -6)
+    c.name = UI.Text(c, "GameFontNormalLarge", nil, nil, "TOP", 0, -12)
+    c.status = UI.Text(c, "GameFontHighlightSmall", C.muted, nil, "TOP", c.name, "BOTTOM", 0, -6)
     return c
 end
 
 function V:CreateRoom(p)
-    self.wagerText = UI.Text(p, "GameFontNormalLarge")
-    self.wagerText:SetPoint("TOP", 0, -6)
-    self.subText = UI.Text(p, "GameFontHighlightSmall", C.muted)
-    self.subText:SetPoint("TOP", self.wagerText, "BOTTOM", 0, -4)
+    self.wagerText = UI.Text(p, "GameFontNormalLarge", nil, nil, "TOP", 0, -6)
+    self.subText = UI.Text(p, "GameFontHighlightSmall", C.muted, nil, "TOP", self.wagerText, "BOTTOM", 0, -4)
 
     self.cardA = playerCard(p, 20)
     self.cardB = playerCard(p, W - 220)
-    local vs = UI.Text(p, "GameFontNormal", C.muted)
-    vs:SetPoint("TOP", 0, -78)
-    vs:SetText("VS")
+    UI.Text(p, "GameFontNormal", C.muted, "VS", "TOP", 0, -78)
 
     -- The big number
     self.bigNum = p:CreateFontString(nil, "OVERLAY")
     self.bigNum:SetFont(STANDARD_TEXT_FONT, 60, "THICKOUTLINE")
     self.bigNum:SetPoint("TOP", 0, -140)
     self.bigNum:SetTextColor(1, 0.85, 0.3)
-    self.bigLabel = UI.Text(p, "GameFontHighlight", C.muted)
-    self.bigLabel:SetPoint("TOP", self.bigNum, "BOTTOM", 0, -6)
+    self.bigLabel = UI.Text(p, "GameFontHighlight", C.muted, nil, "TOP", self.bigNum, "BOTTOM", 0, -6)
 
     self.action = UI.Button(p, 260, 40, "", nil, function() V:OnAction() end)
     self.action:SetPoint("TOP", 0, -248)
@@ -469,39 +422,16 @@ function V:CreateRoom(p)
     self.tertiary = UI.Button(p, 120, 24, "", nil, function() V:OnTertiary() end)
     self.tertiary:SetPoint("TOP", self.action, "BOTTOM", 64, -8)
 
-    self.warning = UI.Text(p, "GameFontHighlightSmall", C.warn)
-    self.warning:SetPoint("TOP", 0, -330)
+    self.warning = UI.Text(p, "GameFontHighlightSmall", C.warn, nil, "TOP", 0, -330)
 
     section(p, "ROLLS", -350)
-    self.histCount = UI.Text(p, "GameFontHighlightSmall", C.muted)
-    self.histCount:SetPoint("TOPRIGHT", -24, -350)
+    self.histCount = UI.Text(p, "GameFontHighlightSmall", C.muted, nil, "TOPRIGHT", -24, -350)
     -- scrollable roll list (mouse wheel), newest first
-    local area = CreateFrame("Frame", nil, p)
-    area:SetPoint("TOPLEFT", 16, -366)
-    area:SetPoint("RIGHT", -16, 0)
-    area:SetHeight(7 * 18 + 4)
-    area:EnableMouseWheel(true)
-    area:SetScript("OnMouseWheel", function(_, delta) V:ScrollHistory(-delta) end)
-    self.histArea = area
-    self.histOffset = 0
-    self.histRows = {}
-    for i = 1, 7 do
-        local t = UI.Text(area, "GameFontHighlightSmall")
-        t:SetPoint("TOPLEFT", 8, -4 - (i - 1) * 18)
-        t:SetPoint("RIGHT", -14, 0)
-        t:SetJustifyH("LEFT")
-        self.histRows[i] = t
+    self.histList = scrollList(p, -366, 7, 18, function() V:RefreshRoom() end)
+    for _, r in ipairs(self.histList.rows) do
+        r.text = UI.Text(r, "GameFontHighlightSmall", nil, nil, "LEFT", 4, 0)
+        r.text:SetPoint("RIGHT", -4, 0); r.text:SetJustifyH("LEFT")
     end
-    local track = area:CreateTexture(nil, "BACKGROUND")
-    track:SetColorTexture(C.line[1], C.line[2], C.line[3], 0.6)
-    track:SetWidth(3)
-    track:SetPoint("TOPRIGHT", -4, -4)
-    track:SetPoint("BOTTOMRIGHT", -4, 2)
-    self.histTrack = track
-    local thumb = area:CreateTexture(nil, "ARTWORK")
-    thumb:SetColorTexture(C.accent[1], C.accent[2], C.accent[3], 0.9)
-    thumb:SetWidth(3)
-    self.histThumb = thumb
 
     -- roll animation driver
     p:SetScript("OnUpdate", function() V:Animate() end)
@@ -509,6 +439,7 @@ end
 
 function V:ShowLobby()
     self:EnsureFrame()
+    DR:SetWatching(nil)
     self.roomId = nil
     self.view = "lobby"
     self.room:Hide()
@@ -523,8 +454,8 @@ function V:ShowRoom(id)
         ns.Print("That death roll isn't available any more.")
         return
     end
-    if self.roomId ~= id then self.histOffset = 0 end
     self:EnsureFrame()
+    if self.roomId ~= id then self.histList.offset = 0 end
     self.roomId = id
     self.view = "room"
     self.anim = nil
@@ -533,6 +464,7 @@ function V:ShowRoom(id)
     self.room:Show()
     self.backBtn:Show()
     if not self.frame:IsShown() then self.frame:Show() end
+    DR:SetWatching(id)
     self:RefreshRoom()
 end
 
@@ -543,7 +475,7 @@ function V:Refresh()
     else self:RefreshLobby() end
 end
 
-local function cardState(card, room, name, isTurn)
+local function cardState(card, room, name, isTurn, landing)
     if not name then
         card.name:SetText("|cff8a8f9c" .. (room.target and ns.Short(room.target) or "Open seat") .. "|r")
         card.status:SetText(room.target and "invited" or "waiting for someone to join")
@@ -552,7 +484,10 @@ local function cardState(card, room, name, isTurn)
     end
     card.name:SetText(colored(name) .. (name == ns.me and " |cff8a8f9c(you)|r" or ""))
     local status
-    if room.state == "done" then
+    if landing then
+        -- a roll is still landing on screen: don't give the result away yet
+        status = isTurn and "|cff4fc3f7rolling...|r" or "waiting"
+    elseif room.state == "done" then
         status = (name == room.winner) and "|cff66e08cWINNER|r" or "|cffff5a5aROLLED A 1|r"
     elseif room.state == "rolling" then
         status = isTurn and "|cff4fc3f7rolling...|r" or "waiting"
@@ -566,14 +501,17 @@ local function cardState(card, room, name, isTurn)
 end
 
 function V:RefreshRoom()
+    self:RefreshSpectators()
     local room = DR.rooms[self.roomId or ""]
     if not room then return self:ShowLobby() end
     local me = ns.me
     local mine = DR:IsPlayer(room, me)
     self.wagerText:SetText(fmtGold(room.wager))
     self.subText:SetText("First roll 1-" .. DR.Fmt(room.start) .. " - whoever rolls a 1 loses")
-    cardState(self.cardA, room, room.host, room.turn == room.host)
-    cardState(self.cardB, room, room.opponent, room.opponent ~= nil and room.turn == room.opponent)
+    local a = self.anim
+    local turn = a and a.who or room.turn
+    cardState(self.cardA, room, room.host, turn == room.host, a)
+    cardState(self.cardB, room, room.opponent, room.opponent ~= nil and turn == room.opponent, a)
 
     if not self.anim then
         if room.state == "rolling" then
@@ -594,7 +532,17 @@ function V:RefreshRoom()
         else
             self.bigNum:SetText(DR.Fmt(room.start))
             self.bigNum:SetTextColor(0.75, 0.78, 0.84)
-            self.bigLabel:SetText(room.state == "open" and "Waiting for an opponent..." or "Waiting for both players to accept")
+            local waitText
+            if room.state ~= "open" then
+                waitText = "Waiting for both players to accept"
+            elseif room.declinedBy then
+                waitText = "|cffffa340" .. ns.Short(room.declinedBy) .. " declined.|r" .. (room.host == ns.me and "  Open it to anyone, or cancel." or "")
+            elseif room.target then
+                waitText = "Waiting for " .. colored(room.target) .. " to accept..."
+            else
+                waitText = "Waiting for an opponent..."
+            end
+            self.bigLabel:SetText(waitText)
         end
     end
 
@@ -602,8 +550,16 @@ function V:RefreshRoom()
     local action, actionOn, secondary, tertiary = nil, false, nil, nil
     if room.state == "open" then
         if room.host == me then
-            action, secondary = "Waiting for opponent...", "Cancel"
-        elseif not room.target or room.target == me then
+            if room.declinedBy then
+                action, actionOn, secondary = "Open to anyone", true, "Cancel"
+            elseif room.target then
+                action, secondary, tertiary = "Waiting for " .. ns.Short(room.target) .. "...", "Cancel", "Open to anyone"
+            else
+                action, secondary = "Waiting for opponent...", "Cancel"
+            end
+        elseif room.target == me then
+            action, actionOn, secondary = room.joinRequested and "Joining..." or "Join challenge", not room.joinRequested, "Decline"
+        elseif not room.target then
             action, actionOn = room.joinRequested and "Joining..." or "Join challenge", not room.joinRequested
         else
             action = "Reserved for " .. ns.Short(room.target)
@@ -617,7 +573,9 @@ function V:RefreshRoom()
             action = "Waiting for players to accept"
         end
     elseif room.state == "rolling" then
-        if DR:Paused() and mine then
+        if self.anim then
+            action = "Rolling..."           -- the number hasn't landed yet
+        elseif DR:Paused() and mine then
             action = "Paused - in combat"
         elseif room.turn == me then
             action, actionOn = "ROLL  1-" .. DR.Fmt(room.max), not (room.pendingRoll and GetTime() - room.pendingRoll < 4)
@@ -626,67 +584,58 @@ function V:RefreshRoom()
         end
         if mine then secondary = "Cancel game" end
     elseif room.state == "done" then
-        if mine then
-            action, actionOn = "Rematch", true
-            if room.loser == me and not room.sim then tertiary = "Open trade" end
+        if self.anim then
+            -- the final roll is still landing on screen: no buttons yet
         else
-            action = "Game over"
+            if mine then
+                action, actionOn = "Rematch", true
+                if room.loser == me and not room.sim then tertiary = "Open trade" end
+            else
+                action = "Game over"
+            end
+            secondary = "Lobby"
         end
-        secondary = "Lobby"
     else
         action, secondary = "Back to lobby", nil
         actionOn = true
     end
+    self.action:SetShown(action ~= nil)
     self.action.label:SetText(action or "")
     UI.SetDisabled(self.action, not actionOn)
     UI.SetActive(self.action, actionOn)
     self.secondary:SetShown(secondary ~= nil)
     self.secondary.label:SetText(secondary or "")
     self.tertiary:SetShown(tertiary ~= nil)
+    -- one button: centered under the main button; two: side by side around the center
+    local both = secondary ~= nil and tertiary ~= nil
+    self.secondary:ClearAllPoints()
+    self.secondary:SetPoint("TOP", self.action, "BOTTOM", both and -64 or 0, -8)
+    self.tertiary:ClearAllPoints()
+    self.tertiary:SetPoint("TOP", self.action, "BOTTOM", both and 64 or 0, -8)
     self.tertiary.label:SetText(tertiary or "")
     self.warning:SetText(room.warning or "")
 
-    -- history, newest first, scrolled by histOffset
-    local total, rows = #room.rolls, #self.histRows
-    local maxOff = math.max(0, total - rows)
-    self.histOffset = math.max(0, math.min(maxOff, self.histOffset or 0))
-    local off = self.histOffset
-    if total > rows then
-        self.histCount:SetText(("showing %d-%d of %d  (scroll)"):format(off + 1, math.min(total, off + rows), total))
-        self.histTrack:Show()
-        self.histThumb:Show()
-        local trackH = rows * 18 - 2
-        local thumbH = math.max(12, trackH * rows / total)
-        local pos = (maxOff > 0) and (off / maxOff) or 0
-        self.histThumb:SetHeight(thumbH)
-        self.histThumb:ClearAllPoints()
-        self.histThumb:SetPoint("TOPRIGHT", self.histArea, "TOPRIGHT", -4, -4 - (trackH - thumbH) * pos)
-    else
-        self.histCount:SetText(total > 0 and (total .. (total == 1 and " roll" or " rolls")) or "")
-        self.histTrack:Hide()
-        self.histThumb:Hide()
-    end
-    for i, t in ipairs(self.histRows) do
+    -- history, newest first (scrolls); the roll still landing on screen isn't listed yet
+    local total, rows = #room.rolls - (self.anim and 1 or 0), #self.histList.rows
+    local off = self.histList:Layout(total)
+    self.histCount:SetText(total > rows and ("showing %d-%d of %d  (scroll)"):format(off + 1, math.min(total, off + rows), total)
+        or (total > 0 and (total .. (total == 1 and " roll" or " rolls")) or ""))
+    for i, row in ipairs(self.histList.rows) do
         local r = room.rolls[total - off - i + 1]
-        if r then
-            local hit = r.roll == 1 and "|cffff5a5a1|r" or ("|cffffd94d" .. DR.Fmt(r.roll) .. "|r")
-            t:SetText(("%d.  %s rolled %s  |cff8a8f9c(1-%s)|r"):format(total - off - i + 1, colored(r.who), hit, DR.Fmt(r.max)))
-        else
-            t:SetText("")
-        end
+        local hit = r and (r.roll == 1 and "|cffff5a5a1|r" or ("|cffffd94d" .. DR.Fmt(r.roll) .. "|r"))
+        row.text:SetText(r and ("%d.  %s rolled %s  |cff8a8f9c(1-%s)|r"):format(total - off - i + 1, colored(r.who), hit, DR.Fmt(r.max)) or "")
     end
-end
-
-function V:ScrollHistory(delta)
-    self.histOffset = (self.histOffset or 0) + delta
-    self:RefreshRoom()
 end
 
 function V:OnAction()
     local room = DR.rooms[self.roomId or ""]
     if not room then return self:ShowLobby() end
     if room.state == "open" then
-        DR:Join(room.id)
+        if room.host == ns.me then
+            if room.declinedBy then DR:OpenToAnyone(room.id) end
+        else
+            DR:Join(room.id)
+        end
     elseif room.state == "seated" then
         DR:Accept(room.id)
     elseif room.state == "rolling" then
@@ -704,6 +653,11 @@ function V:OnSecondary()
     local room = DR.rooms[self.roomId or ""]
     if not room then return self:ShowLobby() end
     if room.state == "done" then return self:ShowLobby() end
+    -- the challenged / seated player turning it down: the game stays open for the challenger
+    if room.host ~= ns.me and ((room.state == "open" and room.target == ns.me) or (room.state == "seated" and room.opponent == ns.me)) then
+        DR:Decline(room.id)
+        return self:ShowLobby()
+    end
     if room.state == "rolling" then
         UI.Prompt({
             title = "Cancel this death roll?", noInput = true, accept = "Cancel game",
@@ -717,6 +671,7 @@ end
 
 function V:OnTertiary()
     local room = DR.rooms[self.roomId or ""]
+    if room and room.state == "open" and room.host == ns.me then return DR:OpenToAnyone(room.id) end
     if not room or room.loser ~= ns.me then return end
     local unit = ns.UnitForName(room.winner)
     if unit and InitiateTrade then
@@ -731,6 +686,7 @@ end
 -- Roll animation: numbers spin, slow down, land on the result.
 -- ---------------------------------------------------------------------
 local SPIN = 1.15
+V.SPIN = SPIN                   -- the logic side times the result announcement from this
 
 function V:Animate()
     local a = self.anim
@@ -771,6 +727,8 @@ function V:Animate()
     if after > 1.4 then
         self.bigNum:SetFont(STANDARD_TEXT_FONT, 60, "THICKOUTLINE")
         self.anim = nil
+        local hl = self.histList     -- scrolled back? stay on the same rolls now the new one is listed
+        if a.bump and hl.offset > 0 then hl.offset = hl.offset + 1 end
         self:RefreshRoom()
     end
 end
@@ -787,12 +745,97 @@ function V:OnChange(room, what, extra)
     end
     if what == "roll" and self.roomId == room.id then
         -- scrolled back? stay on the same rolls instead of jumping to the newest
-        if (self.histOffset or 0) > 0 then self.histOffset = self.histOffset + 1 end
+        local hl = self.histList
         if self:IsShown() then
-            self.anim = { t0 = GetTime(), roll = extra.roll, max = extra.max, who = extra.who }
+            self.anim = { t0 = GetTime(), roll = extra.roll, max = extra.max, who = extra.who, bump = true }
+        elseif hl and hl.offset > 0 then
+            hl.offset = hl.offset + 1
+        end
+    end
+    if what == "spectators" and self.roomId == room.id then self:RefreshSpectators() end
+    if what == "opened" and room.host ~= ns.me then self:Toast(room, true) end
+    if what == "declined" then
+        if self.toast and self.toast.room == room and room.declinedBy == ns.me then self.toast:Hide() end
+        if room.host == ns.me then
+            ns.Print(("%s declined your death roll.  |H%s%s|h|cff4fc3f7[Open it to anyone]|r|h"):format(colored(room.declinedBy), LINK, room.id))
         end
     end
     if self:IsShown() then self:Refresh() end
+end
+
+-- ---------------------------------------------------------------------
+-- Spectator panel (attached to the side of the window, game view only)
+-- ---------------------------------------------------------------------
+local SPEC_W, SPEC_ROWS, SPEC_ROW = 160, 24, 18
+
+function V:CreateSpectators(f)
+    local p = CreateFrame("Frame", nil, f, "BackdropTemplate")
+    UI.Skin(p, C.panel, C.line)
+    p:SetWidth(SPEC_W)
+    p:EnableMouse(true)
+    self.specPanel = p
+    UI.Text(p, "GameFontNormalSmall", C.accent, "SPECTATORS", "TOPLEFT", 12, -10)
+    self.specCount = UI.Text(p, "GameFontNormalSmall", C.muted, nil, "TOPRIGHT", -12, -10)
+    self.specRows = {}
+    for i = 1, SPEC_ROWS do
+        local t = UI.Text(p, "GameFontHighlight", nil, nil, "TOPLEFT", 12, -30 - (i - 1) * SPEC_ROW)
+        t:SetPoint("RIGHT", -10, 0); t:SetJustifyH("LEFT"); t:SetWordWrap(false)
+        self.specRows[i] = t
+    end
+    self.specEmpty = UI.Text(p, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", 12, -30)
+    self.specEmpty:SetPoint("RIGHT", -10, 0); self.specEmpty:SetJustifyH("LEFT")
+    f:HookScript("OnHide", function() DR:SetWatching(nil) end)
+    p:Hide()
+end
+
+-- Flush against the window's right edge, top edges lined up - or its left
+-- edge if there's no room on screen.
+function V:PlaceSpectators()
+    local p, f = self.specPanel, self.frame
+    if not p then return end
+    p:ClearAllPoints()
+    local right, screen = f:GetRight(), UIParent:GetWidth()
+    if type(right) == "number" and type(screen) == "number" and right + SPEC_W > screen then
+        p:SetPoint("TOPRIGHT", f, "TOPLEFT", 1, 0)
+    else
+        p:SetPoint("TOPLEFT", f, "TOPRIGHT", -1, 0)
+    end
+end
+
+function V:RefreshSpectators()
+    local p = self.specPanel
+    if not p then return end
+    local room = self.view == "room" and DR.rooms[self.roomId or ""]
+    p:SetShown(room and true or false)
+    if not room then return end
+    self:PlaceSpectators()
+    local list, total = DR:SpectatorNames(room)
+    self.specCount:SetText(total > 0 and total or "")
+    for i, t in ipairs(self.specRows) do
+        local n = list[i]
+        if n and i == SPEC_ROWS and total > SPEC_ROWS then
+            t:SetText(("|cff8a8f9c+%d more|r"):format(total - SPEC_ROWS + 1))
+        elseif n then
+            t:SetText(colored(n) .. (n == ns.me and " |cff8a8f9c(you)|r" or ""))
+        else
+            t:SetText("")
+        end
+    end
+    if total > #list and #list < SPEC_ROWS then
+        self.specRows[#list + 1]:SetText(("|cff8a8f9c+%d more|r"):format(total - #list))
+    end
+    if room.sim then
+        self.specEmpty:SetText("Practice game - no spectators.")
+    elseif total == 0 then
+        self.specEmpty:SetText("No one watching yet. Guildmates in your group can watch from the chat link or the lobby.")
+    else
+        self.specEmpty:SetText("")
+    end
+    -- as tall as its names (or the note when nobody's watching)
+    local shown = 0
+    for _, t in ipairs(self.specRows) do if t:GetText() ~= "" then shown = shown + 1 end end
+    local eh = self.specEmpty:GetStringHeight()
+    p:SetHeight(30 + (shown > 0 and shown * SPEC_ROW or ((type(eh) == "number" and eh > 0) and eh or 42)) + 10)
 end
 
 -- ---------------------------------------------------------------------
@@ -809,8 +852,7 @@ function V:CreateToast()
     icon:SetTexture(ns.MEDIA .. "DeathRoll")
     icon:SetSize(36, 36)
     icon:SetPoint("LEFT", 12, 0)
-    t.text = UI.Text(t, "GameFontHighlight")
-    t.text:SetPoint("TOPLEFT", icon, "TOPRIGHT", 10, 2)
+    t.text = UI.Text(t, "GameFontHighlight", nil, nil, "TOPLEFT", icon, "TOPRIGHT", 10, 2)
     t.text:SetPoint("RIGHT", -10, 0)
     t.text:SetJustifyH("LEFT")
     t.join = UI.Button(t, 90, 22, "Join", nil, function()
@@ -823,17 +865,28 @@ function V:CreateToast()
         if t.room then t.room.watching = true; V:ShowRoom(t.room.id) end
     end)
     t.watch:SetPoint("LEFT", t.join, "RIGHT", 6, 0)
+    t.decline = UI.Button(t, 70, 22, "Decline", "Turn it down - the challenger can then open it to anyone", function()
+        t:Hide()
+        if t.room then DR:Decline(t.room.id) end
+    end)
+    t.decline:SetPoint("LEFT", t.join, "RIGHT", 6, 0)
     t.close = UI.Button(t, 70, 22, "Dismiss", nil, function() t:Hide() end)
     t.close:SetPoint("LEFT", t.watch, "RIGHT", 6, 0)
     self.toast = t
 end
 
-function V:Toast(room)
+function V:Toast(room, opened)
     if not self.toast then self:CreateToast() end
     local t = self.toast
     t.room = room
-    local who = room.target == ns.me and "challenges you" or "started a death roll"
+    local forMe = room.target == ns.me
+    local who = forMe and "challenges you" or (opened and "opened their death roll to anyone" or "started a death roll")
     t.text:SetText(("%s %s for %s"):format(colored(room.host), who, fmtGold(room.wager)))
+    -- a challenge meant for you: Join / Decline / Dismiss; otherwise Join / Watch / Dismiss
+    t.decline:SetShown(forMe)
+    t.watch:SetShown(not forMe)
+    t.close:ClearAllPoints()
+    t.close:SetPoint("LEFT", forMe and t.decline or t.watch, "RIGHT", 6, 0)
     t:Show()
     if PlaySound and SOUNDKIT and SOUNDKIT.TELL_MESSAGE then PlaySound(SOUNDKIT.TELL_MESSAGE) end
     local token = {}
@@ -844,9 +897,6 @@ end
 
 ns.RegisterModule({
     key = "deathroll", name = "Death Roll", icon = ns.MEDIA .. "DeathRoll", group = "games", order = 1,
-    desc = "Challenge a guildmate to a death roll. First to roll a 1 pays up.",
-    show = function() V:Show() end,
-    hide = function() if V.frame then V.frame:Hide() end end,
-    isShown = function() return V:IsShown() end,
-    frame = function() return V.frame end,
+    desc = "Challenge a guildmate - first to roll a 1 pays up.",
+    view = V,
 })

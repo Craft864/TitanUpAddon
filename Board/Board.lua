@@ -11,10 +11,11 @@ local U = ns.U
 local Board = {}
 ns.Board = Board
 
-local FW, FH = 1220, 720
+local FW, FH = 1220, 696
 local LEFT_W, RIGHT_W, PAD = 220, 214, 8
 local TOOL_W = 66
-local TITLE_H, BAR_H, FOOT_H = 32, 30, 24
+local TITLE_H, BAR_H, FOOT_H = 8, 30, 24          -- no title row: the tab sits above the window
+local TITLE_COMPACT = 32          -- mini view / viewer mode keep a compact title row
 local MINI_W, MINI_H = 380, 300
 local ROW_H = 20
 local DOT = ns.MEDIA .. "dot"
@@ -23,6 +24,7 @@ local FILL_SCALE = 512 / 504   -- shape textures leave a small antialiasing marg
 local PIE_ANGLES = { 30, 45, 60, 90, 120, 180, 270 }
 local DONUT_HOLES = { 30, 40, 50, 60, 70, 80 }
 
+-- the value in list nearest to v
 local function snap(v, list)
     local best = list[1]
     for _, x in ipairs(list) do
@@ -30,6 +32,8 @@ local function snap(v, list)
     end
     return best
 end
+
+Board.Snap, Board.PIE_ANGLES = snap, PIE_ANGLES      -- (the Raidstrats import snaps cones too)
 
 Board.COLORS = {
     { 0.96, 0.30, 0.30 }, { 1.00, 0.60, 0.20 }, { 1.00, 0.88, 0.25 }, { 0.38, 0.90, 0.45 },
@@ -72,6 +76,8 @@ local cw, ch, bw, bh = 700, 540, 700, 540
 local canvas, layer, overlay
 local tool = { mode = "P", stamp = 1 }
 local undo = {}
+-- shared with BoardPanels.lua (same tables, never reassigned)
+Board._view, Board._undo = view, undo
 local pools = { line = {}, tex = {}, fs = {} }
 local bgTex, bgLines = {}, {}
 
@@ -142,6 +148,9 @@ function Board:ReleaseOp(op)
     op._r = nil
 end
 
+Board.CLASS_ICONS = { "Warrior", "Paladin", "Hunter", "Rogue", "Priest", "DeathKnight", "Shaman",
+    "Mage", "Warlock", "Monk", "Druid", "DemonHunter", "Evoker" }
+
 function Board.StampTexture(tx, k)
     if k >= 1 and k <= 3 then
         for _, name in ipairs(ROLE_ATLASES[k]) do
@@ -159,9 +168,7 @@ function Board.StampTexture(tx, k)
         tx:SetTexCoord(0, 1, 0, 1)
     elseif k >= 31 and k <= 43 then
         -- class icons (used by Raidstrats imports)
-        local CLASS_ICONS = { "Warrior", "Paladin", "Hunter", "Rogue", "Priest", "DeathKnight", "Shaman",
-            "Mage", "Warlock", "Monk", "Druid", "DemonHunter", "Evoker" }
-        tx:SetTexture("Interface\\Icons\\ClassIcon_" .. CLASS_ICONS[k - 30])
+        tx:SetTexture("Interface\\Icons\\ClassIcon_" .. Board.CLASS_ICONS[k - 30])
         tx:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     else
         tx:SetTexture(DOT)
@@ -176,6 +183,15 @@ end
 local function stampPx(op) return math.max(12, math.min(64, (16 + (op.w or 3) * 3) * math.sqrt(view.zoom))) end
 local function soakPx(op) return math.max(8, (24 + (op.w or 3) * 10) * view.zoom * bw / 700) end
 local function textPx(op) return math.max(8, math.min(40, (10 + (op.w or 3) * 2) * math.sqrt(view.zoom))) end
+-- an item's first two points on screen, and the distance between them
+local function ends(pts)
+    local x1, y1 = toPx(pts[1], pts[2])
+    local x2, y2 = toPx(pts[3] or pts[1], pts[4] or pts[2])
+    return x1, y1, x2, y2, math.sqrt((x2 - x1) ^ 2 + (y2 - y1) ^ 2)
+end
+-- the point at angle ang on a circle
+local function rim(x, y, rad, ang) return x + math.cos(ang) * rad, y + math.sin(ang) * rad end
+
 function Board:RenderOp(op)
     if not self.frame then return end
     self:ReleaseOp(op)
@@ -206,16 +222,16 @@ function Board:RenderOp(op)
         r.t[#r.t + 1] = t
     end
 
-    local function circle(x, y, rad)
-        local n = math.max(16, math.min(72, math.floor(rad / 3)))
-        local lx, ly = x + rad, y
+    -- n segments along an arc (angles from -> to)
+    local function arc(x, y, rad, from, to, n)
+        local lx, ly = rim(x, y, rad, from)
         for i = 1, n do
-            local ang = i / n * 2 * math.pi
-            local nx, ny = x + math.cos(ang) * rad, y + math.sin(ang) * rad
+            local nx, ny = rim(x, y, rad, from + (to - from) * i / n)
             seg(lx, ly, nx, ny)
             lx, ly = nx, ny
         end
     end
+    local function circle(x, y, rad) arc(x, y, rad, 0, 2 * math.pi, math.max(16, math.min(72, math.floor(rad / 3)))) end
 
     local t = op.t
     if t == "P" then
@@ -229,8 +245,7 @@ function Board:RenderOp(op)
             px, py = qx, qy
         end
     elseif t == "L" or t == "A" then
-        local x1, y1 = toPx(pts[1], pts[2])
-        local x2, y2 = toPx(pts[3] or pts[1], pts[4] or pts[2])
+        local x1, y1, x2, y2 = ends(pts)
         seg(x1, y1, x2, y2)
         if thick >= 4 then dot(x1, y1, thick) end
         if t == "A" then
@@ -241,13 +256,10 @@ function Board:RenderOp(op)
         end
         if thick >= 4 then dot(x2, y2, thick) end
     elseif t == "C" then
-        local x1, y1 = toPx(pts[1], pts[2])
-        local x2, y2 = toPx(pts[3] or pts[1], pts[4] or pts[2])
-        circle(x1, y1, math.sqrt((x2 - x1) ^ 2 + (y2 - y1) ^ 2))
+        local x1, y1, _, _, rad = ends(pts)
+        circle(x1, y1, rad)
     elseif t == "W" or t == "D" then
-        local x1, y1 = toPx(pts[1], pts[2])
-        local x2, y2 = toPx(pts[3] or pts[1], pts[4] or pts[2])
-        local rad = math.sqrt((x2 - x1) ^ 2 + (y2 - y1) ^ 2)
+        local x1, y1, x2, y2, rad = ends(pts)
         if rad >= 2 then
             -- Translucent fill from a pre-made texture, outline from lines.
             local fill = getTex("BORDER")
@@ -260,18 +272,9 @@ function Board:RenderOp(op)
                 fill:SetTexture(SHAPES .. "wedge" .. spread)
                 fill:SetRotation(-dir)                        -- UI rotation is counter-clockwise
                 local half = math.rad(spread) / 2
-                local ax, ay = x1 + math.cos(dir - half) * rad, y1 + math.sin(dir - half) * rad
-                local bx2, by2 = x1 + math.cos(dir + half) * rad, y1 + math.sin(dir + half) * rad
-                seg(x1, y1, ax, ay)
-                seg(x1, y1, bx2, by2)
-                local n = math.max(6, math.min(72, math.floor(rad * half * 2 / 6)))
-                local lx, ly = ax, ay
-                for i = 1, n do
-                    local ang = dir - half + 2 * half * i / n
-                    local nx, ny = x1 + math.cos(ang) * rad, y1 + math.sin(ang) * rad
-                    seg(lx, ly, nx, ny)
-                    lx, ly = nx, ny
-                end
+                seg(x1, y1, rim(x1, y1, rad, dir - half))
+                seg(x1, y1, rim(x1, y1, rad, dir + half))
+                arc(x1, y1, rad, dir - half, dir + half, math.max(6, math.min(72, math.floor(rad * half * 2 / 6))))
             else
                 local hole = snap(op.k, DONUT_HOLES)
                 fill:SetTexture(SHAPES .. "ring" .. hole)
@@ -531,9 +534,8 @@ function Board:_openZoomedOut()
     if sl and ns.IsOwner() then sl.view = { z = view.zoom, cx = view.cx, cy = view.cy } end
 end
 
--- Each slide remembers its camera. Without one: keep the current view,
--- or (fallbackReset) frame the boss.
-function Board:ApplySlideView(fallbackReset)
+-- Each slide remembers its camera. Without one: keep the current view.
+function Board:ApplySlideView()
     if not self.frame then return end
     local sl = Model:Page()
     local v = sl and sl.view
@@ -542,8 +544,6 @@ function Board:ApplySlideView(fallbackReset)
         view.zoom = math.max(1, math.min(8, v.z))
         view.cx, view.cy = v.cx, v.cy
         clampView()
-    elseif fallbackReset then
-        self:ResetView()
     end
 end
 
@@ -572,8 +572,7 @@ function Board:SelectContext(ctx, page, remote)
     self:RenderAll()
     self:RefreshList()
     if not remote then
-        ns.Sync:SendContext()
-        ns.Sync:SendSnapshot()
+        ns.Sync:SendAll()
     end
 end
 
@@ -666,15 +665,11 @@ function Board:HitTest(px, py, maxd)
                     ax, ay = bx2, by2
                 end
             elseif op.t == "C" then
-                local cx, cy = toPx(pts[1], pts[2])
-                local ex, ey = toPx(pts[3] or pts[1], pts[4] or pts[2])
-                local rad = math.sqrt((ex - cx) ^ 2 + (ey - cy) ^ 2)
+                local cx, cy, _, _, rad = ends(pts)
                 d = math.abs(math.sqrt((px - cx) ^ 2 + (py - cy) ^ 2) - rad)
             elseif op.t == "W" or op.t == "D" then
                 -- Clicking anywhere inside the filled area counts as a hit.
-                local cx, cy = toPx(pts[1], pts[2])
-                local ex, ey = toPx(pts[3] or pts[1], pts[4] or pts[2])
-                local rad = math.sqrt((ex - cx) ^ 2 + (ey - cy) ^ 2)
+                local cx, cy, ex, ey, rad = ends(pts)
                 local dd = math.sqrt((px - cx) ^ 2 + (py - cy) ^ 2)
                 if op.t == "D" then
                     local inner = rad * snap(op.k, DONUT_HOLES) / 100
@@ -687,8 +682,8 @@ function Board:HitTest(px, py, maxd)
                     if diff <= half then
                         d = (dd <= rad) and 0 or (dd - rad)
                     else
-                        local ax, ay = cx + math.cos(dir - half) * rad, cy + math.sin(dir - half) * rad
-                        local bx2, by2 = cx + math.cos(dir + half) * rad, cy + math.sin(dir + half) * rad
+                        local ax, ay = rim(cx, cy, rad, dir - half)
+                        local bx2, by2 = rim(cx, cy, rad, dir + half)
                         d = math.min(distSeg(px, py, cx, cy, ax, ay), distSeg(px, py, cx, cy, bx2, by2))
                     end
                 end
@@ -1146,499 +1141,28 @@ function Board:UpdateSizePreview()
 end
 
 -- ---------------------------------------------------------------------
--- Encounter list (left)
--- ---------------------------------------------------------------------
-function Board:BuildEntries()
-    local e = {}
-    local function header(text) e[#e + 1] = { kind = "header", text = text } end
-    local function inst(i)
-        e[#e + 1] = { kind = "inst", text = i.name, inst = i.id, missing = i.missing }
-        if i.id and self.expanded == i.id then
-            for _, b in ipairs(ns.Content:Encounters(i.id)) do
-                e[#e + 1] = { kind = "boss", text = b.name, inst = i.id, enc = b.id }
-            end
-        end
-    end
-    local here = ns.Content:CurrentContext()
-    if here and here.inst then
-        header("YOU ARE HERE")
-        inst({ id = here.inst, name = here.instName or "Current instance" })
-    end
-    header("RAIDS")
-    for _, i in ipairs(ns.Content:Raids()) do inst(i) end
-    header("MYTHIC+ POOL")
-    local d = ns.Content:Dungeons()
-    if #d == 0 then e[#e + 1] = { kind = "note", text = "Loading keystone pool..." } end
-    for _, i in ipairs(d) do inst(i) end
-    local world = ns.Content:WorldBosses()
-    if #world > 0 then
-        header("WORLD BOSSES")
-        for _, i in ipairs(world) do inst(i) end
-    end
-    header("OTHER")
-    e[#e + 1] = { kind = "free", text = "Blank board" }
-    self.entries = e
-end
-
-function Board:RefreshList(rebuild)
-    if not self.frame then return end
-    if rebuild or not self.entries then self:BuildEntries() end
-    local e = self.entries
-    local rows = self.listRows
-    local maxOff = math.max(0, #e - #rows)
-    self.listOffset = math.max(0, math.min(maxOff, self.listOffset or 0))
-    local ctx = Model.plan and Model.plan.ctx
-    for i, row in ipairs(rows) do
-        local item = e[i + self.listOffset]
-        row.item = item
-        if not item then
-            row:Hide()
-        else
-            row:Show()
-            local text, col, indent = item.text, C.text, 6
-            row.hl:Hide()
-            if item.kind == "header" then
-                col, text = C.accent, item.text
-            elseif item.kind == "note" then
-                col = C.muted
-            elseif item.kind == "inst" then
-                text = ((self.expanded == item.inst) and "- " or "+ ") .. item.text
-                if item.missing then col = C.muted end
-            elseif item.kind == "boss" then
-                indent = 20
-                if ctx and ctx.enc == item.enc then
-                    row.hl:Show()
-                    col = C.accent
-                end
-            elseif item.kind == "free" then
-                if ctx and ctx.key == "free" then row.hl:Show(); col = C.accent end
-            end
-            row.text:SetPoint("LEFT", indent, 0)
-            row.text:SetText(text)
-            row.text:SetFontObject(item.kind == "header" and "GameFontNormalSmall" or "GameFontHighlightSmall")
-            row.text:SetTextColor(col[1], col[2], col[3])
-        end
-    end
-end
-
-function Board:_listClick(item)
-    if not item then return end
-    if item.kind == "inst" then
-        if item.missing then
-            ns.Print("No Encounter Journal match for this dungeon yet (see Content.lua NAME_OVERRIDES).")
-            return
-        end
-        self.expanded = (self.expanded == item.inst) and nil or item.inst
-        self:RefreshList(true)
-        return
-    end
-    if item.kind ~= "boss" and item.kind ~= "free" then return end
-    if IsInGroup() and not ns.CanDraw() then
-        ns.Print("You're following the leader's board - they choose the encounter.")
-        return
-    end
-    local ctx = (item.kind == "boss") and ns.Content:MakeContext(item.inst, item.enc) or ns.Content:MakeContext()
-    self:SelectContext(ctx, 1)
-end
-
--- ---------------------------------------------------------------------
--- Viewers (right)
--- ---------------------------------------------------------------------
-local STATUS_TEXT = {
-    watching = { "watching", C.good },
-    mini = { "mini view", C.good },
-    closed = { "board closed", C.warn },
-    none = { "no response", C.muted },
-    offline = { "offline", C.muted },
-}
-
-function Board:UpdateViewers()
-    if not self.frame or not self.frame:IsShown() then return end
-    local list, counts = ns.Presence:List()
-    self.countText:SetText(("|cff66e08c%d|r / %d watching   |cffffa340%d closed|r   |cff8a8f9c%d other|r"):format(
-        counts.watching, counts.total, counts.closed, counts.none))
-    local rows = self.viewerRows
-    local maxOff = math.max(0, #list - #rows)
-    self.viewerOffset = math.max(0, math.min(maxOff, self.viewerOffset or 0))
-    for i, row in ipairs(rows) do
-        local v = list[i + self.viewerOffset]
-        row.entry = v
-        if not v then
-            row:Hide()
-        elseif v.header then
-            row:Show()
-            row.dot:Hide()
-            row.name:SetText(v.text)
-            row.name:SetTextColor(C.accent[1], C.accent[2], C.accent[3], 0.8)
-            row.status:SetText("")
-            row.hl:Hide()
-        else
-            row:Show()
-            row.dot:Show()
-            local st = STATUS_TEXT[v.status]
-            local active = v.status == "watching" or v.status == "mini"
-            row.dot:SetVertexColor(st[2][1], st[2][2], st[2][3], active and 1 or 0.6)
-            local class = ns.ClassOf(v.name)
-            local cc = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-            local name = ns.Short(v.name) .. ((v.name == ns.me) and " (you)" or "")
-            row.name:SetText(name)
-            local r, g, b = C.text[1], C.text[2], C.text[3]
-            if cc then r, g, b = cc.r, cc.g, cc.b end
-            row.name:SetTextColor(r, g, b, active and 1 or 0.45)
-            local status = st[1]
-            if v.recent then status = "|cff4fc3f7tuned in|r" end
-            if v.canDraw then status = "|cff4fc3f7draw|r  " .. status end
-            row.status:SetText(status)
-            row.status:SetTextColor(C.muted[1], C.muted[2], C.muted[3], active and 1 or 0.7)
-            row.hl:SetShown(v.recent and true or false)
-        end
-    end
-end
-
-function Board:_viewerClick(entry)
-    if not entry or entry.header or entry.name == ns.me then return end
-    local leader = IsInGroup() and UnitIsGroupLeader("player")
-    if not leader and IsInGroup() then
-        ns.Print("Only the group leader can grant drawing rights.")
-        return
-    end
-    if not IsInGroup() and not (ns.Sim and ns.Sim.active) then return end
-    ns.acl[entry.name] = (not ns.acl[entry.name]) or nil
-    ns.Print(ns.Short(entry.name) .. (ns.acl[entry.name] and " can now draw." or " can no longer draw."))
-    ns.Sync:SendACL()
-    self:UpdateViewers()
-end
-
--- ---------------------------------------------------------------------
--- Header, phases, status
--- ---------------------------------------------------------------------
-function Board:UpdateHeader()
-    local ctx = Model.plan and Model.plan.ctx
-    local text = "Blank board"
-    if ctx then
-        if ctx.name then
-            text = ctx.name .. (ctx.instName and ("  |cff8a8f9c" .. ctx.instName .. "|r") or "")
-        elseif ctx.instName then
-            text = ctx.instName
-        end
-    end
-    self.ctxText:SetText(text)
-end
-
--- ---------------------------------------------------------------------
--- Slides (left panel)
--- ---------------------------------------------------------------------
-function Board:RefreshSlides()
-    if not self.slideRows then return end
-    local plan = Model.plan
-    local count = plan and #plan.pages or 0
-    local page = plan and plan.page or 1
-    local rows = self.slideRows
-    local maxOff = math.max(0, count - #rows)
-    local off = self.slideOffset or 0
-    if page <= off then off = page - 1 end
-    if page > off + #rows then off = page - #rows end
-    self.slideOffset = math.max(0, math.min(maxOff, off))
-    for i, row in ipairs(rows) do
-        local idx = i + self.slideOffset
-        local sl = plan and plan.pages[idx]
-        row.index = idx
-        if not sl then
-            row:Hide()
-        else
-            row:Show()
-            local current = idx == page
-            row.hl:SetShown(current)
-            row.num:SetText(idx)
-            row.text:SetText(sl.name)
-            local c = current and C.accent or C.text
-            row.text:SetTextColor(c[1], c[2], c[3])
-            local n = #sl.ops
-            row.count:SetText(n > 0 and n or "")
-        end
-    end
-    self.slideCountText:SetText(("%d / %d"):format(count > 0 and page or 0, Model.MAX_SLIDES))
-    self.miniSlideText:SetText(plan and ("Slide %d/%d"):format(page, count) or "")
-end
-
-local function ownerOnly()
-    if ns.IsOwner() then return true end
-    ns.Print("Only the group leader can manage plans and slides.")
-    return false
-end
-
-function Board:AfterPlanChange()
-    wipe(undo)
-    self:_openZoomedOut()
-    self:RenderAll()
-    ns.Sync:SendContext()
-    ns.Sync:SendSnapshot()
-end
-
-function Board:AddSlide()
-    if not Model.plan or not ownerOnly() then return end
-    local i = Model:AddSlide({ z = view.zoom, cx = view.cx, cy = view.cy })
-    if not i then ns.Print("A plan can have up to " .. Model.MAX_SLIDES .. " slides.") return end
-    wipe(undo)
-    Model.plan.page = i
-    self:RenderAll()
-    ns.Sync:SendSnapshot()
-end
-
-function Board:DuplicateSlide()
-    if not Model.plan or not ownerOnly() then return end
-    local i = Model:DuplicateSlide(Model.plan.page)
-    if not i then ns.Print("A plan can have up to " .. Model.MAX_SLIDES .. " slides.") return end
-    wipe(undo)
-    Model.plan.page = i
-    self:ApplySlideView()
-    self:RenderAll()
-    ns.Sync:SendSnapshot()
-end
-
-function Board:RenameSlide()
-    if not Model.plan or not ownerOnly() then return end
-    UI.Prompt({
-        title = "Rename slide", help = "Up to 24 characters, e.g. \"Pull\", \"P2 soaks\", \"Intermission\".",
-        text = Model:Page().name, accept = "Rename", select = true,
-        onAccept = function(text)
-            if Model:RenameSlide(Model.plan.page, text) then
-                Board:RefreshSlides()
-                ns.Sync:SendSnapshot()
-            end
-        end,
-    })
-end
-
-function Board:DeleteSlide()
-    if not Model.plan or not ownerOnly() then return end
-    if Model:SlideCount() <= 1 then
-        ns.Print("A plan needs at least one slide - use Clear to empty it.")
-        return
-    end
-    local function doDelete()
-        Model:DeleteSlide(Model.plan.page)
-        wipe(undo)
-        Board:ApplySlideView()
-        Board:RenderAll()
-        ns.Sync:SendContext()
-        ns.Sync:SendSnapshot()
-    end
-    if Model:CountOps() == 0 then doDelete() return end
-    UI.Prompt({
-        title = "Delete slide", noInput = true, accept = "Delete",
-        help = ("Delete \"%s\" and its %d drawing(s)? This can't be undone."):format(Model:Page().name, Model:CountOps()),
-        onAccept = doDelete,
-    })
-end
-
-function Board:MoveSlide(delta)
-    if not Model.plan or not ownerOnly() then return end
-    if Model:MoveSlide(Model.plan.page, delta) then
-        wipe(undo)
-        self:RefreshSlides()
-        ns.Sync:SendContext()
-        ns.Sync:SendSnapshot()
-    end
-end
-
--- ---------------------------------------------------------------------
--- Saved plans (left panel)
--- ---------------------------------------------------------------------
-function Board:RefreshPlanUI()
-    if not self.planBtn then return end
-    local plan = Model.plan
-    local owner = ns.IsOwner()
-    self.planBtn.label:SetText(plan and plan.name or "")
-    local n = plan and #Model:PlanNames() or 0
-    self.planCount:SetText(n > 1 and (n .. " plans") or "")
-    for _, b in ipairs(self.ownerButtons) do UI.SetDisabled(b, not owner) end
-    UI.SetDisabled(self.planBtn, not owner)
-end
-
-function Board:ShowPlanMenu()
-    if not Model.plan or not ownerOnly() then return end
-    local items = {}
-    for _, name in ipairs(Model:PlanNames()) do
-        items[#items + 1] = {
-            text = name, checked = name == Model.plan.name,
-            onClick = function()
-                Model:SwitchPlan(name)
-                Board:AfterPlanChange()
-            end,
-        }
-    end
-    items[#items + 1] = { text = "+ New plan...", muted = true, onClick = function() Board:NewPlan() end }
-    UI.Menu(self.planBtn, items)
-end
-
-function Board:NewPlan()
-    if not Model.plan or not ownerOnly() then return end
-    UI.Prompt({
-        title = "New plan", help = "A blank plan for this encounter. Your current plan is already saved.",
-        text = Model:UniquePlanName("New plan"), accept = "Create", select = true,
-        onAccept = function(text)
-            Model:NewPlan(text)
-            Board:AfterPlanChange()
-        end,
-    })
-end
-
-function Board:SavePlanAs()
-    if not Model.plan or not ownerOnly() then return end
-    UI.Prompt({
-        title = "Save plan as", help = "Saves a copy under a new name and keeps working on the copy. Plans also save automatically as you draw.",
-        text = Model:UniquePlanName(Model.plan.name .. " copy"), accept = "Save", select = true,
-        onAccept = function(text)
-            Model:SaveAs(text)
-            Board:RefreshPlanUI()
-            ns.Print("Saved as \"" .. Model.plan.name .. "\".")
-            ns.Sync:SendSnapshot()
-        end,
-    })
-end
-
-function Board:DeletePlan()
-    if not Model.plan or not ownerOnly() then return end
-    local name = Model.plan.name
-    UI.Prompt({
-        title = "Delete plan", noInput = true, accept = "Delete",
-        help = ("Delete \"%s\" and all %d of its slides? This can't be undone. (Export it first if you might want it back.)"):format(name, Model:SlideCount()),
-        onAccept = function()
-            Model:DeletePlan(name)
-            Board:AfterPlanChange()
-            ns.Print("Deleted \"" .. name .. "\".")
-        end,
-    })
-end
-
-function Board:UpdateStatus()
-    if not self.frame then return end
-    local mode = ns.Comms:Mode()
-    local queued = ns.Comms:QueueSize()
-    local locked = ns.InLockdown()
-    local pill, pc
-    if locked then
-        pill, pc = "LOCKDOWN", C.warn
-    elseif mode == "group" then
-        pill, pc = "LIVE", C.good
-    elseif mode == "sim" then
-        pill, pc = "SIMULATION", C.accent
-    elseif mode == "loopback" then
-        pill, pc = "LOOPBACK", C.accent
-    else
-        pill, pc = "LOCAL", C.muted
-    end
-    self.pill.text:SetText(pill)
-    self.pill.text:SetTextColor(pc[1], pc[2], pc[3])
-    self.pill:SetBackdropBorderColor(pc[1], pc[2], pc[3], 1)
-
-    local banner
-    if locked then
-        banner = ("|cffffa340Encounter lockdown|r - nothing can be sent right now. %d change(s) queued."):format(queued)
-    elseif IsInGroup() and not ns.CanDraw() then
-        local leader = ns.LeaderName()
-        local synced = ns.Sync:InSync()
-        banner = "Following " .. ns.Short(leader or "the leader") .. "  |cff8a8f9c- hold the left mouse button to point|r"
-        if synced == false then banner = banner .. "  |cffffa340(resyncing...)|r" end
-    end
-    self.banner:SetText(banner or "")
-    self.bannerBg:SetShown(banner ~= nil)
-
-    local st = ns.Comms.stats
-    self.footRight:SetText(("%s  |  sent %d  recv %d  queued %d  throttled %d"):format(
-        mode, st.sent, st.recv, queued, st.throttled))
-
-    self.emptyText:SetShown(Model.plan ~= nil and Model:CountOps() == 0 and not self.mini)
-    local canDraw = ns.CanDraw()
-    for m, b in pairs(self.toolBtns) do b:SetAlpha((canDraw or m == "R") and 1 or 0.4) end
-    for _, b in pairs(self.stampBtns) do b:SetAlpha(canDraw and 1 or 0.4) end
-    self.syncBtn.label:SetText(ns.IsOwner() and "Send full plan" or "Request resync")
-    self:UpdateViewers()
-end
-
--- ---------------------------------------------------------------------
--- Room picker (options bar): which background this slide uses
--- ---------------------------------------------------------------------
-function Board:RefreshRoomUI()
-    local b = self.roomBtn
-    if not b then return end
-    local ctx = Model.plan and Model.plan.ctx
-    local list = ctx and ns.Rooms:List(ctx) or {}
-    if #list == 0 or ns.testRoom then
-        b:Hide()
-        return
-    end
-    b:Show()
-    local room = ns.Rooms:Get(ctx, Model:Page().bg)
-    b.label:SetText("Room: " .. (room and room.label or "Blizzard map"))
-    UI.SetDisabled(b, not ns.CanDraw())
-end
-
-function Board:ShowRoomMenu()
-    if not Model.plan then return end
-    if not ns.CanDraw() then
-        ns.Print("You're following the leader - they choose the room.")
-        return
-    end
-    local ctx = Model.plan.ctx
-    local current = ns.Rooms:Get(ctx, Model:Page().bg)
-    local items = {}
-    for _, r in ipairs(ns.Rooms:List(ctx)) do
-        items[#items + 1] = { text = r.label, checked = current == r, onClick = function() Board:SetRoom(r.key) end }
-    end
-    items[#items + 1] = { text = "Blizzard map", checked = current == nil, onClick = function() Board:SetRoom("map") end }
-    UI.Menu(self.roomBtn, items)
-end
-
-function Board:SetRoom(key)
-    local sl = Model:Page()
-    if not sl or not ns.CanDraw() then return end
-    if sl.bg == key then return end
-    if #sl.ops > 0 then
-        ns.Print("Room changed. Drawings keep their positions on the board, so re-place anything that no longer lines up.")
-    end
-    sl.bg = key
-    Model.plan.keep = true
-    self:ResetView()
-    self:RenderAll()
-    Model:Touch()
-    ns.Sync:SendRoom()
-    self:_viewChanged()
-end
-
-function Board:PrintIds(all)
-    local ctx = Model.plan and Model.plan.ctx
-    if all then
-        local inst = ctx and ctx.inst
-        if not inst then
-            local here = ns.Content:CurrentContext()
-            inst = here and here.inst
-        end
-        if not inst then ns.Print("Open the board on a boss (or stand in the instance) first.") return end
-        ns.Print(("%s - instance %d:"):format(ns.Content:InstanceName(inst) or "?", inst))
-        for _, e in ipairs(ns.Content:Encounters(inst)) do
-            ns.Print(("  [%d] = %s"):format(e.id or 0, e.name or "?"))
-        end
-        return
-    end
-    local ctx = Model.plan and Model.plan.ctx
-    if not ctx then ns.Print("Open the board on an encounter first.") return end
-    local room = ns.Rooms:Get(ctx, Model:Page().bg)
-    ns.Print(("Instance %s  |  encounter %s  |  floor map %s  |  background: %s"):format(
-        tostring(ctx.inst), tostring(ctx.enc), tostring(ctx.map), room and ("room \"" .. room.label .. "\"") or (self.bg and self.bg.kind or "?")))
-    ns.Print("Tip: /tb ids all lists every boss in this instance.")
-end
-
--- ---------------------------------------------------------------------
--- Mini view (combat)
--- ---------------------------------------------------------------------
--- ---------------------------------------------------------------------
 -- Layout: normal (with either side panel collapsible), mini (combat),
 -- and viewer mode (full screen, map only).
 -- ---------------------------------------------------------------------
 local function rotateCaret(btn, pointLeft)
     btn.icon:SetRotation(pointLeft and -math.pi / 2 or math.pi / 2)
+end
+
+-- The plan name gets whatever room is left in the options row, so the row
+-- never overlaps (room picker and shape option come and go).
+function Board:FitOptionsBar()
+    if not (self.optBar and self.optLead) or self.mini or self.fullscreen then return end
+    local s = settings()
+    local left = PAD + (s.leftCollapsed and 0 or (LEFT_W + PAD)) + TOOL_W + 6
+    local barW = FW - PAD - left
+    local function w(fr, gap) return (fr and fr:IsShown()) and ((fr:GetWidth() or 0) + (gap or 0)) or 0 end
+    local leftFixed = self.optLeftW + w(self.shapeOpt, 24)
+    local rightFixed = w(self.titleClose, 8) + w(self.miniBtn, 4) + w(self.viewerBtn, 8) + w(self.pill, 10)
+        + w(self.clearBtn, 4) + 54 + w(self.roomBtn, 12)
+    local ctxW = math.max(60, math.min(220, barW - leftFixed - rightFixed - 16))
+    self.ctxText:SetWidth(ctxW - 10)
+    self.optLead:ClearAllPoints()
+    self.optLead:SetPoint("LEFT", self.optBar, "LEFT", ctxW, 0)
 end
 
 function Board:ApplyLayout()
@@ -1667,7 +1191,7 @@ function Board:ApplyLayout()
         end
         f:ClearAllPoints()
         f:SetFrameStrata("HIGH")
-        if mini then f:SetSize(MINI_W + PAD * 2, MINI_H + TITLE_H + PAD) else f:SetSize(FW, FH) end
+        if mini then f:SetSize(MINI_W + PAD * 2, MINI_H + TITLE_COMPACT + PAD) else f:SetSize(FW, FH) end
         if left and top then f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top) else f:SetPoint("CENTER") end
     end
 
@@ -1682,17 +1206,15 @@ function Board:ApplyLayout()
         strip:SetPoint("TOPLEFT", self.left, "TOPRIGHT", PAD, 0)
         strip:SetPoint("BOTTOMLEFT", self.left, "BOTTOMRIGHT", PAD, 0)
     else
-        strip:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -TITLE_H)
+        -- left pane collapsed: its arrow sits above the tool column
+        strip:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -TITLE_H - 26)
         strip:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", PAD, FOOT_H)
     end
     local bar = self.optBar
     bar:ClearAllPoints()
-    bar:SetPoint("TOPLEFT", strip, "TOPRIGHT", 6, 0)
-    if showRight then
-        bar:SetPoint("TOPRIGHT", self.right, "TOPLEFT", -PAD, 0)
-    else
-        bar:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PAD, -TITLE_H)
-    end
+    -- the options row runs the full width (Live Viewers starts below it)
+    bar:SetPoint("TOPLEFT", strip, "TOPRIGHT", 6, showLeft and 0 or 26)
+    bar:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PAD, -TITLE_H)
     canvas:ClearAllPoints()
     if edit then
         canvas:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", 0, -6)
@@ -1702,32 +1224,64 @@ function Board:ApplyLayout()
             canvas:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -PAD, FOOT_H)
         end
     else
-        canvas:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -TITLE_H)
+        canvas:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -TITLE_COMPACT)
         canvas:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -PAD, PAD)
     end
 
-    -- Title bar
-    self.leftToggle:SetShown(edit)
-    self.rightToggle:SetShown(edit)
-    self.moduleBar:SetShown(edit)
-    self.header.icon:ClearAllPoints()
-    self.header.icon:SetPoint("LEFT", edit and 34 or 10, 0)
-    -- Right side, from the X leftward. Normal: [pill][viewer][mini][>|][modules][X]
+    -- The navigation tab (above the window) shows in the normal board only;
+    -- mini view and viewer mode stay compact
+    self.header.tab:SetShown(edit)
+
+    -- Pane arrows: bottom of each pane's inner edge, pointing toward the
+    -- window edge it collapses to; when collapsed, at that window edge
+    -- pointing back in. The footer text makes room for them.
+    local lt, rt = self.leftToggle, self.rightToggle
+    lt:SetShown(edit)
+    rt:SetShown(edit)
+    lt:ClearAllPoints()
+    rt:ClearAllPoints()
+    if showLeft then lt:SetPoint("TOPRIGHT", self.left, "TOPRIGHT", -6, -6)         -- Encounters header
+    else lt:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, -TITLE_H - 2) end                 -- above the tool column
+    if showRight then rt:SetPoint("TOPRIGHT", self.right, "TOPRIGHT", -6, -6)       -- Live Viewers header
+    else rt:SetPoint("TOPRIGHT", f, "TOPRIGHT", -PAD, -(TITLE_H + BAR_H + 6)) end   -- where the pane's top was
+    lt:SetFrameLevel(f:GetFrameLevel() + 30)
+    rt:SetFrameLevel(f:GetFrameLevel() + 30)
+
+    -- Normal board: the options row holds everything -
+    --   [plan name] [colors] [size] ...  [Undo] [Clear] [LOCAL] [Viewer mode] [Mini] [X]
+    -- and the slide arrows sit at the bottom-center of the map.
+    -- Mini view / viewer mode: a compact title row, from the X leftward.
+    local x = self.titleClose
+    x:ClearAllPoints()
     local chain
     if edit then
-        chain = { self.moduleBar, self.rightToggle, self.miniBtn, self.viewerBtn, self.pill, self.miniNav }
-    elseif mini then
-        chain = { self.miniBtn, self.miniNav }
+        x:SetPoint("RIGHT", bar, "RIGHT", 0, 0)
+        chain = { self.miniBtn, self.viewerBtn, self.pill }
     else
-        chain = { self.viewerBtn, self.pill, self.miniNav }
+        x:SetPoint("TOPRIGHT", f, "TOPRIGHT", -6, -5)
+        chain = mini and { self.miniBtn, self.miniNav } or { self.viewerBtn, self.pill, self.miniNav }
     end
-    local prev = self.titleClose
-    for i, part in ipairs(chain) do
+    local prev = x
+    for _, part in ipairs(chain) do
         part:ClearAllPoints()
-        local gap = (part == self.moduleBar or part == self.pill) and -8 or (part == self.miniNav and -6 or -4)
+        local gap = (part == self.pill) and -8 or (part == self.miniNav and -6 or (prev == x and -8 or -4))
         part:SetPoint("RIGHT", prev, "LEFT", gap, 0)
         prev = part
     end
+    self.ctxText:ClearAllPoints()
+    if edit then
+        self.clearBtn:ClearAllPoints()
+        self.clearBtn:SetPoint("RIGHT", self.pill, "LEFT", -10, 0)
+        self.ctxText:SetPoint("LEFT", bar, "LEFT", 2, 0)
+        self.miniNav:ClearAllPoints()
+        self.miniNav:SetPoint("BOTTOM", canvas, "BOTTOM", 0, 8)
+        self:FitOptionsBar()
+    else
+        self.ctxText:SetPoint("LEFT", f, "TOPLEFT", 12, -TITLE_COMPACT / 2)
+        self.ctxText:SetWidth(300)
+    end
+    self.emptyText:ClearAllPoints()
+    self.emptyText:SetPoint("BOTTOM", 0, (edit and not showLeft) and 44 or 14)   -- above the slide arrows
     rotateCaret(self.leftToggle, showLeft)
     rotateCaret(self.rightToggle, not showRight)
     self.leftToggle.tip = showLeft and "Hide encounters, plans & slides" or "Show encounters, plans & slides"
@@ -1735,6 +1289,7 @@ function Board:ApplyLayout()
     self.pill:SetShown(not mini)
     self.ctxText:SetShown(not mini)
     self.viewerBtn:SetShown(not mini)
+    self.miniNav:SetFrameLevel(canvas:GetFrameLevel() + 20)
     self.viewerBtn.label:SetText(full and "Exit viewer mode" or "Viewer mode")
     self.viewerBtn:SetWidth(full and 116 or 92)
     self.miniBtn:SetShown(not full)
@@ -1836,20 +1391,27 @@ function Board:Init()
     end)
 end
 
+local SELECTED = { C.accentDim[1], C.accentDim[2], C.accentDim[3], 0.6 }      -- a selected list row
+
+-- a dropdown-style button: its label on the left, a small caret on the right
+local function dropButton(b, labelInset, caret, caretX)
+    b.label:ClearAllPoints()
+    b.label:SetPoint("LEFT", 8, 0)
+    b.label:SetPoint("RIGHT", -labelInset, 0)
+    b.label:SetJustifyH("LEFT")
+    b.label:SetWordWrap(false)
+    local t = b:CreateTexture(nil, "ARTWORK")
+    t:SetTexture(ICONS .. "caret")
+    t:SetSize(caret, caret)
+    t:SetPoint("RIGHT", -caretX, 0)
+    t:SetVertexColor(C.muted[1], C.muted[2], C.muted[3], 1)
+end
+
 function Board:Create()
-    local f = CreateFrame("Frame", "TitanBoardFrame", UIParent, "BackdropTemplate")
-    self.frame = f
-    f:SetSize(FW, FH)
-    f:SetPoint("CENTER")
-    f:SetFrameStrata("HIGH")
-    f:SetToplevel(true)
-    f:SetClampedToScreen(true)
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    UI.Skin(f, C.bg, C.line)
-    f:Hide()
-    tinsert(UISpecialFrames, "TitanBoardFrame")
-    f:SetScript("OnShow", function() Board:_onShow() end)
+    -- Standard Titan Up title bar: the tab above with the module icons, the X;
+    -- board-only controls line up to the left of the X.
+    local f, header = ns.Nav:Window(self, "TitanBoardFrame", "board", "TITANBOARD", FW, FH, { point = { "CENTER" }, mark = false,
+        onShow = function() Board:_onShow() end, onClose = function() Board:Hide() end, canDrag = function() return not Board.fullscreen end })
     f:SetScript("OnHide", function() Board:_onHide() end)
 
     -- Ctrl+Z undo without eating other keys
@@ -1875,31 +1437,19 @@ function Board:Create()
         if not InCombatLockdown() then frame:SetPropagateKeyboardInput(true) end
     end)
 
-    self.fullParts = {}
-
-    -- Title bar -------------------------------------------------------
-    -- Standard Titan Up title bar: name on the left, module icons + X on the
-    -- right. Board-only controls line up to the LEFT of the module icons.
-    local header = ns.Nav:CreateHeader(f, "board", {
-        title = "TITANBOARD", icon = ns.MEDIA .. "icon", leftInset = 34,
-        onClose = function() Board:Hide() end,
-        canDrag = function() return not Board.fullscreen end,
-    })
     local title = header
-    self.header = header
-    self.moduleBar = header.bar
-    self.titleLogo = header.title
     self.titleClose = header.close
 
-    self.leftToggle = UI.IconButton(title, 22, ICONS .. "caret", "", function() Board:TogglePanel("left") end)
-    self.leftToggle:SetPoint("LEFT", 6, 0)
+    -- pane collapse arrows live at the bottom of each pane's inner edge
+    -- (placed in ApplyLayout), pointing toward the edge they collapse to
+    self.leftToggle = UI.IconButton(f, 20, ICONS .. "caret", "", function() Board:TogglePanel("left") end)
     self.ctxText = UI.Text(title, "GameFontHighlight")
-    self.ctxText:SetPoint("LEFT", header.title, "RIGHT", 14, 0)
-    self.ctxText:SetWidth(340)
+    self.ctxText:SetPoint("LEFT", header, "LEFT", 12, 0)     -- the board's name is in the tab above
+    self.ctxText:SetWidth(560)
     self.ctxText:SetJustifyH("LEFT")
     self.ctxText:SetWordWrap(false)
 
-    self.rightToggle = UI.IconButton(title, 22, ICONS .. "caret", "", function() Board:TogglePanel("right") end)
+    self.rightToggle = UI.IconButton(f, 20, ICONS .. "caret", "", function() Board:TogglePanel("right") end)
     self.miniBtn = UI.Button(title, 44, 22, "Mini", "Toggle the compact view (opens automatically in combat)", function()
         Board._autoMini = nil
         Board:SetMini(not Board.mini)
@@ -1911,8 +1461,7 @@ function Board:Create()
     local pill = CreateFrame("Frame", nil, title, "BackdropTemplate")
     UI.Skin(pill, C.bg, C.muted)
     pill:SetSize(96, 20)
-    pill.text = UI.Text(pill, "GameFontNormalSmall")
-    pill.text:SetPoint("CENTER")
+    pill.text = UI.Text(pill, "GameFontNormalSmall", nil, nil, "CENTER")
     self.pill = pill
 
     -- Mini view: previous/next slide in the title bar
@@ -1924,8 +1473,7 @@ function Board:Create()
         if Model.plan then Board:SetPage(math.min(Model:SlideCount(), Model.plan.page + 1)) end
     end)
     self.miniNext:SetPoint("RIGHT")
-    self.miniSlideText = UI.Text(nav, "GameFontHighlightSmall")
-    self.miniSlideText:SetPoint("RIGHT", self.miniNext, "LEFT", -6, 0)
+    self.miniSlideText = UI.Text(nav, "GameFontHighlightSmall", nil, nil, "RIGHT", self.miniNext, "LEFT", -6, 0)
     self.miniPrev = UI.Button(nav, 20, 20, "<", "Previous slide", function()
         if Model.plan then Board:SetPage(math.max(1, Model.plan.page - 1)) end
     end)
@@ -1937,11 +1485,8 @@ function Board:Create()
     left:SetPoint("BOTTOMLEFT", PAD, FOOT_H)
     left:SetWidth(LEFT_W)
     self.left = left
-    table.insert(self.fullParts, left)
 
-    local lh = UI.Text(left, "GameFontNormalSmall", C.muted)
-    lh:SetPoint("TOPLEFT", 10, -10)
-    lh:SetText("ENCOUNTERS")
+    UI.Text(left, "GameFontNormalSmall", C.muted, "ENCOUNTERS", "TOPLEFT", 10, -10)
 
     local hereBtn = UI.Button(left, 64, 18, "Locate", "Jump to the instance you're standing in", function()
         local ctx = ns.Content:CurrentContext()
@@ -1950,41 +1495,30 @@ function Board:Create()
         Board:SelectContext(ctx, 1)
         Board:RefreshList(true)
     end)
-    hereBtn:SetPoint("TOPRIGHT", -8, -7)
+    hereBtn:SetPoint("BOTTOMRIGHT", -8, 322)       -- just above the Encounters / Plan separator
 
     local listArea = CreateFrame("Frame", nil, left)
     listArea:SetPoint("TOPLEFT", 4, -30)
-    listArea:SetPoint("BOTTOMRIGHT", -4, 322)
+    listArea:SetPoint("BOTTOMRIGHT", -4, 344)
     listArea:EnableMouseWheel(true)
     listArea:SetScript("OnMouseWheel", function(_, d)
         Board.listOffset = (Board.listOffset or 0) - d * 3
         Board:RefreshList()
     end)
     self.listRows = {}
-    local listH = FH - TITLE_H - FOOT_H - 30 - 322
+    local listH = FH - TITLE_H - FOOT_H - 30 - 344
     for i = 1, math.floor(listH / ROW_H) do
-        local row = CreateFrame("Button", nil, listArea)
-        row:SetHeight(ROW_H)
+        local row = UI.Row(listArea, ROW_H, 0.05, SELECTED, nil, true)
         row:SetPoint("TOPLEFT", 0, -(i - 1) * ROW_H)
         row:SetPoint("RIGHT")
-        row.hl = row:CreateTexture(nil, "BACKGROUND")
-        row.hl:SetAllPoints()
-        row.hl:SetColorTexture(C.accentDim[1], C.accentDim[2], C.accentDim[3], 0.6)
-        row.hl:Hide()
-        local hover = row:CreateTexture(nil, "HIGHLIGHT")
-        hover:SetAllPoints()
-        hover:SetColorTexture(1, 1, 1, 0.05)
-        row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         row.text:SetPoint("LEFT", 6, 0)
         row.text:SetPoint("RIGHT", -4, 0)
-        row.text:SetJustifyH("LEFT")
-        row.text:SetWordWrap(false)
         row:SetScript("OnClick", function(s) Board:_listClick(s.item) end)
         self.listRows[i] = row
     end
 
-    local function divider(yy)
-        local d = left:CreateTexture(nil, "ARTWORK")
+    local function divider(yy, parent)
+        local d = (parent or left):CreateTexture(nil, "ARTWORK")
         d:SetColorTexture(C.line[1], C.line[2], C.line[3], 1)
         d:SetHeight(1)
         d:SetPoint("BOTTOMLEFT", 8, yy)
@@ -1995,23 +1529,11 @@ function Board:Create()
 
     -- PLAN: which saved plan for this encounter
     divider(316)
-    local plh = UI.Text(left, "GameFontNormalSmall", C.muted)
-    plh:SetPoint("BOTTOMLEFT", 10, 296)
-    plh:SetText("PLAN")
-    self.planCount = UI.Text(left, "GameFontHighlightSmall", C.muted)
-    self.planCount:SetPoint("BOTTOMRIGHT", -10, 296)
+    UI.Text(left, "GameFontNormalSmall", C.muted, "PLAN", "BOTTOMLEFT", 10, 296)
+    self.planCount = UI.Text(left, "GameFontHighlightSmall", C.muted, nil, "BOTTOMRIGHT", -10, 296)
     self.planBtn = UI.Button(left, LEFT_W - 16, 24, "", "Click to switch between saved plans for this encounter.\nEverything saves automatically as you draw.", function() Board:ShowPlanMenu() end)
     self.planBtn:SetPoint("BOTTOMLEFT", 8, 266)
-    self.planBtn.label:ClearAllPoints()
-    self.planBtn.label:SetPoint("LEFT", 8, 0)
-    self.planBtn.label:SetPoint("RIGHT", -22, 0)
-    self.planBtn.label:SetJustifyH("LEFT")
-    self.planBtn.label:SetWordWrap(false)
-    local caret = self.planBtn:CreateTexture(nil, "ARTWORK")
-    caret:SetTexture(ICONS .. "caret")
-    caret:SetSize(12, 12)
-    caret:SetPoint("RIGHT", -8, 0)
-    caret:SetVertexColor(C.muted[1], C.muted[2], C.muted[3], 1)
+    dropButton(self.planBtn, 22, 12, 8)
     local planDefs = {
         { "New", "Start a blank plan for this encounter", function() Board:NewPlan() end },
         { "Save as", "Save a copy under a new name", function() Board:SavePlanAs() end },
@@ -2025,11 +1547,8 @@ function Board:Create()
 
     -- SLIDES: click one to show it to everyone
     divider(228)
-    local slh = UI.Text(left, "GameFontNormalSmall", C.muted)
-    slh:SetPoint("BOTTOMLEFT", 10, 208)
-    slh:SetText("SLIDES")
-    self.slideCountText = UI.Text(left, "GameFontHighlightSmall", C.muted)
-    self.slideCountText:SetPoint("LEFT", slh, "RIGHT", 8, 0)
+    local slh = UI.Text(left, "GameFontNormalSmall", C.muted, "SLIDES", "BOTTOMLEFT", 10, 208)
+    self.slideCountText = UI.Text(left, "GameFontHighlightSmall", C.muted, nil, "LEFT", slh, "RIGHT", 8, 0)
     local addSlide = UI.Button(left, 54, 20, "+ Add", "Add a slide after this one (starts with the current view)", function() Board:AddSlide() end)
     addSlide:SetPoint("BOTTOMRIGHT", -8, 204)
     table.insert(self.ownerButtons, addSlide)
@@ -2041,41 +1560,13 @@ function Board:Create()
     slideArea:EnableMouseWheel(true)
     slideArea:SetScript("OnMouseWheel", function(_, d)
         Board.slideOffset = (Board.slideOffset or 0) - d
-        local plan = Model.plan
-        if plan then
-            -- scrolling shouldn't snap back to the current slide
-            local rows = #Board.slideRows
-            Board.slideOffset = math.max(0, math.min(math.max(0, #plan.pages - rows), Board.slideOffset))
-            local saved = plan.page
-            for i, row in ipairs(Board.slideRows) do
-                local idx = i + Board.slideOffset
-                local sl = plan.pages[idx]
-                row.index = idx
-                row:SetShown(sl ~= nil)
-                if sl then
-                    row.hl:SetShown(idx == saved)
-                    row.num:SetText(idx)
-                    row.text:SetText(sl.name)
-                    local c = (idx == saved) and C.accent or C.text
-                    row.text:SetTextColor(c[1], c[2], c[3])
-                    row.count:SetText(#sl.ops > 0 and #sl.ops or "")
-                end
-            end
-        end
+        Board:RefreshSlides(true)                -- scrolling doesn't snap back to the current slide
     end)
     self.slideRows = {}
     for i = 1, 8 do
-        local row = CreateFrame("Button", nil, slideArea)
-        row:SetHeight(20)
+        local row = UI.Row(slideArea, 20, 0.05, SELECTED, nil, true)
         row:SetPoint("TOPLEFT", 0, -(i - 1) * 20 - 2)
         row:SetPoint("RIGHT")
-        row.hl = row:CreateTexture(nil, "BACKGROUND")
-        row.hl:SetAllPoints()
-        row.hl:SetColorTexture(C.accentDim[1], C.accentDim[2], C.accentDim[3], 0.6)
-        row.hl:Hide()
-        local hover = row:CreateTexture(nil, "HIGHLIGHT")
-        hover:SetAllPoints()
-        hover:SetColorTexture(1, 1, 1, 0.05)
         row.num = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         row.num:SetPoint("LEFT", 6, 0)
         row.num:SetWidth(18)
@@ -2084,28 +1575,19 @@ function Board:Create()
         row.count = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         row.count:SetPoint("RIGHT", -6, 0)
         row.count:SetTextColor(C.muted[1], C.muted[2], C.muted[3])
-        row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         row.text:SetPoint("LEFT", row.num, "RIGHT", 8, 0)
         row.text:SetPoint("RIGHT", row.count, "LEFT", -4, 0)
-        row.text:SetJustifyH("LEFT")
-        row.text:SetWordWrap(false)
         row:SetScript("OnClick", function(s) Board:SetPage(s.index) end)
-        row:SetScript("OnEnter", function(s)
-            GameTooltip:SetOwner(s, "ANCHOR_RIGHT")
-            GameTooltip:SetText("Click to show this slide to everyone", 1, 1, 1)
-            GameTooltip:AddLine("The number on the right is how many drawings it has.", 0.7, 0.7, 0.7, true)
-            GameTooltip:Show()
-        end)
-        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        UI.Tip(row, "Click to show this slide to everyone", "ANCHOR_RIGHT", "The number on the right is how many drawings it has.")
         self.slideRows[i] = row
     end
 
     local slideDefs = {
-        { 30, "up", "Move this slide up", function() Board:MoveSlide(-1) end },
-        { 30, "down", "Move this slide down", function() Board:MoveSlide(1) end },
-        { 46, "Rename", "Rename this slide", function() Board:RenameSlide() end },
-        { 40, "Copy", "Duplicate this slide", function() Board:DuplicateSlide() end },
-        { 46, "Delete", "Delete this slide", function() Board:DeleteSlide() end },
+        { 26, "up", "Move this slide up", function() Board:MoveSlide(-1) end },
+        { 26, "down", "Move this slide down", function() Board:MoveSlide(1) end },
+        { 42, "Rename", "Rename this slide", function() Board:RenameSlide() end },
+        { 36, "Copy", "Duplicate this slide", function() Board:DuplicateSlide() end },
+        { 42, "Delete", "Delete this slide", function() Board:DeleteSlide() end },
     }
     local sx = 8
     for _, d in ipairs(slideDefs) do
@@ -2127,17 +1609,13 @@ function Board:Create()
 
     -- Right: viewers ----------------------------------------------------
     local right = UI.Panel(f)
-    right:SetPoint("TOPRIGHT", -PAD, -TITLE_H)
+    right:SetPoint("TOPRIGHT", -PAD, -(TITLE_H + BAR_H + 6))      -- below the options row
     right:SetPoint("BOTTOMRIGHT", -PAD, FOOT_H)
     right:SetWidth(RIGHT_W)
     self.right = right
-    table.insert(self.fullParts, right)
 
-    local rh = UI.Text(right, "GameFontNormalSmall", C.muted)
-    rh:SetPoint("TOPLEFT", 10, -10)
-    rh:SetText("LIVE VIEWERS")
-    self.countText = UI.Text(right, "GameFontHighlightSmall")
-    self.countText:SetPoint("TOPLEFT", 10, -28)
+    UI.Text(right, "GameFontNormalSmall", C.muted, "LIVE VIEWERS", "TOPLEFT", 10, -10)
+    self.countText = UI.Text(right, "GameFontHighlightSmall", nil, nil, "TOPLEFT", 10, -28)
 
     local vArea = CreateFrame("Frame", nil, right)
     vArea:SetPoint("TOPLEFT", 4, -48)
@@ -2148,28 +1626,18 @@ function Board:Create()
         Board:UpdateViewers()
     end)
     self.viewerRows = {}
-    local vH = FH - TITLE_H - FOOT_H - 48 - 104
+    local vH = FH - TITLE_H - BAR_H - 6 - FOOT_H - 48 - 104
     for i = 1, math.floor(vH / 18) do
-        local row = CreateFrame("Button", nil, vArea)
-        row:SetHeight(18)
+        local row = UI.Row(vArea, 18, 0.05, { C.accentDim[1], C.accentDim[2], C.accentDim[3], 0.5 }, nil, true)
         row:SetPoint("TOPLEFT", 0, -(i - 1) * 18)
         row:SetPoint("RIGHT")
-        local hover = row:CreateTexture(nil, "HIGHLIGHT")
-        hover:SetAllPoints()
-        hover:SetColorTexture(1, 1, 1, 0.05)
-        row.hl = row:CreateTexture(nil, "BACKGROUND")
-        row.hl:SetAllPoints()
-        row.hl:SetColorTexture(C.accentDim[1], C.accentDim[2], C.accentDim[3], 0.5)
-        row.hl:Hide()
         row.dot = row:CreateTexture(nil, "ARTWORK")
         row.dot:SetTexture(DOT)
         row.dot:SetSize(8, 8)
         row.dot:SetPoint("LEFT", 6, 0)
-        row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.name = row.text
         row.name:SetPoint("LEFT", row.dot, "RIGHT", 6, 0)
         row.name:SetWidth(96)
-        row.name:SetJustifyH("LEFT")
-        row.name:SetWordWrap(false)
         row.status = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         row.status:SetPoint("RIGHT", -4, 0)
         row.status:SetJustifyH("RIGHT")
@@ -2187,14 +1655,8 @@ function Board:Create()
         self.viewerRows[i] = row
     end
 
-    local shareDiv = right:CreateTexture(nil, "ARTWORK")
-    shareDiv:SetColorTexture(C.line[1], C.line[2], C.line[3], 1)
-    shareDiv:SetHeight(1)
-    shareDiv:SetPoint("BOTTOMLEFT", 8, 96)
-    shareDiv:SetPoint("BOTTOMRIGHT", -8, 96)
-    local shh = UI.Text(right, "GameFontNormalSmall", C.muted)
-    shh:SetPoint("BOTTOMLEFT", 10, 74)
-    shh:SetText("SHARE")
+    divider(96, right)
+    UI.Text(right, "GameFontNormalSmall", C.muted, "SHARE", "BOTTOMLEFT", 10, 74)
     local shareW = math.floor((RIGHT_W - 16 - 8) / 3)
     local shareDefs = {
         { "Invite", "Ping the group to open the board", function() ns.Invite:Send() end },
@@ -2207,9 +1669,8 @@ function Board:Create()
     end
     self.syncBtn = UI.Button(right, RIGHT_W - 16, 24, "Send full plan", "Leader: resend everything to the group. Viewer: ask the leader for the current board.", function()
         if ns.IsOwner() then
-            ns.Sync:SendContext()
-            ns.Sync:SendSnapshot()
-            if ns.Comms:Mode() == "local" then ns.Print("Solo - nothing to send. Use /tb sim or /tb loop to test.") end
+            ns.Sync:SendAll()
+            if ns.Comms:Mode() == "local" then ns.Print("Solo - nothing to send.") end
         else
             ns.Sync:RequestSnapshot()
         end
@@ -2222,12 +1683,18 @@ function Board:Create()
     strip:SetPoint("BOTTOMLEFT", left, "BOTTOMRIGHT", PAD, 0)
     strip:SetWidth(TOOL_W)
     self.strip = strip
-    table.insert(self.fullParts, strip)
 
-    local function header(text, yy)
-        local h = UI.Text(strip, "GameFontNormalSmall", C.muted)
-        h:SetPoint("TOP", 0, yy)
-        h:SetText(text)
+    local function header(text, yy) UI.Text(strip, "GameFontNormalSmall", C.muted, text, "TOP", 0, yy) end
+    -- a tool or stamp button's tooltip: its name and what it does
+    local function tip(b, name, text)
+        b:SetScript("OnEnter", function(s)
+            s.hover = true
+            UI.Paint(s)
+            GameTooltip:SetOwner(s, "ANCHOR_RIGHT")
+            GameTooltip:SetText(name, 1, 1, 1)
+            GameTooltip:AddLine(text, 0.75, 0.78, 0.84, true)
+            GameTooltip:Show()
+        end)
     end
     local function gridPos(i, yy)
         return 5 + ((i - 1) % 2) * 28, yy - math.floor((i - 1) / 2) * 28
@@ -2240,26 +1707,17 @@ function Board:Create()
         local mode = def[1]
         local b = UI.IconButton(strip, 26, ICONS .. def[4], nil, function() Board:SetTool(mode) end)
         b:SetPoint("TOPLEFT", gridPos(i, y))
-        b:SetScript("OnEnter", function(s)
-            s.hover = true
-            UI.Paint(s)
-            GameTooltip:SetOwner(s, "ANCHOR_RIGHT")
-            GameTooltip:SetText(def[2], 1, 1, 1)
-            GameTooltip:AddLine(def[3], 0.75, 0.78, 0.84, true)
-            GameTooltip:Show()
-        end)
+        tip(b, def[2], def[3])
         self.toolBtns[mode] = b
     end
     y = y - math.ceil(#TOOLS / 2) * 28 - 4
-    self.toolName = UI.Text(strip, "GameFontHighlightSmall", C.accent)
-    self.toolName:SetPoint("TOP", 0, y)
+    self.toolName = UI.Text(strip, "GameFontHighlightSmall", C.accent, nil, "TOP", 0, y)
     y = y - 22
 
     self.stampBtns = {}
     local function stampButtons(list, yy)
         for i, def in ipairs(list) do
             local k = def[1]
-            local tip = (def[3] or def[2]) .. "\n|cff8a8f9cShift-click on the board to add a name|r"
             local b = UI.IconButton(strip, 26, nil, nil, function() Board:SetStamp(k) end)
             b.keepIconColor = true
             b:SetPoint("TOPLEFT", gridPos(i, yy))
@@ -2267,14 +1725,7 @@ function Board:Create()
             b.icon:SetPoint("BOTTOMRIGHT", -3, 3)
             Board.StampTexture(b.icon, k)
             if k == 20 then b.icon:SetVertexColor(0.31, 0.86, 0.97, 0.8) end
-            b:SetScript("OnEnter", function(s)
-                s.hover = true
-                UI.Paint(s)
-                GameTooltip:SetOwner(s, "ANCHOR_RIGHT")
-                GameTooltip:SetText(def[2], 1, 1, 1)
-                GameTooltip:AddLine(tip, 0.75, 0.78, 0.84, true)
-                GameTooltip:Show()
-            end)
+            tip(b, def[2], (def[3] or def[2]) .. "\n|cff8a8f9cShift-click on the board to add a name|r")
             self.stampBtns[k] = b
         end
         return yy - math.ceil(#list / 2) * 28
@@ -2290,13 +1741,18 @@ function Board:Create()
     bar:SetPoint("TOPRIGHT", right, "TOPLEFT", -PAD, 0)
     bar:SetHeight(BAR_H)
     self.optBar = bar
-    table.insert(self.fullParts, bar)
 
+    -- the plan name sits at the row's left end; colors and size follow it
+    -- (FitOptionsBar moves this lead point to fit the name)
+    local lead = CreateFrame("Frame", nil, bar)
+    lead:SetSize(1, 1)
+    lead:SetPoint("LEFT", bar, "LEFT", 150, 0)
+    self.optLead = lead
     local x = 0
     self.colorBtns = {}
     for i, col in ipairs(self.COLORS) do
         local b = UI.Button(bar, 20, 20, "", nil, function() Board:SetColor(i) end)
-        b:SetPoint("LEFT", x, 0)
+        b:SetPoint("LEFT", lead, "LEFT", x, 0)
         local sw = b:CreateTexture(nil, "ARTWORK")
         sw:SetPoint("TOPLEFT", 3, -3)
         sw:SetPoint("BOTTOMRIGHT", -3, 3)
@@ -2305,9 +1761,8 @@ function Board:Create()
         self.colorBtns[i] = b
     end
     x = x + 10
-    local sl = UI.Text(bar, "GameFontHighlightSmall", C.muted)
-    sl:SetPoint("LEFT", x, 0)
-    sl:SetText("Size")
+    local sl = UI.Text(bar, "GameFontHighlightSmall", C.muted, "Size", "LEFT", lead, "LEFT", x, 0)
+    self.optLeftW = x + 125              -- colors + size controls, for FitOptionsBar
     local minus = UI.Button(bar, 20, 22, "-", "Smaller stroke (Ctrl + mouse wheel)", function() Board:SetWidth(settings().width - 1) end)
     minus:SetPoint("LEFT", sl, "RIGHT", 6, 0)
     local prev = CreateFrame("Frame", nil, bar, "BackdropTemplate")
@@ -2319,8 +1774,7 @@ function Board:Create()
     self.sizeDot:SetPoint("CENTER")
     local plus = UI.Button(bar, 20, 22, "+", "Bigger stroke (Ctrl + mouse wheel)", function() Board:SetWidth(settings().width + 1) end)
     plus:SetPoint("LEFT", prev, "RIGHT", 2, 0)
-    self.sizeText = UI.Text(bar, "GameFontHighlightSmall", C.muted)
-    self.sizeText:SetPoint("LEFT", plus, "RIGHT", 5, 0)
+    self.sizeText = UI.Text(bar, "GameFontHighlightSmall", C.muted, nil, "LEFT", plus, "RIGHT", 5, 0)
 
     self.shapeOpt = UI.Button(bar, 90, 24, "", "Click or mouse wheel to change. Shift + wheel on the board also works, even mid-drag.", function()
         Board:CycleShapeOption(1)
@@ -2337,16 +1791,7 @@ function Board:Create()
 
     self.roomBtn = UI.Button(bar, 128, 24, "", "Background for this slide. New slides start with the same room.", function() Board:ShowRoomMenu() end)
     self.roomBtn:SetPoint("RIGHT", undoBtn, "LEFT", -12, 0)
-    self.roomBtn.label:ClearAllPoints()
-    self.roomBtn.label:SetPoint("LEFT", 8, 0)
-    self.roomBtn.label:SetPoint("RIGHT", -20, 0)
-    self.roomBtn.label:SetJustifyH("LEFT")
-    self.roomBtn.label:SetWordWrap(false)
-    local roomCaret = self.roomBtn:CreateTexture(nil, "ARTWORK")
-    roomCaret:SetTexture(ICONS .. "caret")
-    roomCaret:SetSize(10, 10)
-    roomCaret:SetPoint("RIGHT", -7, 0)
-    roomCaret:SetVertexColor(C.muted[1], C.muted[2], C.muted[3], 1)
+    dropButton(self.roomBtn, 20, 10, 7)
     self.roomBtn:Hide()
 
     -- Center: canvas ----------------------------------------------------
@@ -2389,14 +1834,8 @@ function Board:Create()
     self.emptyText:SetText("Pick an encounter on the left, or just start drawing.")
 
     -- Footer ------------------------------------------------------------
-    local footLeft = UI.Text(f, "GameFontHighlightSmall", C.muted)
-    self.footLeft = footLeft
-    footLeft:SetPoint("BOTTOMLEFT", PAD + 4, 6)
-    footLeft:SetText("Left: draw   Right-drag: pan   Right-click: delete   Wheel: zoom   Ctrl+drag: move item   Ctrl+Wheel: resize   Alt+drag: laser   Ctrl+Z: undo")
-    table.insert(self.fullParts, footLeft)
-    self.footRight = UI.Text(f, "GameFontHighlightSmall", C.muted)
-    self.footRight:SetPoint("BOTTOMRIGHT", -PAD - 4, 6)
-    table.insert(self.fullParts, self.footRight)
+    self.footLeft = UI.Text(f, "GameFontHighlightSmall", C.muted, "Left: draw   Right-drag: pan   Right-click: delete   Wheel: zoom   Ctrl+drag: move item   Ctrl+Wheel: resize   Alt+drag: laser   Ctrl+Z: undo", "BOTTOMLEFT", PAD + 4, 6)
+    self.footRight = UI.Text(f, "GameFontHighlightSmall", C.muted, nil, "BOTTOMRIGHT", -PAD - 4, 6)
 
     self:SetTool("P")
     self:SetColor(settings().color)
@@ -2405,10 +1844,7 @@ function Board:Create()
 end
 
 ns.RegisterModule({
-    key = "board", name = "TitanBoard", icon = ns.MEDIA .. "icon", order = 1,
-    desc = "Live raid strategy board: draw on boss rooms, share slides with the raid.",
-    show = function() Board:Show() end,
-    hide = function() Board:Hide() end,
-    isShown = function() return Board:IsShown() end,
-    frame = function() return Board.frame end,
+    key = "board", name = "TitanBoard", icon = ns.MEDIA .. "icon", group = "tools", order = 1,
+    desc = "Live raid strategy board - draw on boss rooms with the raid.",
+    view = Board,
 })

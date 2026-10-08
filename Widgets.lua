@@ -39,11 +39,133 @@ function UI.Panel(parent)
     return f
 end
 
-function UI.Text(parent, template, color)
+-- UI.Text(parent, template, color, text, point...): a font string; the
+-- text and the first anchor are optional (UI.Text(f, nil, nil, "Hi", "TOP", 0, -8))
+function UI.Text(parent, template, color, text, ...)
     local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontHighlightSmall")
     color = color or C.text
     fs:SetTextColor(color[1], color[2], color[3])
+    if text then fs:SetText(text) end
+    if (...) then fs:SetPoint(...) end
     return fs
+end
+
+-- A skinned edit box. o.inset (all sides, or { l, r, t, b }), o.max letters,
+-- o.numeric, o.center, o.multi; Enter / Esc drop the focus unless o.keys == false.
+function UI.EditBox(parent, w, h, o)
+    o = o or {}
+    local e = CreateFrame("EditBox", nil, parent, "BackdropTemplate")
+    UI.Skin(e, C.canvas, C.line)
+    e:SetSize(w, h)
+    e:SetFontObject("ChatFontNormal")
+    local i = o.inset
+    if type(i) == "number" then e:SetTextInsets(i, i, 0, 0) elseif i then e:SetTextInsets(i[1], i[2], i[3], i[4]) end
+    if o.center then e:SetJustifyH("CENTER") end
+    if o.numeric then e:SetNumeric(true) end
+    if o.max then e:SetMaxLetters(o.max) end
+    if o.multi then e:SetMultiLine(true) end
+    e:SetAutoFocus(false)
+    if o.keys ~= false then
+        e:SetScript("OnEscapePressed", e.ClearFocus)
+        e:SetScript("OnEnterPressed", e.ClearFocus)
+    end
+    return e
+end
+
+-- A plain tooltip on any frame: a white title and optional grey lines.
+function UI.Tip(frame, title, anchor, ...)
+    local lines = { ... }
+    frame:SetScript("OnEnter", function(s)
+        GameTooltip:SetOwner(s, anchor or "ANCHOR_TOP")
+        GameTooltip:SetText(title, 1, 1, 1)
+        for _, l in ipairs(lines) do GameTooltip:AddLine(l, 0.8, 0.82, 0.86, true) end
+        GameTooltip:Show()
+    end)
+    frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
+-- A list row: a button with a hover glow (and an optional "selected"
+-- background, row.hl) and one line of text (row.text).
+function UI.Row(parent, h, hover, selected, font, plain)
+    local r = CreateFrame("Button", nil, parent)
+    r:SetHeight(h)
+    if selected then
+        r.hl = r:CreateTexture(nil, "BACKGROUND")
+        r.hl:SetAllPoints()
+        r.hl:SetColorTexture(selected[1], selected[2], selected[3], selected[4])
+        r.hl:Hide()
+    end
+    local glow = r:CreateTexture(nil, "HIGHLIGHT")
+    glow:SetAllPoints()
+    glow:SetColorTexture(1, 1, 1, hover or 0.05)
+    -- plain: the font's own colour (no UI.Text tint)
+    r.text = plain and r:CreateFontString(nil, "OVERLAY", font or "GameFontHighlightSmall") or UI.Text(r, font or "GameFontHighlightSmall")
+    r.text:SetJustifyH("LEFT")
+    r.text:SetWordWrap(false)
+    return r
+end
+
+-- An on-screen piece you can drag (when canDrag() allows, or whenever its
+-- mouse is on); its spot is kept in store().pos as { point, relPoint, x, y }.
+-- f:Place() puts it there, f:ResetPlace() back at the default spot; f.hint
+-- is the line above it ("Drag to move").
+function UI.Draggable(f, store, default, hint, hintFont, canDrag)
+    f:SetClampedToScreen(true)
+    f:SetMovable(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", function(s) if not canDrag or canDrag() then s:StartMoving() end end)
+    f:SetScript("OnDragStop", function(s)
+        s:StopMovingOrSizing()
+        local p, _, rp, x, y = s:GetPoint()
+        store().pos = { p, rp, math.floor((x or 0) + 0.5), math.floor((y or 0) + 0.5) }
+    end)
+    f.hint = f:CreateFontString(nil, "OVERLAY", hintFont or "GameFontHighlightSmall")
+    f.hint:SetPoint("BOTTOM", f, "TOP", 0, 4)
+    f.hint:SetText(hint)
+    f.hint:Hide()
+    function f:Place()
+        local p = store().pos or default
+        self:ClearAllPoints()
+        self:SetPoint(p[1], UIParent, p[2], p[3], p[4])
+    end
+    function f:ResetPlace()
+        store().pos = { default[1], default[2], default[3], default[4] }
+        self:Place()
+    end
+end
+
+-- the small "v" of a dropdown, on button b
+function UI.Caret(b, ...)
+    local t = b:CreateTexture(nil, "OVERLAY")
+    t:SetTexture(ns.MEDIA .. "Down")
+    t:SetSize(12, 12)
+    t:SetPoint(...)
+    return t
+end
+
+-- The standard window frame: skinned, clamped to the screen, movable, closes
+-- on Esc, hidden until shown. o.y (centre offset, 40), o.point, o.strata
+-- ("HIGH"), o.border, o.drag (the whole window drags - else only its tab),
+-- o.onDragStop, o.noTop, o.noClamp, o.noEsc.
+function UI.Window(name, w, h, o)
+    o = o or {}
+    local f = CreateFrame("Frame", name, UIParent, "BackdropTemplate")
+    f:SetSize(w, h)
+    if o.point then f:SetPoint(unpack(o.point)) else f:SetPoint("CENTER", 0, o.y or 40) end
+    f:SetFrameStrata(o.strata or "HIGH")
+    if not o.noTop then f:SetToplevel(true) end
+    if not o.noClamp then f:SetClampedToScreen(true) end
+    f:SetMovable(true)
+    f:EnableMouse(true)
+    if o.drag then
+        f:RegisterForDrag("LeftButton")
+        f:SetScript("OnDragStart", f.StartMoving)
+        f:SetScript("OnDragStop", o.onDragStop or f.StopMovingOrSizing)
+    end
+    UI.Skin(f, C.bg, o.border or C.line)
+    f:Hide()
+    if name and not o.noEsc then tinsert(UISpecialFrames, name) end
+    return f
 end
 
 function UI.Paint(b)
@@ -94,12 +216,93 @@ function UI.Button(parent, w, h, text, tip, onClick)
 end
 
 -- Faint Titan Up logo behind a window's contents.
+-- The faded Titan Up logo behind a window's content. It never spills past
+-- the window: it shrinks to fit a short or narrow window (with a small
+-- margin), keeps its offset only as far as it still fits, and re-fits
+-- whenever the window changes size.
+-- ---------------------------------------------------------------------
+-- Shared helpers (one copy for every window)
+-- ---------------------------------------------------------------------
+-- Resize a window and keep its nav tab (top-centre) exactly where it is.
+function UI.ResizeKeepTab(f, w, h)
+    local cx, top = ns.Nav and ns.Nav.TopCenter(f)
+    f:SetSize(w, h)
+    if f:IsShown() and cx and top then
+        f:ClearAllPoints()
+        f:SetPoint("TOP", UIParent, "BOTTOMLEFT", cx, top)
+    end
+end
+
+-- "Name-Realm" -> "Name"
+function UI.Short(name) return name and (name:match("^[^-]+") or name) end
+
+-- a short name in its class colour
+function UI.ClassName(name, class)
+    local s = UI.Short(name) or ""
+    class = ns.Safe and ns.Safe.Text(class) or class
+    local col = class and C_ClassColor and C_ClassColor.GetClassColor(class)
+    return col and col:WrapTextInColorCode(s) or s
+end
+
+-- a group member's short name in their class colour ("?" for nobody)
+function UI.Named(name) return name and UI.ClassName(name, ns.ClassOf(name)) or "?" end
+
+-- Kill / Wipe tags with a symbol as well as colour (readable without colour)
+UI.ICON_YES = "|TInterface\\RaidFrame\\ReadyCheck-Ready:12:12|t"
+UI.ICON_NO = "|TInterface\\RaidFrame\\ReadyCheck-NotReady:12:12|t"
+function UI.ResultTag(result)
+    if result == "kill" then return UI.ICON_YES .. " |cff66e08cKill|r" end
+    if result == "wipe" then return UI.ICON_NO .. " |cff8a8f9cWipe|r" end
+    return ""
+end
+
+-- A small checkbox with a label: UI.Check(parent, "Announce in chat", tip, get, set)
+-- check:Refresh() redraws it from get().
+function UI.Check(parent, label, tip, get, set)
+    local c = CreateFrame("Button", nil, parent)
+    c:SetSize(16, 16)
+    c.box = CreateFrame("Frame", nil, c, "BackdropTemplate")
+    c.box:SetAllPoints()
+    UI.Skin(c.box, C.canvas, C.line)
+    -- on the box (not the button): the box is a child frame, so it draws over
+    -- anything on the button itself - a mark there was hidden under it
+    c.mark = c.box:CreateTexture(nil, "OVERLAY")
+    c.mark:SetPoint("CENTER")
+    c.mark:SetSize(16, 16)
+    c.mark:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    c.text = UI.Text(c, "GameFontHighlightSmall", C.text, label, "LEFT", c, "RIGHT", 6, 0)
+    function c:Refresh() self.mark:SetShown(get() and true or false) end
+    c:SetScript("OnClick", function(self) set(not get()); self:Refresh(); if ns.SettingsChanged then ns.SettingsChanged() end end)
+    if tip then UI.Tip(c, label, "ANCHOR_TOP", tip) end
+    c:Refresh()
+    return c
+end
+
+-- seconds -> "m:ss"
+function UI.Clock(t)
+    t = math.floor(t or 0)
+    return ("%d:%02d"):format(math.floor(t / 60), t % 60)
+end
+
 function UI.Watermark(frame, size, alpha, yOffset)
     local t = frame:CreateTexture(nil, "BACKGROUND", nil, 1)
     t:SetTexture(ns.MEDIA .. "TitanUpLogo")
-    t:SetSize(size, size)
-    t:SetPoint("CENTER", 0, yOffset or 0)
     t:SetAlpha(alpha or 0.07)
+    local function fit()
+        local w, h = frame:GetWidth(), frame:GetHeight()
+        local s = size
+        if type(w) == "number" and w > 0 and type(h) == "number" and h > 0 then
+            s = math.max(0, math.min(size, w - 16, h - 16))
+        end
+        local room = (type(h) == "number" and h > 0) and math.max(0, (h - 16 - s) / 2) or math.abs(yOffset or 0)
+        local y = math.max(-room, math.min(room, yOffset or 0))
+        t:SetSize(s, s)
+        t:ClearAllPoints()
+        t:SetPoint("CENTER", 0, y)
+    end
+    fit()
+    if frame.HookScript then frame:HookScript("OnSizeChanged", fit) end
+    t.Fit = fit
     return t
 end
 
@@ -149,16 +352,9 @@ function UI.Menu(anchor, items)
     for i, it in ipairs(items) do
         local r = menu.rows[i]
         if not r then
-            r = CreateFrame("Button", nil, menu)
-            r:SetHeight(20)
-            local hl = r:CreateTexture(nil, "HIGHLIGHT")
-            hl:SetAllPoints()
-            hl:SetColorTexture(1, 1, 1, 0.08)
-            r.text = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            r = UI.Row(menu, 20, 0.08, nil, nil, true)
             r.text:SetPoint("LEFT", 8, 0)
             r.text:SetPoint("RIGHT", -8, 0)
-            r.text:SetJustifyH("LEFT")
-            r.text:SetWordWrap(false)
             menu.rows[i] = r
         end
         r:ClearAllPoints()
@@ -192,24 +388,10 @@ end
 -- ---------------------------------------------------------------------
 local dialog
 local function buildDialog()
-    local d = CreateFrame("Frame", "TitanBoardDialog", UIParent, "BackdropTemplate")
-    d:SetSize(480, 150)
-    d:SetPoint("CENTER", 0, 120)
-    d:SetFrameStrata("FULLSCREEN_DIALOG")
-    d:SetToplevel(true)
-    UI.Skin(d, C.bg, C.accent)
-    d:EnableMouse(true)
-    d:SetMovable(true)
-    d:RegisterForDrag("LeftButton")
-    d:SetScript("OnDragStart", d.StartMoving)
-    d:SetScript("OnDragStop", d.StopMovingOrSizing)
-    d:Hide()
-    tinsert(UISpecialFrames, "TitanBoardDialog")
+    local d = UI.Window("TitanBoardDialog", 480, 150, { y = 120, strata = "FULLSCREEN_DIALOG", border = C.accent, drag = true, noClamp = true })
 
-    d.title = UI.Text(d, "GameFontNormal", C.accent)
-    d.title:SetPoint("TOPLEFT", 14, -12)
-    d.help = UI.Text(d, "GameFontHighlightSmall", C.muted)
-    d.help:SetPoint("TOPLEFT", 14, -32)
+    d.title = UI.Text(d, "GameFontNormal", C.accent, nil, "TOPLEFT", 14, -12)
+    d.help = UI.Text(d, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", 14, -32)
     d.help:SetPoint("RIGHT", -14, 0)
     d.help:SetJustifyH("LEFT")
 

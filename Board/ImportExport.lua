@@ -6,16 +6,12 @@ local ADDON, ns = ...
 local IE = {}
 ns.ImportExport = IE
 
--- "!TB2!" + LibDeflate print-encoding of a compressed payload with fields
+-- "!TB2!" + print-encoding (ns.Codec, LibDeflate-compatible) of a compressed payload with fields
 -- (separated by \31): "2", instance ID, encounter ID, floor map ID,
 -- background kind, plan name, slide meta ("name:zoom:cx:cy" joined by ~),
 -- then one field per slide with ops joined by "~".
 -- "!TB1!" strings from v0.1-0.3 (4 fixed phases) still import.
-local LD
-
-function IE:Init()
-    LD = LibStub and LibStub:GetLibrary("LibDeflate", true)
-end
+local Codec = ns.Codec
 
 function IE:Encode()
     local Model = ns.Model
@@ -24,22 +20,19 @@ function IE:Encode()
     local ctx = plan.ctx
     local parts = { "2", ctx.inst or 0, ctx.enc or 0, ctx.map or 0,
         (ns.Board.bg and ns.Board.bg.kind) or "none", Model.CleanName(plan.name), Model:SlideMeta() }
-    local count = 0
-    for p = 1, #plan.pages do
-        local list = Model:SerializePage(p)
-        count = count + #list
-        parts[#parts + 1] = table.concat(list, "~")
-    end
+    local count = Model:AddPageFields(parts)
     local payload = table.concat(parts, "\031")
-    return "!TB2!" .. LD:EncodeForPrint(LD:CompressDeflate(payload, { level = 9 })), count
+    local packed = Codec.Compress(payload)
+    if not packed then return nil, count end
+    return "!TB2!" .. Codec.EncodeForPrint(packed), count
 end
 
 function IE:Decode(str)
     str = tostring(str or ""):gsub("%s", "")
     local version, body = str:match("^!TB(%d)!(.+)$")
     if not body then return nil, "That isn't a TitanBoard plan string." end
-    local compressed = LD:DecodeForPrint(body)
-    local payload = compressed and LD:DecompressDeflate(compressed)
+    local compressed = Codec.DecodeForPrint(body)
+    local payload = compressed and Codec.Decompress(compressed)
     if not payload then return nil, "The string is damaged or incomplete." end
     local f = ns.Split(payload, "\031")
     local data = { inst = tonumber(f[2]), enc = tonumber(f[3]), map = tonumber(f[4]), bg = f[5] }
@@ -54,10 +47,8 @@ function IE:Decode(str)
         data.name = "Imported"
         data.slides = ns.Model.DecodeSlides(table.concat(meta, "~"), opFields)
     elseif version == "2" and f[1] == "2" and #f >= 8 then
-        local opFields = {}
-        for i = 8, #f do opFields[#opFields + 1] = f[i] end
         data.name = (f[6] ~= "" and f[6]) or "Imported"
-        data.slides = ns.Model.DecodeSlides(f[7], opFields)
+        data.slides = ns.Model.DecodeSlides(f[7], f, nil, 8)
     else
         return nil, "Unknown plan format - it may be from a newer TitanBoard."
     end
@@ -66,7 +57,7 @@ function IE:Decode(str)
 end
 
 function IE:ShowExport()
-    if not LD then ns.Print("LibDeflate is missing - reinstall the addon.") return end
+    if not Codec.Available() then ns.Print("Import/export needs the game's compression API, which isn't available.") return end
     local text, count = self:Encode()
     if not text then ns.Print("Nothing to export yet.") return end
     ns.UI.Prompt({
@@ -79,7 +70,7 @@ function IE:ShowExport()
 end
 
 function IE:ShowImport()
-    if not LD then ns.Print("LibDeflate is missing - reinstall the addon.") return end
+    if not Codec.Available() then ns.Print("Import/export needs the game's compression API, which isn't available.") return end
     if not ns.IsOwner() then
         ns.Print("Only the group leader can import plans while in a group.")
         return
