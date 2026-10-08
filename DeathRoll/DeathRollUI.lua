@@ -11,7 +11,8 @@ local DR
 local V = {}
 ns.DeathRollUI = V
 
-local W, H = 500, 530
+local W, H = 880, 570          -- the standard module size
+local PLAY_W = 500             -- the game; standings / spectators sit to the right
 local GOLD = "|TInterface\\MoneyFrame\\UI-GoldIcon:0:0:2:0|t"
 local LINK = "addon:TitanUp:dr:"
 
@@ -62,21 +63,24 @@ function V:Init()
 end
 
 function V:Create()
-    local f, header = ns.Nav:Window(self, "TitanUpDeathRoll", "deathroll", "DEATH ROLL", W, H, { point = { "CENTER", 200, 40 },
-        drag = true, onDragStop = function(s) s:StopMovingOrSizing(); V:PlaceSpectators() end, mark = { 400, 0.07, -30 } })
+    local f, header = ns.Nav:Window(self, "TitanUpDeathRoll", "deathroll", "DEATH ROLL", W, H, { mark = { 400, 0.07, -30 } })
     self:CreateSpectators(f)
+    local sep = f:CreateTexture(nil, "ARTWORK")
+    sep:SetColorTexture(C.line[1], C.line[2], C.line[3], 1)
+    sep:SetPoint("TOPLEFT", PLAY_W, -12); sep:SetPoint("BOTTOMLEFT", PLAY_W, 12); sep:SetWidth(1)
     self.backBtn = UI.Button(header, 70, 22, "< Lobby", "Back to the lobby", function() V:ShowLobby() end)
     self.backBtn:SetPoint("RIGHT", header.close, "LEFT", -9, 0)
     self.backBtn:SetFrameLevel(header.close:GetFrameLevel())
 
     self.lobby = CreateFrame("Frame", nil, f)
     self.lobby:SetPoint("TOPLEFT", 0, -14)
-    self.lobby:SetPoint("BOTTOMRIGHT")
+    self.lobby:SetPoint("BOTTOMRIGHT", f, "BOTTOMLEFT", PLAY_W, 0)
     self.room = CreateFrame("Frame", nil, f)
     self.room:SetPoint("TOPLEFT", 0, -14)
-    self.room:SetPoint("BOTTOMRIGHT")
+    self.room:SetPoint("BOTTOMRIGHT", f, "BOTTOMLEFT", PLAY_W, 0)
+    -- the guild standings: beside the lobby (the spectators take this side in a game)
     self.standings = CreateFrame("Frame", nil, f)
-    self.standings:SetPoint("TOPLEFT", 0, -14)
+    self.standings:SetPoint("TOPLEFT", PLAY_W, -14)
     self.standings:SetPoint("BOTTOMRIGHT")
     self:CreateLobby(self.lobby)
     self:CreateRoom(self.room)
@@ -88,7 +92,7 @@ end
 -- Lobby
 -- ---------------------------------------------------------------------
 function V:CreateLobby(p)
-    section(p, "NEW CHALLENGE", -6, 80)          -- the cog and X share this line
+    section(p, "NEW CHALLENGE", -6)
     UI.Text(p, "GameFontHighlightSmall", C.muted, "Wager (gold)", "TOPLEFT", 16, -30)
     self.wager = UI.EditBox(p, 150, 26, { inset = 8, numeric = true, max = 9 })
     self.wager:SetPoint("TOPLEFT", 16, -46)
@@ -111,7 +115,7 @@ function V:CreateLobby(p)
     self.openRows = {}
     for i = 1, 5 do
         local row = CreateFrame("Frame", nil, p)
-        row:SetSize(W - 32, 26)
+        row:SetSize(PLAY_W - 32, 26)
         row:SetPoint("TOPLEFT", 16, -112 - (i - 1) * 30)
         row.text = UI.Text(row, "GameFontHighlightSmall", nil, nil, "LEFT", 4, 0)
         row.text:SetPoint("RIGHT", -150, 0)
@@ -128,13 +132,11 @@ function V:CreateLobby(p)
     self.noOpen = UI.Text(p, "GameFontHighlightSmall", C.muted, "No challenges in your group right now.", "TOPLEFT", 20, -118)
 
     section(p, "YOUR RECORD", -278)
-    local standingsBtn = UI.Button(p, 96, 22, "Standings", "Everyone's death roll totals, shared between Titan Up users in the guild", function() V:ShowStandings() end)
-    standingsBtn:SetPoint("TOPRIGHT", -16, -272)
     self.recordText = UI.Text(p, "GameFontNormal", nil, nil, "TOPLEFT", 16, -300)
     self.debtRows = {}
     for i = 1, 5 do
         local row = CreateFrame("Frame", nil, p)
-        row:SetSize(W - 32, 24)
+        row:SetSize(PLAY_W - 32, 24)
         row:SetPoint("TOPLEFT", 16, -326 - (i - 1) * 28)
         row.text = UI.Text(row, "GameFontHighlightSmall", nil, nil, "LEFT", 4, 0)
         row.text:SetPoint("RIGHT", -90, 0)
@@ -287,24 +289,26 @@ local function scrollList(parent, y, rows, rowH, onScroll)
 end
 
 function V:CreateStandings(p)
-    section(p, "GUILD STANDINGS", -6, 150)       -- < Lobby, cog and X share this line
-    UI.Text(p, "GameFontHighlightSmall", C.muted, "Synced with your group and guild. Only games confirmed by both players count.", "TOPLEFT", 16, -24)
+    section(p, "GUILD STANDINGS", -6)
+    local note = UI.Text(p, "GameFontHighlightSmall", C.muted, "Shared with your group and guild. Only games both players confirmed count.", "TOPLEFT", 16, -24)
+    note:SetPoint("RIGHT", -16, 0); note:SetJustifyH("LEFT"); note:SetWordWrap(false)
     local function header(x, text, justify, w)
         local t = UI.Text(p, "GameFontHighlightSmall", C.muted, text, "TOPLEFT", x, -42)
         t:SetWidth(w); t:SetJustifyH(justify)
     end
-    header(20, "#  PLAYER", "LEFT", 150)
-    header(176, "W-L", "CENTER", 60)
-    header(240, "NET", "RIGHT", 100)
-    header(344, "UNPAID", "RIGHT", 90)
+    header(20, "#  PLAYER", "LEFT", 126)
+    header(148, "W-L", "CENTER", 50)
+    header(200, "NET", "RIGHT", 76)
+    header(278, "UNPAID", "RIGHT", 76)
     self.standList = scrollList(p, -58, 9, 20, function() V:RefreshStandings() end)
     for _, r in ipairs(self.standList.rows) do
-        r.name = UI.Text(r, "GameFontHighlightSmall", nil, nil, "LEFT", 0, 0); r.name:SetWidth(150); r.name:SetJustifyH("LEFT")
-        r.wl = UI.Text(r, "GameFontHighlightSmall", nil, nil, "LEFT", 160, 0); r.wl:SetWidth(60); r.wl:SetJustifyH("CENTER")
-        r.net = UI.Text(r, "GameFontHighlightSmall", nil, nil, "LEFT", 224, 0); r.net:SetWidth(100); r.net:SetJustifyH("RIGHT")
-        r.unpaid = UI.Text(r, "GameFontHighlightSmall", nil, nil, "LEFT", 328, 0); r.unpaid:SetWidth(90); r.unpaid:SetJustifyH("RIGHT")
+        r.name = UI.Text(r, "GameFontHighlightSmall", nil, nil, "LEFT", 0, 0); r.name:SetWidth(126); r.name:SetJustifyH("LEFT"); r.name:SetWordWrap(false)
+        r.wl = UI.Text(r, "GameFontHighlightSmall", nil, nil, "LEFT", 128, 0); r.wl:SetWidth(50); r.wl:SetJustifyH("CENTER")
+        r.net = UI.Text(r, "GameFontHighlightSmall", nil, nil, "LEFT", 180, 0); r.net:SetWidth(76); r.net:SetJustifyH("RIGHT")
+        r.unpaid = UI.Text(r, "GameFontHighlightSmall", nil, nil, "LEFT", 258, 0); r.unpaid:SetWidth(76); r.unpaid:SetJustifyH("RIGHT")
     end
     self.standEmpty = UI.Text(p, "GameFontHighlightSmall", C.muted, "No games yet - play one, or group with someone who has.", "TOPLEFT", 20, -64)
+    self.standEmpty:SetPoint("RIGHT", -16, 0); self.standEmpty:SetJustifyH("LEFT")
 
     section(p, "RECENT GAMES", -260)
     self.gameList = scrollList(p, -280, 11, 20, function() V:RefreshStandings() end)
@@ -337,20 +341,10 @@ function V:CreateStandings(p)
     end
 end
 
-function V:ShowStandings()
-    self:EnsureFrame()
-    DR:SetWatching(nil)
-    self.view = "standings"
-    self.roomId = nil
-    self.lobby:Hide()
-    self.room:Hide()
-    self.standings:Show()
-    self.backBtn:Show()
-    self:RefreshStandings()
-end
+-- (the standings sit beside the lobby now)
+function V:ShowStandings() self:ShowLobby() end
 
 function V:RefreshStandings()
-    if self.specPanel then self.specPanel:Hide() end
     local list = ns.DRLedger:Stats()
     local off = self.standList:Layout(#list)
     self.standEmpty:SetShown(#list == 0)
@@ -404,7 +398,7 @@ function V:CreateRoom(p)
     self.subText = UI.Text(p, "GameFontHighlightSmall", C.muted, nil, "TOP", self.wagerText, "BOTTOM", 0, -4)
 
     self.cardA = playerCard(p, 20)
-    self.cardB = playerCard(p, W - 220)
+    self.cardB = playerCard(p, PLAY_W - 220)
     UI.Text(p, "GameFontNormal", C.muted, "VS", "TOP", 0, -78)
 
     -- The big number
@@ -443,10 +437,11 @@ function V:ShowLobby()
     self.roomId = nil
     self.view = "lobby"
     self.room:Hide()
-    self.standings:Hide()
     self.lobby:Show()
+    self.standings:Show()
     self.backBtn:Hide()
     self:RefreshLobby()
+    self:RefreshStandings()
 end
 
 function V:ShowRoom(id)
@@ -470,9 +465,8 @@ end
 
 function V:Refresh()
     if not self.frame then return end
-    if self.view == "standings" then self:RefreshStandings()
-    elseif self.roomId then self:RefreshRoom()
-    else self:RefreshLobby() end
+    if self.roomId then self:RefreshRoom()
+    else self:RefreshLobby(); self:RefreshStandings() end
 end
 
 local function cardState(card, room, name, isTurn, landing)
@@ -764,14 +758,15 @@ function V:OnChange(room, what, extra)
 end
 
 -- ---------------------------------------------------------------------
--- Spectator panel (attached to the side of the window, game view only)
+-- Spectator panel (beside the game, in the standings' place)
 -- ---------------------------------------------------------------------
-local SPEC_W, SPEC_ROWS, SPEC_ROW = 160, 24, 18
+local SPEC_ROWS, SPEC_ROW = 24, 18
 
 function V:CreateSpectators(f)
     local p = CreateFrame("Frame", nil, f, "BackdropTemplate")
     UI.Skin(p, C.panel, C.line)
-    p:SetWidth(SPEC_W)
+    p:SetPoint("TOPLEFT", PLAY_W + 12, -14)
+    p:SetPoint("RIGHT", -12, 0)
     p:EnableMouse(true)
     self.specPanel = p
     UI.Text(p, "GameFontNormalSmall", C.accent, "SPECTATORS", "TOPLEFT", 12, -10)
@@ -788,19 +783,6 @@ function V:CreateSpectators(f)
     p:Hide()
 end
 
--- Flush against the window's right edge, top edges lined up - or its left
--- edge if there's no room on screen.
-function V:PlaceSpectators()
-    local p, f = self.specPanel, self.frame
-    if not p then return end
-    p:ClearAllPoints()
-    local right, screen = f:GetRight(), UIParent:GetWidth()
-    if type(right) == "number" and type(screen) == "number" and right + SPEC_W > screen then
-        p:SetPoint("TOPRIGHT", f, "TOPLEFT", 1, 0)
-    else
-        p:SetPoint("TOPLEFT", f, "TOPRIGHT", -1, 0)
-    end
-end
 
 function V:RefreshSpectators()
     local p = self.specPanel
@@ -808,7 +790,6 @@ function V:RefreshSpectators()
     local room = self.view == "room" and DR.rooms[self.roomId or ""]
     p:SetShown(room and true or false)
     if not room then return end
-    self:PlaceSpectators()
     local list, total = DR:SpectatorNames(room)
     self.specCount:SetText(total > 0 and total or "")
     for i, t in ipairs(self.specRows) do
@@ -848,6 +829,7 @@ function V:CreateToast()
     t:SetPoint("TOP", 0, -140)
     t:SetFrameStrata("DIALOG")
     t:Hide()
+    ns.Dock:Add(t)
     local icon = t:CreateTexture(nil, "ARTWORK")
     icon:SetTexture(ns.MEDIA .. "DeathRoll")
     icon:SetSize(36, 36)

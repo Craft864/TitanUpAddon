@@ -200,7 +200,7 @@ function RC:Init()
         local check = RC:NewCheck("ready", by)
         check.id = "rc"                     -- everyone uses the same id for a ready check
         RC:Send(encode("rc", check.reports[ns.me]))
-        if RC:IsLeader() and ns.RaidCheckUI then ns.RaidCheckUI:ShowResults() end
+        if RC:IsLeader() and ns.RaidCheckUI then ns.RaidCheckUI:ShowResults(true) end
     end)
     ns.On("ENCOUNTER_START", function()
         if ns.RaidCheckUI then ns.RaidCheckUI:CloseAll() end
@@ -220,7 +220,7 @@ function RC:OnMessage(text, sender)
         check.reports[ns.me] = self:Snapshot()
         self.current = check
         self:Send(encode(id, check.reports[ns.me]))
-        if RC:IsLeader() and ns.RaidCheckUI then ns.RaidCheckUI:ShowResults() end
+        if RC:IsLeader() and ns.RaidCheckUI then ns.RaidCheckUI:ShowResults(true) end
     elseif kind == "R" then
         local c = self.current
         if c and c.id == id then

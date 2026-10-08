@@ -1,15 +1,23 @@
-# Titan Up v0.25.1
+# Titan Up v0.29.1
 
-The Titan Up guild toolkit for World of Warcraft. Modules:
+The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
-- **TitanBoard**: live raid strategy board (draw on boss rooms, slides, plans, laser pointer, Raidstrats import).
-- **Raid Check**: raid buffs and personal readiness on every ready check and /pull (Heroic/Mythic raids).
-- **Loot**: every raid drop and roll, Mythic+ loot, and who it was traded to until it's equipped; optional roll window with BIS / Sidegrade / set tags shared with the raid.
-- **Games**:
-  - **Death Roll**: challenge a guildmate to a death roll with on-screen rolls, with a guild-wide ledger.
-  - **Wheel of Fortune**: a host runs a game for three players.
+- **Raid tools**
+  - **TitanBoard**: live raid strategy board - draw on boss rooms with the raid, plans and slides, laser pointer, Raidstrats import. `/tb`.
+  - **Reports**: the **Pull Report** (who died each pull and what they had ready) and the **Raid Scorecard** (weekly death stats), as two tabs of one entry.
+  - **Loot**: every raid drop and roll, Mythic+ loot, and who it was traded to until it's equipped; optional roll window with BIS / Sidegrade / set tags shared with the raid.
+  - **Combat Timer**: a combat timer you can style and move.
+  - **Raid Check**: raid buffs and personal readiness on every ready check and typed /pull (Heroic and Mythic raids).
+  - **Macro Share**: the leader or an assist sends macros to the raid, a role, a class or one person.
+- **UI tweaks**
+  - **UI Tweaks**: Release protection, Death alerts, Stack splitter and Battle rez tracker, each with its options beside its switch.
+  - **Keystone Roulette**: a wheel or a vote over the group's keys, then teleport.
+- **Games**
+  - **Death Roll**: challenge a guildmate to a gold death roll with real /rolls, spectators and a tamper-proof guild ledger.
+  - **Wheel of Fortune**: a host runs a puzzle game for three players (or practise with bots).
+  - **Wowdle**: the daily guild word game, with guild standings.
 
-`/tu mem` shows how much memory Titan Up is using. `/tu` opens the hub (or click the minimap button): **TitanBoard** and **Games**. Games opens a second page with every game. `/tu games` goes straight there. Every Titan Up window shares the same title bar: the module's name on the left, and in the top-right corner the **module icons** (Titan Up emblem = hub, TitanBoard, Games; the one you're in is highlighted - inside any game that's Games, which takes you back to the games list) right next to the close button. Switching modules opens the new window with its top-right corner exactly where the old one's was, so the icons never move under your mouse. `/tb` still opens TitanBoard directly, `/tu roll` opens Death Roll, `/tu help` lists everything.
+**Getting around:** `/tu` (or the minimap button, or Blizzard's addon menu) opens the Titan Up window on **Home**: what happened last pull, tonight's Raid Check, loot to trade, and your games at a glance. The **rail** down the left side lists every module by section (Raid, UI Tweaks, Games) with **Settings** at the bottom; click one and it replaces what's showing, in the same spot. The **<** button narrows the rail to icons. A cog in the title bar opens that module's settings, and Settings has a "Back" button to where you were. Pop-ups (Pull Report summary, Raid Check alert, game invites, what's new) stack in one place on screen and can be dragged together. `/tb` still opens TitanBoard directly, `/tu roll` Death Roll, `/tu settings` Settings, `/tu help` lists everything, and `/tu mem` shows how much memory Titan Up is using.
 
 ## Installing / upgrading from TitanBoard
 
@@ -36,7 +44,7 @@ Rules: the first roll is 1 to N (N is the wager unless you set a different first
 - Every game is saved by both players under the same id. Your own games are your source of truth.
 - Everyone compares a small summary of their games with their group **and with online guildmates** (over the guild's hidden addon channel), and fetches whatever's missing or changed, so the standings fill in without needing to group up.
 - **In a raid instance the ledger stays quiet:** the only traffic is the record of a death roll that just finished, sent once to the raid. Summaries, the guild refresh, answering other people's requests and payment updates wait until you leave the instance.
-- **Standings** (button in the lobby) shows everyone's wins, losses, net gold and unpaid amounts, plus a scrollable list of recent games. Hover a game for details.
+- **Standings** (beside the lobby) shows everyone's wins, losses, net gold and unpaid amounts, plus a scrollable list of recent games. Hover a game for details.
 - Rules (anti-tampering):
   - Players can only share games they played in, and WoW stamps every addon message with the real sender, so nobody can pose as someone else.
   - A game is **confirmed** once both players' copies match exactly, and from then on it's **locked**: later copies that disagree (someone edited their saved data) are ignored and shown as a red `!` in the history.
@@ -67,7 +75,7 @@ Notes:
 
 ## Loot tracker
 
-`/tu loot` (or the hub / module bar).
+`/tu loot` (or Loot on the rail).
 
 - **Raid drops (group loot):** recorded automatically when a roll finishes, from WoW's own loot history - item, item level, boss, raid and difficulty, the winner with their roll (Need / Need off-spec / Transmog / Greed), and everyone else's rolls (hover a drop).
 - **Mythic+ and dungeons (personal loot):** there are no rolls - the game assigns items - so it records who received what, including the end-of-run chest.
@@ -80,7 +88,7 @@ Notes:
 
 ## Wheel of Fortune
 
-`/tu wheel` (or the hub / module bar).
+`/tu wheel` (or Wheel of Fortune on the rail).
 
 **Hosting:** enter 1-5 rounds (category + puzzle; puzzles must fit a 4 x 14 board, words aren't split - "Random" fills a round with a ready-made one and "Fill all" fills every round; "Random from" picks the theme - WoW, pop culture, or both - and puzzles never repeat within a game) and **Open game**. Players in your group get a pop-up to take one of the three seats. You see the answer in the host panel (only on your screen) and have **Start game**, **Next round**, **Skip turn** (for AFK players) and **End game**. The host doesn't play.
 
@@ -104,6 +112,34 @@ See the comments at the top of `Rooms.lua`. Short version: put a .blp or .tga in
 ## Planned
 
 - Match by ID instead of English names: defensive spell IDs, and potion / flask / food item IDs (Raid Check, Pull Report), so non-English clients work too.
+
+## Changes in 0.29.1
+
+Fixes from the first in-game look at the 0.29.0 layout:
+- Home: the cards and module tiles ran past the window's right edge (3 x 284 and 6 x 136 didn't fit between the margins). Now 3 x 272 cards with 16px gaps and 6 x 134 tiles, both filling the 848px between 16px margins.
+- Title bar: tabs (Reports: Tonight / This week) are right-aligned just left of the cog (or the X), instead of chained after the title, where they ran into the cog. The title is left-justified after the section name ("Raid Tools  >  REPORTS") rather than centred in the bar.
+- Macro Share: the macro text box collapsed to one line (a multi-line EditBox with one anchor sizes itself to its text). It is now pinned at both corners so it keeps its full height.
+- Death Roll: the standings note is shorter so it isn't cut off in the narrower right-hand column.
+
+## Changes in 0.29.0
+
+- **One Titan Up window with a side rail** (replaces the hub, the tab above each window and the module icons). Every module opens in the same frame: a title bar on top (emblem, "Section > MODULE", tabs, the module's cog, X) and a rail on the left (Home first, then Raid, UI Tweaks and Games, Settings at the bottom). Picking a module closes the one that was showing and opens the new one with the rail in the same place. The window remembers where you dragged it (saved as the top-left corner of the whole frame, `TitanUpDB.nav.pos`). The **<** / **>** button narrows the rail to icons (`nav.railMin`); TitanBoard always uses the narrow rail so its large window still fits.
+- **Home** is the default: `/tu`, the minimap button (left-click) and the "Titan Up" key binding open Home, or close whatever Titan Up module is open. Home has six cards (last pull, Raid Check, loot to trade, version check, Wowdle, Death Roll) and a tile for every module.
+- **Two sizes:** every module is now 880 x 570 (Standard), TitanBoard keeps its own large size, and the Wheel of Fortune game screen is 880 x 610. Modules use the extra width:
+  - Pull Report: pulls, deaths and details are three columns side by side (no more resizing).
+  - Raid Scorecard: the pull list and pull details open as a panel over the right side of the table.
+  - Raid Check: results and your own checks side by side. Loot, Macro Share, Combat Timer (recent fights on the right), Keystone Roulette (two-column history) and Settings are wider.
+  - Wowdle: board and keyboard on the left, guild standings always visible on the right ("Refresh" asks for new results).
+  - Death Roll: the game on the left; the guild standings beside the lobby and the spectator list beside a game (no more floating panel next to the window).
+  - Wheel of Fortune: the setup screen is the standard size (taller if its list needs it).
+- **Reports:** the Pull Report and Raid Scorecard share one rail entry, with "Tonight" and "This week" tabs in the title bar.
+- **UI Tweaks keeps its own window**, now a list of switches on the left with the selected tweak's options on the right. Those options moved out of Settings.
+- **Settings** is a module on the rail (cog, `/tu settings`, right-click the addon menu entry). Opened from a cog, it shows "< Back to MODULE".
+- **Alert dock:** pop-ups (Pull Report summary, Raid Check alert, Macro Share toast, Death Roll and Wheel invites, what's new, version panels) stack at one spot, newest on top; dragging one moves the stack (`TitanUpDB.dock.pos`). "Reset alert position" is on the Titan Up page in Settings. The Keystone Roulette key pop-up stays where it was (its Teleport button is a protected button that can't be moved in combat).
+- **No stolen screens:** the Pull Report after a pull and Raid Check results only open by themselves when the Titan Up window is closed or on Home (or already on that module). Otherwise a small notice ("Pull 4 report is ready. [Open]") appears in the dock.
+- **TitanBoard:** the mini view and viewer mode still stand alone (no title bar or rail). Picking TitanBoard on the rail while it's mini opens the full board. After combat, the board leaves its automatic mini view only if you didn't open another module during the fight.
+- Code: `Nav.lua` rewritten (rail, title bar, Home, dock); `UI.ResizeKeepTab` keeps the top-left corner; `RegisterModule` takes `rail`, `railName`, `tab`, `badge` and `onSwitch`. New saved keys `nav` and `dock` (defaults in `SUITE_DEFAULTS`).
+- README intro rewritten for the current module list.
 
 ## Changes in 0.28.0
 
@@ -178,7 +214,7 @@ See the comments at the top of `Rooms.lua`. Short version: put a .blp or .tga in
 ## Changes in 0.24.0
 
 - **Settings** - every module's options on one page, a section per module (cog on the hub, `/tu settings`, or right-click Titan Up in Blizzard's addon menu). The cogs on each module still work and show the same settings.
-- **Check guild versions** (in Settings, or `/tu versions`): lists every online guildmate's Titan Up version and who's behind; anyone running an older version gets a one-time "please update" pop-up.
+- **Version check** (in Settings, or `/tu versions`): lists everyone's Titan Up version and who's behind; anyone running an older version gets a one-time "please update" pop-up. (Since 0.28.0 this is "Check raid versions": it lists just your party or raid and fills in live.)
 - **What's new** pop-up once after an update (`/tu new` to see it again).
 - **Blizzard's addon menu** (by the minimap): left-click the hub, right-click Settings. **Key bindings** for the hub, TitanBoard and the Pull Report (Options > Keybindings > AddOns).
 - **Raid Scorecard**: "Died w/ potion" and "Died w/ healthstone" columns (count, %, click-through), and a **boss filter** (also applies to the CSV export).

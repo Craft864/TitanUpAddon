@@ -197,6 +197,8 @@ function MS:Toast(entry)
         t.text:SetJustifyH("LEFT")
         t:SetScript("OnClick", function(s) s:Hide(); ns.Nav:Switch("macroshare") end)
         self.toast = t
+        t:Hide()
+        ns.Dock:Add(t)                  -- stacks with the other pop-ups
     end
     t.icon:SetTexture(iconPath(entry.icon))
     t.text:SetText(("%s shared a macro: |cffffffff%s|r\n|cff8a8f9cClick to open Macro Share|r"):format(UI.Short(entry.from), entry.name))
@@ -211,8 +213,9 @@ end
 -- ---------------------------------------------------------------------
 local V = {}
 ns.MacroShareUI = V
-local W, H, COL = 780, 470, 380
-local ROWS = 5
+local W, H, COL = 880, 570, 420      -- the standard module size
+local ROWS = 6
+local GROW = 60                        -- the macro text box is this much taller than it was
 
 local function editBox(parent, w, h, multi)
     local b = UI.EditBox(parent, w, h, { inset = { 6, 6, 4, 4 }, multi = multi, keys = false })   -- Enter: a new line
@@ -239,24 +242,26 @@ function V:Create()
     self.nameBox:SetScript("OnTextChanged", function() V:RefreshCounts() end)
     UI.Text(f, "GameFontHighlightSmall", C.muted, "Macro text", "TOPLEFT", 16, -86)
     self.count = UI.Text(f, "GameFontHighlightSmall", C.muted, nil, "TOPRIGHT", f, "TOPLEFT", COL - 8, -86)
-    self.bodyBox = editBox(f, COL - 24, 170, true)
+    self.bodyBox = editBox(f, COL - 24, 170 + GROW, true)
     self.bodyBox:SetPoint("TOPLEFT", 16, -102)
+    -- a multi-line box shrinks to its text unless both corners are pinned
+    self.bodyBox:SetPoint("BOTTOMRIGHT", f, "TOPLEFT", COL - 8, -102 - (170 + GROW))
     self.bodyBox:SetMaxLetters(MS.BODY_MAX)
     self.bodyBox:SetScript("OnTextChanged", function() V:RefreshCounts() end)
-    UI.Text(f, "GameFontHighlightSmall", C.muted, "Send to", "TOPLEFT", 16, -286)
+    UI.Text(f, "GameFontHighlightSmall", C.muted, "Send to", "TOPLEFT", 16, -286 - GROW)
     self.targetBtn = UI.Button(f, COL - 24, 24, "", "Who gets it", function() V:TargetMenu() end)
-    self.targetBtn:SetPoint("TOPLEFT", 16, -302)
+    self.targetBtn:SetPoint("TOPLEFT", 16, -302 - GROW)
     self.sendBtn = UI.Button(f, 140, 30, "Send", nil, function()
         if MS:Send(V.nameBox:GetText(), V.icon, V.bodyBox:GetText(), V.target) then V.bodyBox:ClearFocus(); V.nameBox:ClearFocus() end
     end)
-    self.sendBtn:SetPoint("TOPLEFT", 16, -344)
+    self.sendBtn:SetPoint("TOPLEFT", 16, -344 - GROW)
     UI.SetActive(self.sendBtn, true)
     self.why = UI.Text(f, "GameFontHighlightSmall", C.muted, nil, "LEFT", self.sendBtn, "RIGHT", 10, 0)
     self.why:SetWidth(COL - 180); self.why:SetJustifyH("LEFT")
     -- drop a macro here (or on the icon / name / text) to fill the form
     local drop = CreateFrame("Button", nil, f, "BackdropTemplate")
     drop:SetSize(COL - 24, 56)
-    drop:SetPoint("TOPLEFT", 16, -390)
+    drop:SetPoint("TOPLEFT", 16, -390 - GROW)
     UI.Skin(drop, C.canvas, C.line)
     drop.text = UI.Text(drop, "GameFontHighlightSmall", C.muted, nil, "CENTER")
     self.drop = drop

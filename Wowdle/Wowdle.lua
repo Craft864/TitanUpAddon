@@ -217,7 +217,8 @@ end
 -- ---------------------------------------------------------------------
 local V = {}
 ns.WowdleUI = V
-local W, H = 440, 560
+local W, H = 880, 570          -- the standard module size
+local PLAY_W = 420             -- the board and keyboard; the guild standings sit to the right
 local TILE, TGAP = 46, 6
 local COLORS = {
     g = { 0.33, 0.62, 0.31 },
@@ -228,17 +229,17 @@ local ROWS_KB = { "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM" }
 
 function V:Create()
     local f = ns.Nav:Window(self, "TitanUpWowdle", "wowdle", "WOWDLE", W, H, { mark = { 300, 0.04, -40 },
-        onShow = function() WD:CheckDay(); V.typed = ""; V:Refresh() end })
+        onShow = function() WD:CheckDay(); V.typed = ""; WD:RequestStandings(); V:Refresh() end })
     f:SetScript("OnHide", function() if V.input then V.input:ClearFocus() end end)
     self.dayText = UI.Text(f, "GameFontNormal", C.accent, nil, "TOPLEFT", 18, -12)
-    self.viewBtn = UI.Button(f, 96, 22, "Standings", "Guild standings", function() V:ToggleView() end)
+    self.viewBtn = UI.Button(f, 96, 22, "Refresh", "Ask the guild for their latest results", function() WD.lastRequest = nil; V:ToggleView() end)
     self.viewBtn:SetPoint("RIGHT", self.header.close, "LEFT", -8, 0)
 
     -- the board
     local board = CreateFrame("Button", nil, f)
     local bw = 5 * TILE + 4 * TGAP
     board:SetSize(bw, 6 * TILE + 5 * TGAP)
-    board:SetPoint("TOP", 0, -44)
+    board:SetPoint("TOP", f, "TOPLEFT", PLAY_W / 2, -44)
     board:SetScript("OnClick", function() V:FocusTyping() end)
     self.board = board
     self.tiles = {}
@@ -288,7 +289,7 @@ function V:Create()
         local x = -rowW / 2
         local function add(label, w, onClick, key)
             local b = UI.Button(f, w, KH, label, nil, onClick)
-            b:SetPoint("TOP", f, "TOP", x + w / 2, ky - (ri - 1) * (KH + KG))
+            b:SetPoint("TOP", f, "TOPLEFT", PLAY_W / 2 + x + w / 2, ky - (ri - 1) * (KH + KG))
             x = x + w + KG
             if key then self.keys[key] = b end
             return b
@@ -301,11 +302,14 @@ function V:Create()
         if ri == 3 then add("DEL", KW + 22, function() V:Back() end) end
     end
 
-    -- standings view (hidden until asked for)
+    -- the guild standings, always beside the board
+    local sep = f:CreateTexture(nil, "ARTWORK")
+    sep:SetColorTexture(C.line[1], C.line[2], C.line[3], 1)
+    sep:SetPoint("TOPLEFT", PLAY_W, -12); sep:SetPoint("BOTTOMLEFT", PLAY_W, 12); sep:SetWidth(1)
+    UI.Text(f, "GameFontNormalSmall", C.accent, "GUILD STANDINGS", "TOPLEFT", PLAY_W + 20, -16)
     local st = CreateFrame("Frame", nil, f)
-    st:SetPoint("TOPLEFT", 12, -40)
+    st:SetPoint("TOPLEFT", PLAY_W + 12, -40)
     st:SetPoint("BOTTOMRIGHT", -12, 12)
-    st:Hide()
     self.standings = st
     local heads = { { "Player", 8 }, { "Today", 170 }, { "Won", 230 }, { "Streak", 290 }, { "Avg", 356 } }
     for _, h in ipairs(heads) do
@@ -327,12 +331,12 @@ function V:Create()
 end
 
 function V:FocusTyping()
-    if self.standings:IsShown() or db().done then return end
+    if db().done then return end
     self.input:SetFocus()
 end
 
 function V:Type(ch)
-    if db().done or self.standings:IsShown() then return end
+    if db().done then return end
     if #self.typed < 5 then self.typed = self.typed .. ch; self.flash = nil; self:Refresh() end
 end
 
@@ -347,14 +351,9 @@ function V:Enter()
     self:Refresh()
 end
 
+-- (the standings are always shown now: this just asks for fresh ones)
 function V:ToggleView()
-    local show = not self.standings:IsShown()
-    self.standings:SetShown(show)
-    self.board:SetShown(not show)
-    self.message:SetShown(not show)
-    for _, b in pairs(self.keys) do b:SetShown(not show) end
-    self.viewBtn.label:SetText(show and "Play" or "Standings")
-    if show then self.input:ClearFocus(); WD:RequestStandings() end
+    WD:RequestStandings()
     self:Refresh()
 end
 

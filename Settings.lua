@@ -1,12 +1,14 @@
 -- Titan Up - Settings.lua
--- Every module's settings in one window: a list of modules on the left,
--- each module's options on its own page. The cog on each module opens its
--- page directly (the hub's cog opens the Titan Up page). UI Tweaks keep all
--- their detailed options here; the UI Tweaks window is just the on/off list.
--- (The Combat Timer keeps its own window - that window is its settings;
--- Keystone Roulette's and Death Roll's choices are per-game, in their windows.)
+-- Every module's settings, shown in the Titan Up window: a list of pages on
+-- the left, the page on the right. The cog in a module's title bar opens
+-- its page directly, with a button back to the module (Home's cog opens the
+-- Titan Up page). UI Tweaks keep their options in the UI Tweaks module.
+-- (The Combat Timer's window is its settings; Keystone Roulette's and Death
+-- Roll's choices are per-game, in their windows.)
 -- Pages follow the tools' own order.
 -- Pages are built the first time they're opened; tall pages scroll.
+--
+-- S.Pager is the scrolling page area itself, shared with UI Tweaks.
 local ADDON, ns = ...
 
 local UI = ns.UI
@@ -15,9 +17,9 @@ local C = UI.C
 local S = {}
 ns.Settings = S
 
-local NAV_W = 180
-local PAGE_W = 460                -- the UI Tweak pages were laid out for this width
-local W, H = NAV_W + PAGE_W + 40, 520
+local NAV_W = 200
+local W, H = 880, 570              -- the standard module size (ns.Nav.STD_W / STD_H)
+local PAGE_W = W - NAV_W - 40
 local ROW_H = 30
 
 -- ---------------------------------------------------------------------
@@ -27,6 +29,7 @@ local ROW_H = 30
 --                          { button = label, run, tip }
 --                          { text = "a line of help" }
 --   tweak pages:  { tweak = TW.LIST entry } - its On/Off, then its own page
+--                 (shown by UI Tweaks)
 -- ---------------------------------------------------------------------
 function S:Pages()
     local u = ns.udb
@@ -34,6 +37,7 @@ function S:Pages()
     pages[#pages + 1] = { key = "titanup", title = "Titan Up", group = "TITAN UP", rows = {
         { text = "Titan Up " .. ns.VERSION .. " - the guild toolkit." },
         { button = "Check raid versions", tip = "See which Titan Up version everyone in your group runs - the list fills in as they answer", run = function() ns.Updates:Check() end },
+        { button = "Reset alert position", tip = "Put the stack of pop-ups (pull alert, death summary, key vote, What's new) back at the top of the screen", run = function() ns.Dock:Reset() end },
         { notes = true },                       -- what's new, every version, newest first
     } }
     -- the raid tools' pages, keyed by module (shown in the tools' own order)
@@ -70,10 +74,6 @@ function S:Pages()
     for key, pg in pairs(TOOL_PAGES) do                       -- (anything not in the nav yet)
         if pg and not added[key] then pages[#pages + 1] = { key = key, title = pg.title, group = "RAID TOOLS", rows = pg.rows } end
     end
-    -- UI tweaks: one page each, in the UI Tweaks window's order
-    for _, t in ipairs(ns.Tweaks and ns.Tweaks.LIST or {}) do
-        pages[#pages + 1] = { key = "tweak:" .. t.key, title = t.name, group = "UI TWEAKS", tweak = t }
-    end
     return pages
 end
 
@@ -90,81 +90,25 @@ function ns.SettingsChanged()
 end
 
 -- ---------------------------------------------------------------------
--- Opening
+-- The page area: pages built on first use, a scroll bar when one is tall
 -- ---------------------------------------------------------------------
--- anchor: the Titan Up window it was opened from. Settings docks to its
--- left (top edges lined up), or its right if there's no room on the left;
--- with no window it opens centred. It docks again each time it opens, and
--- can be dragged anywhere while open.
-function S:Open(key, anchor)
-    self:EnsureFrame()
-    self:Dock(anchor)
-    self.frame:Show()
-    self:Select(key or self.current or "titanup")
-end
+local Pager = {}
+Pager.__index = Pager
 
-function S:Dock(anchor)
-    local f = self.frame
-    if not (anchor and anchor.IsShown and anchor:IsShown()) then
-        local hub = ns.Hub and ns.Hub.frame
-        anchor = (hub and hub:IsShown()) and hub or nil
-    end
-    f:ClearAllPoints()
-    if not anchor then f:SetPoint("CENTER", 0, 40) return end
-    local left = anchor.GetLeft and anchor:GetLeft()
-    if type(left) == "number" and left < W + 12 then
-        f:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 8, 0)        -- no room on the left
-    else
-        f:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -8, 0)
-    end
-end
-
-function S:Toggle(anchor)
-    local f = self:EnsureFrame()
-    if f:IsShown() then f:Hide() else self:Open(self.current or "titanup", anchor) end
-end
-
-function S:Show() self:Open(self.current or "titanup") end
-
--- ---------------------------------------------------------------------
--- Window: module list | page (scrolls when tall)
--- ---------------------------------------------------------------------
-function S:EnsureFrame()
-    if self.frame then return self.frame end
-    local f = UI.Window("TitanUpSettings", W, H, { border = C.accent, drag = true })     -- placed by Dock
-    UI.Text(f, "GameFontNormal", C.accent, "TITAN UP SETTINGS", "TOPLEFT", 16, -14)
-    local x = UI.Button(f, 22, 20, "X", "Close", function() f:Hide() end)
-    x:SetPoint("TOPRIGHT", -8, -8)
-    self.pageTitle = UI.Text(f, "GameFontNormal", C.text, nil, "TOPLEFT", NAV_W + 16, -14)
-    -- the module list
-    local sep = f:CreateTexture(nil, "ARTWORK")
-    sep:SetColorTexture(C.line[1], C.line[2], C.line[3], 1)
-    sep:SetPoint("TOPLEFT", NAV_W, -40); sep:SetPoint("BOTTOMLEFT", NAV_W, 12); sep:SetWidth(1)
-    self.pages = self:Pages()
-    self.navBtns = {}
-    local y, group = -44, nil
-    for _, p in ipairs(self.pages) do
-        if p.group ~= group then
-            group = p.group
-            UI.Text(f, "GameFontNormalSmall", C.muted, group, "TOPLEFT", 16, y - 6)
-            y = y - 22
-        end
-        local b = UI.Button(f, NAV_W - 24, 22, p.title, nil, function() S:Select(p.key) end)
-        b:SetPoint("TOPLEFT", 12, y)
-        self.navBtns[p.key] = b
-        y = y - 25
-    end
-    -- the page area (clips its content) + scroll bar
-    local view = CreateFrame("Frame", nil, f)
-    view:SetPoint("TOPLEFT", NAV_W + 8, -40)
-    view:SetSize(PAGE_W, H - 52)
+-- parent: the window; x, y: top-left of the page area; pageW: page width;
+-- viewH: visible height
+function S.Pager(parent, x, y, pageW, viewH)
+    local pg = setmetatable({ pageW = pageW, viewH = viewH, built = {}, offset = 0 }, Pager)
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetPoint("TOPLEFT", x, y)
+    view:SetSize(pageW, viewH)
     if view.SetClipsChildren then view:SetClipsChildren(true) end
     view:EnableMouseWheel(true)
-    view:SetScript("OnMouseWheel", function(_, delta) S:ScrollBy(-delta * 40) end)
-    self.view = view
-    local track = CreateFrame("Frame", nil, f)
+    view:SetScript("OnMouseWheel", function(_, delta) pg:ScrollBy(-delta * 40) end)
+    pg.view = view
+    local track = CreateFrame("Frame", nil, parent)
     track:SetPoint("TOPLEFT", view, "TOPRIGHT", 8, 0)
-    track:SetSize(8, H - 52)
+    track:SetSize(8, viewH)
     track.bg = track:CreateTexture(nil, "BACKGROUND")
     track.bg:SetAllPoints()
     track.bg:SetColorTexture(1, 1, 1, 0.06)
@@ -176,39 +120,38 @@ function S:EnsureFrame()
     thumb:RegisterForDrag("LeftButton")
     thumb:SetScript("OnDragStart", function()
         local _, cy = GetCursorPosition()
-        S.dragFrom, S.dragOffset = cy / (UIParent:GetEffectiveScale() or 1), S.offset or 0
+        pg.dragFrom, pg.dragOffset = cy / (UIParent:GetEffectiveScale() or 1), pg.offset or 0
         thumb:SetScript("OnUpdate", function()
             local _, ny = GetCursorPosition()
             ny = ny / (UIParent:GetEffectiveScale() or 1)
             local span = (track:GetHeight() or 1) - (thumb:GetHeight() or 1)
-            if span > 0 then S:ScrollTo(S.dragOffset + (S.dragFrom - ny) / span * S:MaxScroll()) end
+            if span > 0 then pg:ScrollTo(pg.dragOffset + (pg.dragFrom - ny) / span * pg:MaxScroll()) end
         end)
     end)
     thumb:SetScript("OnDragStop", function() thumb:SetScript("OnUpdate", nil) end)
-    self.track, self.thumb = track, thumb
-    self.built = {}
-    self.frame = f
-    return f
+    pg.track, pg.thumb = track, thumb
+    return pg
 end
 
 -- build one page the first time it's opened
-function S:Build(p)
+function Pager:Build(p)
+    local PW = self.pageW
     local content = CreateFrame("Frame", nil, self.view)
-    content:SetWidth(PAGE_W)
+    content:SetWidth(PW)
     content:SetPoint("TOPLEFT", 0, 0)
     content.rows = {}
     content.mod = false
     local y = -4
     local function row(entry)
         local r = CreateFrame("Frame", nil, content)
-        r:SetSize(PAGE_W - 16, ROW_H - 4)
+        r:SetSize(PW - 16, ROW_H - 4)
         r:SetPoint("TOPLEFT", 4, y)
         r.entry = entry
         if entry.notes then
             r:SetHeight(10)
             UI.Text(r, "GameFontNormalSmall", C.accent, "WHAT'S NEW", "TOPLEFT", 4, -6)
             r.label = UI.Text(r, "GameFontHighlightSmall", C.text, nil, "TOPLEFT", 4, -26)
-            r.label:SetWidth(PAGE_W - 30); r.label:SetJustifyH("LEFT"); r.label:SetSpacing(2)
+            r.label:SetWidth(PW - 30); r.label:SetJustifyH("LEFT"); r.label:SetSpacing(2)
             r.label:SetText(ns.Updates.NotesText())
             local h = r.label:GetStringHeight()
             if type(h) ~= "number" or h <= 0 then
@@ -244,21 +187,26 @@ function S:Build(p)
     if p.tweak then
         local t = p.tweak
         local desc = UI.Text(content, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", 8, y - 2)
-        desc:SetWidth(PAGE_W - 24); desc:SetJustifyH("LEFT")
+        desc:SetWidth(PW - 24); desc:SetJustifyH("LEFT")
         desc:SetText(t.desc)
         y = y - 40
-        row({ toggle = "Turned on", get = t.get, set = function(on) t.set(on) end })
-        y = y - 6
+        if not p.noToggle then
+            row({ toggle = "Turned on", get = t.get, set = function(on) t.set(on) end })
+            y = y - 6
+        end
         local mod = t.page and t.page()
         if mod and mod.BuildPage then
             local host = CreateFrame("Frame", nil, content)
             host:SetPoint("TOPLEFT", 0, y)
-            host:SetSize(PAGE_W, 10)
+            host:SetSize(PW, 10)
             mod:BuildPage(host)
             local h = mod.pageHeight or 400
             host:SetHeight(h)
             content.mod = mod
             y = y - h
+        elseif not t.page then
+            UI.Text(content, "GameFontHighlightSmall", C.muted, "Nothing else to set - just turn it on or off.", "TOPLEFT", 8, y - 4)
+            y = y - 24
         end
     else
         for _, e in ipairs(p.rows or {}) do row(e) end
@@ -268,51 +216,47 @@ function S:Build(p)
     return content
 end
 
-function S:Select(key)
-    local p
-    for _, q in ipairs(self.pages) do if q.key == key then p = q end end
-    if not p then p = self.pages[1] end
-    self.current = p.key
+-- show page p (building it if needed), scrolled to the top
+function Pager:Show(p)
     if not self.built[p.key] then self.built[p.key] = self:Build(p) end
+    self.current = p.key
     for k, c in pairs(self.built) do c:SetShown(k == p.key) end
-    for k, b in pairs(self.navBtns) do UI.SetActive(b, k == p.key) end
-    self.pageTitle:SetText(p.title:upper())
     self.offset = 0
-    self:RefreshPage()
+    self:Refresh()
 end
 
-function S:Content() return self.built and self.built[self.current or ""] end
+function Pager:Content() return self.built[self.current or ""] end
 
-function S:MaxScroll()
+function Pager:MaxScroll()
     local c = self:Content()
-    local viewH = H - 52
-    return math.max(0, ((c and c.height) or 0) - viewH)
+    return math.max(0, ((c and c.height) or 0) - self.viewH)
 end
 
-function S:ScrollTo(v)
+function Pager:ScrollTo(v)
     self.offset = math.max(0, math.min(self:MaxScroll(), v or 0))
     local c = self:Content()
     if c then c:ClearAllPoints(); c:SetPoint("TOPLEFT", 0, self.offset) end
     self:LayoutScrollbar()
 end
 
-function S:ScrollBy(d) self:ScrollTo((self.offset or 0) + d) end
+function Pager:ScrollBy(d) self:ScrollTo((self.offset or 0) + d) end
 
--- a visible scroll bar whenever the page is taller than the window
-function S:LayoutScrollbar()
+-- a visible scroll bar whenever the page is taller than its area
+function Pager:LayoutScrollbar()
     local max = self:MaxScroll()
     local show = max > 0
     self.track:SetShown(show)
     if not show then return end
     local c = self:Content()
-    local viewH = H - 52
+    local viewH = self.viewH
     local thumbH = math.max(30, viewH * viewH / c.height)
     self.thumb:SetHeight(thumbH)
     self.thumb:ClearAllPoints()
     self.thumb:SetPoint("TOP", self.track, "TOP", 0, -((viewH - thumbH) * (self.offset or 0) / max))
 end
 
-function S:RefreshPage()
+-- redraw the shown page's buttons from the saved settings
+function Pager:Refresh()
     local c = self:Content()
     if not c then return end
     for _, r in ipairs(c.rows) do
@@ -331,3 +275,89 @@ function S:RefreshPage()
     if type(mod) == "table" and mod.RefreshPage then mod:RefreshPage() end
     self:ScrollTo(self.offset or 0)
 end
+
+-- ---------------------------------------------------------------------
+-- Opening
+-- ---------------------------------------------------------------------
+-- key: the page. Opened from a module's cog, Settings shows a button back
+-- to that module.
+function S:Open(key)
+    local from = ns.Nav:ShellKey()
+    self:EnsureFrame()
+    if from ~= "settings" then self.back = from end
+    self.frame:Show()
+    ns.Nav:Activate("settings")
+    self:Select(key or self.current or "titanup")
+end
+
+function S:Toggle()
+    local f = self:EnsureFrame()
+    if f:IsShown() then f:Hide() else self:Open(self.current or "titanup") end
+end
+
+function S:Show() self:Open(self.current or "titanup") end
+
+-- ---------------------------------------------------------------------
+-- Window: page list | page (scrolls when tall)
+-- ---------------------------------------------------------------------
+function S:EnsureFrame()
+    if self.frame then return self.frame end
+    local f = ns.Nav:Window(self, "TitanUpSettings", "settings", "SETTINGS", W, H, { mark = { 360, 0.04, -20 },
+        onShow = function() S:Refresh() end })
+    self.pageTitle = UI.Text(f, "GameFontNormal", C.text, nil, "TOPLEFT", NAV_W + 16, -14)
+    self.backBtn = UI.Button(f, 150, 22, "", "Back to the module you came from", function()
+        local key = S.back
+        S.back = nil
+        if key then ns.Nav:Switch(key, "settings") else f:Hide() end
+    end)
+    self.backBtn:SetPoint("TOPRIGHT", -14, -10)
+    -- the page list
+    local sep = f:CreateTexture(nil, "ARTWORK")
+    sep:SetColorTexture(C.line[1], C.line[2], C.line[3], 1)
+    sep:SetPoint("TOPLEFT", NAV_W, -12); sep:SetPoint("BOTTOMLEFT", NAV_W, 12); sep:SetWidth(1)
+    self.pages = self:Pages()
+    self.navBtns = {}
+    local y, group = -12, nil
+    for _, p in ipairs(self.pages) do
+        if p.group ~= group then
+            group = p.group
+            UI.Text(f, "GameFontNormalSmall", C.muted, group, "TOPLEFT", 16, y - 6)
+            y = y - 22
+        end
+        local b = UI.Button(f, NAV_W - 24, 22, p.title, nil, function() S:Select(p.key) end)
+        b:SetPoint("TOPLEFT", 12, y)
+        self.navBtns[p.key] = b
+        y = y - 25
+    end
+    self.pager = S.Pager(f, NAV_W + 8, -40, PAGE_W, H - 52)
+    self.frame = f
+    return f
+end
+
+function S:Refresh()
+    if not self.backBtn then return end
+    local m = self.back and (self.back == "home" and { name = "Home" } or ns.Nav.byKey[self.back])
+    self.backBtn:SetShown(m ~= nil)
+    if m then self.backBtn.label:SetText("< Back to " .. ((m.rail and m.railName) or m.name)) end
+    self:RefreshPage()
+end
+
+function S:Select(key)
+    local p
+    for _, q in ipairs(self.pages) do if q.key == key then p = q end end
+    if not p then p = self.pages[1] end
+    self.current = p.key
+    for k, b in pairs(self.navBtns) do UI.SetActive(b, k == p.key) end
+    self.pageTitle:SetText(p.title:upper())
+    self.pager:Show(p)
+end
+
+function S:RefreshPage()
+    if self.pager then self.pager:Refresh() end
+end
+
+ns.RegisterModule({
+    key = "settings", name = "Settings", icon = ns.MEDIA .. "Cog", group = "suite",
+    desc = "Every module's options, and what's new.",
+    view = S, show = function() S:Show() end,
+})

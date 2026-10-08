@@ -10,8 +10,9 @@ local WF
 local V = {}
 ns.WheelUI = V
 
-local W, H = 820, 610          -- the game screen
-local LOBBY_W = 660             -- the setup screen (height fits its content)
+local W, H = 880, 610          -- the game screen (a little taller than the standard 570)
+local LOBBY_W, LOBBY_H = 880, 570   -- the setup screen: the standard size, taller if its list needs it
+local GX = 330                  -- left edge of the right-hand side of the game screen (cards, actions, letters)
 local TILE_W, TILE_H, TILE_GAP = 38, 46, 3
 local WHEEL = 250
 
@@ -248,7 +249,7 @@ function V:LayoutLobby()
     self.noGames:SetPoint("TOPLEFT", 20, listTop - 6)
     local listH = math.max(1, shown) * 32
     local height = 6 - listTop + listH + 12
-    if not self.gameId then resizeKeepCorner(self.frame, LOBBY_W, height) end
+    if not self.gameId then resizeKeepCorner(self.frame, LOBBY_W, math.max(LOBBY_H, height)) end
 end
 
 function V:AddRound()
@@ -369,20 +370,20 @@ function V:CreateGame(p)
         local c = CreateFrame("Frame", nil, p, "BackdropTemplate")
         UI.Skin(c, C.panel, C.line)
         c:SetSize(166, 72)
-        c:SetPoint("TOPLEFT", 300 + (i - 1) * 172, -262)
+        c:SetPoint("TOPLEFT", GX + (i - 1) * 172, -262)
         c.name = UI.Text(c, "GameFontNormal", nil, nil, "TOP", 0, -8)
         c.round = UI.Text(c, "GameFontNormalLarge", nil, nil, "TOP", c.name, "BOTTOM", 0, -4)
         c.total = UI.Text(c, "GameFontHighlightSmall", C.muted, nil, "TOP", c.round, "BOTTOM", 0, -3)
         self.cards[i] = c
     end
 
-    self.status = UI.Text(p, "GameFontHighlightLarge", nil, nil, "TOPLEFT", 300, -346)
-    self.status:SetWidth(500)
+    self.status = UI.Text(p, "GameFontHighlightLarge", nil, nil, "TOPLEFT", GX, -346)
+    self.status:SetWidth(W - GX - 24)
     self.status:SetJustifyH("LEFT")
 
     -- main actions
     self.spinBtn = UI.Button(p, 120, 34, "SPIN", "Spin the wheel", function() WF:Act("spin") end)
-    self.spinBtn:SetPoint("TOPLEFT", 300, -376)
+    self.spinBtn:SetPoint("TOPLEFT", GX, -376)
     self.spinBtn.label:SetFontObject("GameFontNormalLarge")
     self.solveBtn = UI.Button(p, 120, 34, "SOLVE", "Type the whole puzzle", function()
         UI.Prompt({ title = "Solve the puzzle", help = "Type the whole answer. Wrong answers pass the turn.", accept = "Solve",
@@ -405,13 +406,13 @@ function V:CreateGame(p)
     local i = 0
     for ch in WF.CONSONANTS:gmatch(".") do
         local row, col = math.floor(i / 11), i % 11
-        letterButton(ch, 300 + col * 35, -420 - row * 32, "Call " .. ch)
+        letterButton(ch, GX + col * 35, -420 - row * 32, "Call " .. ch)
         i = i + 1
     end
-    UI.Text(p, "GameFontHighlightSmall", C.muted, "BUY A VOWEL  $250", "TOPLEFT", 300, -490)
+    UI.Text(p, "GameFontHighlightSmall", C.muted, "BUY A VOWEL  $250", "TOPLEFT", GX, -490)
     i = 0
     for ch in WF.VOWELS:gmatch(".") do
-        letterButton(ch, 420 + i * 35, -484, "Buy " .. ch .. " for $250")
+        letterButton(ch, GX + 120 + i * 35, -484, "Buy " .. ch .. " for $250")
         i = i + 1
     end
 
@@ -421,7 +422,7 @@ function V:CreateGame(p)
         if not g then return end
         if WF.SeatOf(g, ns.me) then WF:Leave(g.id) else WF:Join(g.id) end
     end)
-    self.seatBtn:SetPoint("TOPLEFT", 300, -376)
+    self.seatBtn:SetPoint("TOPLEFT", GX, -376)
 
     -- host panel
     local hp = CreateFrame("Frame", nil, p, "BackdropTemplate")
@@ -731,6 +732,7 @@ function V:CreateToast()
     t:SetPoint("TOP", 0, -220)
     t:SetFrameStrata("DIALOG")
     t:Hide()
+    ns.Dock:Add(t)
     local icon = t:CreateTexture(nil, "ARTWORK")
     icon:SetTexture(ns.MEDIA .. "WheelIcon")
     icon:SetSize(40, 40)
