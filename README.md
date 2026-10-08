@@ -112,7 +112,7 @@ See the comments at the top of `Rooms.lua`. Short version: put a .blp or .tga in
 
 ## Planned
 
-- Match by ID instead of English names: defensive spell IDs, and potion / flask / food item IDs (Raid Check, Pull Report), so non-English clients work too.
+- Match by ID instead of English names, so non-English clients work too: potion / flask / food / healthstone item IDs (Raid Check, Pull Report) and the cheat-death auras (Pull Report). The defensives themselves already match by spell ID (checked against 12.1.5 in 0.29.2).
 
 ## Changes in 0.32.0
 
