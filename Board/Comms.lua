@@ -8,6 +8,7 @@
 --  * Coalescing: queued messages can carry a key so a newer version of the
 --    same thing (an op being dragged, presence state) replaces the old one.
 --  * Messages over 250 bytes are split into numbered parts and reassembled.
+--  * Solo ("local" mode) nothing is sent.
 --
 -- Wire format: "<kind>^<payload>"; parts are "#^<msgid>,<i>,<n>^<chunk>".
 local ADDON, ns = ...
@@ -26,47 +27,18 @@ local handlers = {}
 local partial = {}
 local msgCounter = 0
 
-Comms.stats = { sent = 0, recv = 0, throttled = 0, dropped = 0 }
-Comms.loop = { ok = 0, bad = 0, other = 0 }
+Comms.stats = { sent = 0, recv = 0, throttled = 0 }
 
 function Comms:On(kind, fn) handlers[kind] = fn end
 
-function ns.InLockdown()
-    if ns.fakeLockdown then return true end
-    local f = C_ChatInfo and C_ChatInfo.InChatMessagingLockdown
-    if f then
-        local ok, v = pcall(f)
-        if ok and v then return true end
-    end
-    return false
-end
-
--- group: real addon channel - loopback: whisper to yourself (solo test)
--- sim: messages are counted, not sent - local: solo, nothing is sent
-function Comms:Mode()
-    if IsInGroup() then return "group" end
-    if ns.loopback then return "loopback" end
-    if ns.Sim and ns.Sim.active then return "sim" end
-    return "local"
-end
+function Comms:Mode() return IsInGroup() and "group" or "local" end
 
 function Comms:QueueSize() return #queue end
 
 function Comms:Init()
-    C_ChatInfo.RegisterAddonMessagePrefix(ns.PREFIX)
     tokens = ns.db.settings.burst
     lastRefill = GetTime()
-    ns.On("CHAT_MSG_ADDON", function(prefix, text, _, sender)
-        if prefix ~= ns.PREFIX then return end
-        if ns.IsSecret(text) or ns.IsSecret(sender) then return end
-        sender = ns.NormalizeSender(sender)
-        if not sender then return end
-        if sender == ns.me then
-            if ns.loopback then Comms:Receive(text, sender, true) end
-            return
-        end
-        Comms:Receive(text, sender)
-    end)
+    ns.Listen(ns.PREFIX, "group", function(text, sender) Comms:Receive(text, sender) end)   -- guildmates in your group only
 end
 
 -- ---------------------------------------------------------------------
@@ -163,25 +135,10 @@ function Comms:_tick()
 end
 
 function Comms:_rawSend(msg)
-    local mode = self:Mode()
-    if mode == "sim" then
-        self.stats.sent = self.stats.sent + 1
-        if ns.Sim then ns.Sim:OnOutgoing(msg) end
-        return true
-    end
-    local channel, target
-    if mode == "loopback" then
-        channel, target = "WHISPER", UnitName("player")
-    else
-        channel = ns.GroupChannel()
-    end
-    if not channel then
-        self.stats.dropped = self.stats.dropped + 1
-        return false
-    end
-    local ok, res = pcall(C_ChatInfo.SendAddonMessage, ns.PREFIX, msg, channel, target)
+    local channel = ns.DataChannel()
+    if not channel then return false end
+    local ok, res = pcall(C_ChatInfo.SendAddonMessage, ns.PREFIX, msg, channel)
     if not ok then
-        self.stats.dropped = self.stats.dropped + 1
         ns.Debug("send error:", res)
         return false
     end
@@ -194,7 +151,6 @@ function Comms:_rawSend(msg)
         self.stats.throttled = self.stats.throttled + 1
         return "throttle"
     end
-    self.stats.dropped = self.stats.dropped + 1
     ns.Debug("send result:", tostring(res))
     return false
 end
@@ -202,7 +158,7 @@ end
 -- ---------------------------------------------------------------------
 -- Receiving
 -- ---------------------------------------------------------------------
-function Comms:Receive(text, sender, verify)
+function Comms:Receive(text, sender)
     local kind, rest = text:match("^([^%^]+)%^(.*)$")
     if not kind then return end
     if kind == "#" then
@@ -227,81 +183,14 @@ function Comms:Receive(text, sender, verify)
         end
         if p.got == n then
             partial[key] = nil
-            return self:Receive(table.concat(p.parts), sender, verify)
+            return self:Receive(table.concat(p.parts), sender)
         end
         return
     end
-    if verify then return self:_verify(kind, rest) end
     self.stats.recv = self.stats.recv + 1
     local fn = handlers[kind]
     if fn then
         local ok, err = pcall(fn, rest, sender)
         if not ok then geterrorhandler()(err) end
-    end
-end
-
--- The simulator feeds fake raiders' messages through the same path,
--- including splitting long ones so reassembly gets exercised.
-function Comms:Inject(kind, payload, sender)
-    local msg = kind .. SEP .. payload
-    if #msg > MAXLEN then
-        for _, part in ipairs(self:_split(msg)) do self:Receive(part, sender) end
-    else
-        self:Receive(msg, sender)
-    end
-end
-
--- ---------------------------------------------------------------------
--- Loopback: your own messages come back over the real channel and are
--- compared with what's on your board.
--- ---------------------------------------------------------------------
-function Comms:_verify(kind, rest)
-    local L = self.loop
-    if kind == "O" then
-        local page, s = rest:match("^(%d);(.*)$")
-        local op = page and ns.Model.Deserialize(s, ns.me)
-        local pg = op and ns.Model.plan and ns.Model.plan.pages[tonumber(page)]
-        local mine = pg and pg.byId[op.id]
-        if not op then
-            L.bad = L.bad + 1
-            ns.Debug("loopback: unreadable op")
-        elseif not mine then
-            L.other = L.other + 1   -- deleted since it was sent
-        elseif ns.Model.Serialize(op) == ns.Model.Serialize(mine) then
-            L.ok = L.ok + 1
-        else
-            L.bad = L.bad + 1
-            ns.Debug("loopback mismatch:", op.id)
-        end
-    elseif kind == "F" then
-        local fields = ns.Split(rest, "\031")
-        local opFields = {}
-        for i = 4, #fields do opFields[#opFields + 1] = fields[i] end
-        local slides = #fields >= 4 and ns.Model.DecodeSlides(fields[3], opFields, ns.me)
-        if slides and #slides == ns.Model:SlideCount() then L.ok = L.ok + 1 else L.bad = L.bad + 1 end
-    else
-        L.other = L.other + 1
-    end
-end
-
-function Comms:ToggleLoopback()
-    if IsInGroup() then
-        ns.Print("Loopback is for solo testing - leave your group first.")
-        return
-    end
-    if ns.loopback then
-        ns.loopback = nil
-        local L = self.loop
-        ns.Print(("Loopback OFF. Ops verified: |cff66e08c%d ok|r, |cffff5a5a%d mismatched|r, %d other messages. Throttled %d times."):format(
-            L.ok, L.bad, L.other, self.stats.throttled))
-        if L.ok + L.bad + L.other == 0 then
-            ns.Print("Nothing came back. If you drew something, whispering addon messages to yourself may not be supported - use /tb sim instead.")
-        end
-    else
-        if ns.Sim and ns.Sim.active then ns.Sim:Stop() end
-        ns.loopback = true
-        self.loop.ok, self.loop.bad, self.loop.other = 0, 0, 0
-        ns.Print("Loopback ON. Draw, move and delete things, then type /tb loop again for results.")
-        ns.Sync:SendSnapshot()
     end
 end

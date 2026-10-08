@@ -165,7 +165,7 @@ function Model.CleanName(t, max)
     return t:sub(1, max or 24)
 end
 
--- bg: which room image the slide shows (see Rooms.lua); nil = default.
+-- bg: which room image the slide shows (rooms are in Content.lua); nil = default.
 local function newSlide(name, view, bg)
     return { name = name, view = view, bg = bg, ops = {}, byId = {}, sum = 0 }
 end
@@ -174,7 +174,6 @@ local function newPlan(ctx, name)
     return { ctx = ctx, name = name or "Default", page = 1, pages = { newSlide("Slide 1") } }
 end
 
-function Model:Init() end
 
 function Model:Page(p)
     local plan = self.plan
@@ -307,6 +306,17 @@ function Model:SerializePage(p)
     return list
 end
 
+-- each slide's ops as one "~"-joined field, added to parts; returns the op count
+function Model:AddPageFields(parts)
+    local count = 0
+    for p = 1, #self.plan.pages do
+        local list = self:SerializePage(p)
+        count = count + #list
+        parts[#parts + 1] = table.concat(list, "~")
+    end
+    return count
+end
+
 -- ---------------------------------------------------------------------
 -- Slides: wire/export helpers. Slide meta is "name:zoom:cx:cy:room" per
 -- slide, joined with "~"; ops for each slide travel in their own field.
@@ -322,8 +332,9 @@ function Model:SlideMeta()
     return table.concat(out, "~")
 end
 
--- Returns { { name, view, ops = { op, ... } }, ... } or nil.
-function Model.DecodeSlides(meta, opFields, sender)
+-- Returns { { name, view, ops = { op, ... } }, ... } or nil. Slide i's ops
+-- are in opFields[first + i - 1] (first defaults to 1).
+function Model.DecodeSlides(meta, opFields, sender, first)
     local slides = {}
     for i, m in ipairs(ns.Split(meta or "", "~")) do
         local name, z, cx, cy, bg = m:match("^([^:]*):(%d+):(%d+):(%d+):?(%w*)$")
@@ -331,7 +342,7 @@ function Model.DecodeSlides(meta, opFields, sender)
         local sl = { name = (name ~= "" and name) or ("Slide " .. i), ops = {}, bg = (bg ~= "" and bg) or nil }
         z = tonumber(z)
         if z and z >= 100 then sl.view = { z = z / 100, cx = tonumber(cx), cy = tonumber(cy) } end
-        local list = opFields[i]
+        local list = opFields[(first or 1) + i - 1]
         if list and list ~= "" then
             for _, s in ipairs(ns.Split(list, "~")) do
                 local op = Model.Deserialize(s, sender)
@@ -367,13 +378,17 @@ function Model:SetSlides(name, slides, reid)
     plan.page = math.max(1, math.min(plan.page or 1, #plan.pages))
 end
 
+-- base, or "base 2", "base 3"... - the first one not taken
+local function unique(base, taken)
+    local name, n = base, 1
+    while taken[name] do n = n + 1; name = base .. " " .. n end
+    return name
+end
+
 local function uniqueSlideName(plan, base)
     local taken = {}
     for _, sl in ipairs(plan.pages) do taken[sl.name] = true end
-    if not taken[base] then return base end
-    local n = 2
-    while taken[base .. " " .. n] do n = n + 1 end
-    return base .. " " .. n
+    return unique(base, taken)
 end
 
 -- New empty slide after the current one; starts with the given view and
@@ -534,10 +549,7 @@ function Model:UniquePlanName(base)
     if base == "" then base = "Plan" end
     local taken = {}
     for _, n in ipairs(self:PlanNames()) do taken[n] = true end
-    if not taken[base] then return base end
-    local n = 2
-    while taken[base .. " " .. n] do n = n + 1 end
-    return base .. " " .. n
+    return unique(base, taken)
 end
 
 function Model:SwitchPlan(name)

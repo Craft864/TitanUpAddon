@@ -10,17 +10,11 @@ local LT
 local V = {}
 ns.LootUI = V
 
-local W, H = 900, 600
+local W, H = 900, 570
 local LEFT_W = 250
 local ROW_H = 38
 
-local function colored(name)
-    if not name then return "?" end
-    local class = ns.ClassOf(name)
-    local cc = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-    if cc then return ("|cff%02x%02x%02x%s|r"):format(cc.r * 255, cc.g * 255, cc.b * 255, ns.Short(name)) end
-    return ns.Short(name)
-end
+local colored = UI.Named
 
 local function rollText(r)
     if r.kind ~= "raid" then return "received" end
@@ -41,40 +35,21 @@ local function statusText(r)
     return s
 end
 
-function V:EnsureFrame()
-    if not self.frame then self:Create() end
-    return self.frame
-end
-function V:IsShown() return self.frame and self.frame:IsShown() or false end
-function V:Show() self:EnsureFrame():Show() end
-
 function V:Init() LT = ns.Loot end
 
 function V:Create()
-    local f = CreateFrame("Frame", "TitanUpLoot", UIParent, "BackdropTemplate")
-    self.frame = f
-    f:SetSize(W, H)
-    f:SetPoint("CENTER", 0, 20)
-    f:SetFrameStrata("HIGH")
-    f:SetToplevel(true)
-    f:SetClampedToScreen(true)
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    UI.Skin(f, C.bg, C.line)
-    f:Hide()
-    tinsert(UISpecialFrames, "TitanUpLoot")
-    f:SetScript("OnShow", function()
-        -- pick up anything the loot history has that we haven't seen
-        if C_LootHistory and C_LootHistory.GetAllEncounterInfos then
-            local ok, list = pcall(C_LootHistory.GetAllEncounterInfos)
-            if ok and type(list) == "table" then
-                for _, e in ipairs(list) do LT:SweepEncounter(e.encounterID) end
+    local f = ns.Nav:Window(self, "TitanUpLoot", "loot", "LOOT TRACKER", W, H, { y = 20, mark = { 480, 0.04, -40 },
+        cog = { "Loot settings", function() ns.Settings:Open("loot", V.frame) end },
+        onShow = function()
+            -- pick up anything the loot history has that we haven't seen
+            if C_LootHistory and C_LootHistory.GetAllEncounterInfos then
+                local ok, list = pcall(C_LootHistory.GetAllEncounterInfos)
+                if ok and type(list) == "table" then
+                    for _, e in ipairs(list) do LT:SweepEncounter(e.encounterID) end
+                end
             end
-        end
-        V:Refresh()
-    end)
-    UI.Watermark(f, 480, 0.04, -40)
-    self.header = ns.Nav:CreateHeader(f, "loot", { title = "LOOT TRACKER", icon = ns.MEDIA .. "Loot" })
+            V:Refresh()
+        end })
 
     -- filters
     self.filter = "all"
@@ -83,57 +58,31 @@ function V:Create()
     for _, def in ipairs({ { "all", "All" }, { "raid", "Raid" }, { "mplus", "Mythic+" } }) do
         local key = def[1]
         local b = UI.Button(f, 74, 24, def[2], nil, function() V.filter = key; V.session = nil; V:Refresh() end)
-        b:SetPoint("TOPLEFT", x, -40)
+        b:SetPoint("TOPLEFT", x, -10)
         self.filterBtns[key] = b
         x = x + 78
     end
-    local search = CreateFrame("EditBox", nil, f, "BackdropTemplate")
-    UI.Skin(search, C.canvas, C.line)
-    search:SetSize(220, 24)
-    search:SetPoint("TOPLEFT", x + 10, -40)
-    search:SetFontObject("ChatFontNormal")
-    search:SetTextInsets(8, 8, 0, 0)
-    search:SetAutoFocus(false)
-    search:SetScript("OnEscapePressed", search.ClearFocus)
-    search:SetScript("OnEnterPressed", search.ClearFocus)
+    local search = UI.EditBox(f, 380, 24, { inset = 8 })
+    search:SetPoint("TOPLEFT", x + 10, -10)
     search:SetScript("OnTextChanged", function() V.session = nil; V:Refresh() end)
     self.search = search
-    local hint = UI.Text(f, "GameFontHighlightSmall", C.muted)
-    hint:SetPoint("LEFT", search, "RIGHT", 8, 0)
-    hint:SetText("search player, item or boss")
-    self.qualityBtn = UI.Button(f, 110, 24, "", "Which items are tracked from now on", function()
-        ns.udb.loot.minQuality = (ns.udb.loot.minQuality == 4) and 3 or 4
-        V:Refresh()
-    end)
-    self.qualityBtn:SetPoint("TOPRIGHT", -12, -40)
+    UI.Text(f, "GameFontHighlightSmall", C.muted, "search player, item or boss", "LEFT", search, "RIGHT", 8, 0)
 
     -- left: sessions
     local left = UI.Panel(f)
-    left:SetPoint("TOPLEFT", 12, -72)
+    left:SetPoint("TOPLEFT", 12, -42)
     left:SetPoint("BOTTOMLEFT", 12, 12)
     left:SetWidth(LEFT_W)
     left:EnableMouseWheel(true)
     left:SetScript("OnMouseWheel", function(_, d) V.sessOffset = (V.sessOffset or 0) - d * 3; V:Refresh() end)
     self.sessRows = {}
-    for i = 1, math.floor((H - 92) / 22) do
-        local row = CreateFrame("Button", nil, left)
-        row:SetHeight(22)
+    for i = 1, math.floor((H - 62) / 22) do
+        local row = UI.Row(left, 22, 0.05, { C.accentDim[1], C.accentDim[2], C.accentDim[3], 0.6 })
         row:SetPoint("TOPLEFT", 4, -4 - (i - 1) * 22)
         row:SetPoint("RIGHT", -4, 0)
-        row.hl = row:CreateTexture(nil, "BACKGROUND")
-        row.hl:SetAllPoints()
-        row.hl:SetColorTexture(C.accentDim[1], C.accentDim[2], C.accentDim[3], 0.6)
-        row.hl:Hide()
-        local hover = row:CreateTexture(nil, "HIGHLIGHT")
-        hover:SetAllPoints()
-        hover:SetColorTexture(1, 1, 1, 0.05)
-        row.text = UI.Text(row, "GameFontHighlightSmall")
         row.text:SetPoint("LEFT", 6, 0)
         row.text:SetPoint("RIGHT", -30, 0)
-        row.text:SetJustifyH("LEFT")
-        row.text:SetWordWrap(false)
-        row.count = UI.Text(row, "GameFontHighlightSmall", C.muted)
-        row.count:SetPoint("RIGHT", -6, 0)
+        row.count = UI.Text(row, "GameFontHighlightSmall", C.muted, nil, "RIGHT", -6, 0)
         row:SetScript("OnClick", function(s) if s.session ~= nil then V.session = s.session; V.dropOffset = 0; V:Refresh() end end)
         self.sessRows[i] = row
     end
@@ -144,15 +93,13 @@ function V:Create()
     right:SetPoint("BOTTOMRIGHT", -12, 12)
     right:EnableMouseWheel(true)
     right:SetScript("OnMouseWheel", function(_, d) V.dropOffset = (V.dropOffset or 0) - d * 2; V:Refresh() end)
-    self.title = UI.Text(right, "GameFontNormal", C.accent)
-    self.title:SetPoint("TOPLEFT", 10, -8)
-    self.empty = UI.Text(right, "GameFontHighlightSmall", C.muted)
-    self.empty:SetPoint("TOPLEFT", 10, -34)
+    self.title = UI.Text(right, "GameFontNormal", C.accent, nil, "TOPLEFT", 10, -8)
+    self.empty = UI.Text(right, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", 10, -34)
     self.empty:SetWidth(W - LEFT_W - 60)
     self.empty:SetJustifyH("LEFT")
     self.empty:SetText("No loot recorded yet. Raid drops are recorded automatically when rolls finish; Mythic+ loot when the chest is opened.")
     self.dropRows = {}
-    for i = 1, math.floor((H - 120) / ROW_H) do
+    for i = 1, math.floor((H - 90) / ROW_H) do
         local row = CreateFrame("Frame", nil, right)
         row:SetHeight(ROW_H)
         row:SetPoint("TOPLEFT", 6, -28 - (i - 1) * ROW_H)
@@ -164,18 +111,15 @@ function V:Create()
         row.icon = row:CreateTexture(nil, "ARTWORK")
         row.icon:SetSize(30, 30)
         row.icon:SetPoint("LEFT", 2, 0)
-        row.item = UI.Text(row, "GameFontHighlight")
-        row.item:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 8, -1)
+        row.item = UI.Text(row, "GameFontHighlight", nil, nil, "TOPLEFT", row.icon, "TOPRIGHT", 8, -1)
         row.item:SetWidth(300)
         row.item:SetJustifyH("LEFT")
         row.item:SetWordWrap(false)
-        row.sub = UI.Text(row, "GameFontHighlightSmall", C.muted)
-        row.sub:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 8, 1)
+        row.sub = UI.Text(row, "GameFontHighlightSmall", C.muted, nil, "BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 8, 1)
         row.sub:SetWidth(300)
         row.sub:SetJustifyH("LEFT")
         row.sub:SetWordWrap(false)
-        row.status = UI.Text(row, "GameFontHighlightSmall")
-        row.status:SetPoint("RIGHT", -6, 0)
+        row.status = UI.Text(row, "GameFontHighlightSmall", nil, nil, "RIGHT", -6, 0)
         row.status:SetWidth(250)
         row.status:SetJustifyH("RIGHT")
         row.status:SetWordWrap(false)
@@ -221,7 +165,6 @@ end
 function V:Refresh()
     if not self.frame then return end
     for key, b in pairs(self.filterBtns) do UI.SetActive(b, key == self.filter) end
-    self.qualityBtn.label:SetText(ns.udb.loot.minQuality == 4 and "Tracking: Epic+" or "Tracking: Rare+")
 
     local drops = LT:Drops(self.filter, self.search:GetText())
     local sessions = LT:Sessions(drops)
@@ -288,10 +231,7 @@ function V:Refresh()
 end
 
 ns.RegisterModule({
-    key = "loot", name = "Loot", icon = ns.MEDIA .. "Loot", order = 3,
-    desc = "Every raid drop and roll, Mythic+ loot, and who it was traded to until it's equipped.",
-    show = function() V:Show() end,
-    hide = function() if V.frame then V.frame:Hide() end end,
-    isShown = function() return V:IsShown() end,
-    frame = function() return V.frame end,
+    key = "loot", name = "Loot", icon = ns.MEDIA .. "Loot", group = "tools", order = 2,
+    desc = "Raid drops and rolls, Mythic+ loot, trades until equipped.",
+    view = V,
 })

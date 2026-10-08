@@ -21,7 +21,6 @@ local ADDON, ns = ...
 
 local Sync = {}
 ns.Sync = Sync
-Sync.rejected = 0
 
 local Model, Comms
 
@@ -40,7 +39,6 @@ end
 
 local function allowed(sender)
     if ns.CanDraw(sender) then return true end
-    Sync.rejected = Sync.rejected + 1
     ns.Debug("ignored drawing message from", sender, "(no permission)")
     return false
 end
@@ -84,6 +82,8 @@ function Sync:SendClear(page)
     Comms:Send("X", tostring(page or curPage()))
 end
 
+function Sync:SendAll() self:SendContext(); self:SendSnapshot() end
+
 function Sync:SendContext()
     if not live() or not ns.CanDraw() or not Model.plan then return end
     local ctx = Model.plan.ctx
@@ -109,9 +109,7 @@ function Sync:SendSnapshot()
             Model.CleanName(plan.name),
             Model:SlideMeta(),
         }
-        for p = 1, #plan.pages do
-            parts[#parts + 1] = table.concat(Model:SerializePage(p), "~")
-        end
+        Model:AddPageFields(parts)
         Comms:Send("F", table.concat(parts, "\031"), "snapshot")
         self:SendACL()
         self:AnnounceSum()
@@ -164,9 +162,7 @@ local function applySnapshot(payload, sender)
     local fields = ns.Split(payload, "\031")
     local inst, enc, map, page = (fields[1] or ""):match("^(%d+),(%d+),(%d+),(%d+)$")
     if not inst then return end
-    local opFields = {}
-    for i = 4, #fields do opFields[#opFields + 1] = fields[i] end
-    local slides = Model.DecodeSlides(fields[3], opFields, sender)
+    local slides = Model.DecodeSlides(fields[3], fields, sender, 4)
     if not slides then return end
     ns.Board:ApplyRemoteContext(tonumber(inst), tonumber(enc), tonumber(map), 1, true)
     Model.plan.page = tonumber(page)
@@ -238,8 +234,7 @@ function Sync:Init()
 
     Comms:On("R", function()
         if ns.IsOwner() then
-            Sync:SendContext()
-            Sync:SendSnapshot()
+            Sync:SendAll()
         end
     end)
 

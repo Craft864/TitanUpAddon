@@ -207,7 +207,14 @@ end
 -- ---------------------------------------------------------------------
 -- Puzzle text
 -- ---------------------------------------------------------------------
-function WF.Clean(text, max)
+function WF.Clean(text, max, asTyped)
+    if asTyped then
+        -- free text (the prize): keep case and digits, drop anything that could
+        -- break a message (separators, escape codes, line breaks)
+        text = tostring(text or ""):gsub("[^%w '&%-%?!%.,:+/]", "")
+        text = text:gsub("%s+", " "):gsub("^ ", ""):gsub(" $", "")
+        return text:sub(1, max or 60)
+    end
     text = tostring(text or ""):upper():gsub("[^A-Z '&%-%?!%.,]", "")
     text = text:gsub("%s+", " "):gsub("^ ", ""):gsub(" $", "")
     return text:sub(1, max or 60)
@@ -257,7 +264,6 @@ local function remaining(phrase, used)
     end
     return c, v
 end
-WF.Remaining = remaining
 
 function WF.SeatOf(g, name)
     for i, n in ipairs(g.seats) do if n == name then return i end end
@@ -267,10 +273,7 @@ end
 -- Messaging
 -- ---------------------------------------------------------------------
 function WF:Send(...)
-    if self.sim then return end
-    if not IsInGroup() or ns.InLockdown() then return end
-    local channel = ns.GroupChannel()
-    if channel then pcall(C_ChatInfo.SendAddonMessage, PREFIX, table.concat({ ... }, SEP), channel) end
+    if not self.sim and IsInGroup() and not ns.InLockdown() then ns.SendFields(PREFIX, ...) end
 end
 
 local function ui(what, g, extra)
@@ -278,13 +281,7 @@ local function ui(what, g, extra)
 end
 
 function WF:Init()
-    C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
-    ns.On("CHAT_MSG_ADDON", function(prefix, text, _, sender)
-        if prefix ~= PREFIX or ns.IsSecret(text) or ns.IsSecret(sender) then return end
-        sender = ns.NormalizeSender(sender)
-        if not sender or sender == ns.me then return end
-        WF:OnMessage(text, sender)
-    end)
+    ns.Listen(PREFIX, "group", function(text, sender) WF:OnMessage(text, sender) end)
     ns.On("GROUP_ROSTER_UPDATE", function() WF:CheckRoster() end)
 end
 
@@ -292,15 +289,73 @@ function WF:IsHost(g) return g and (g.host == ns.me or g.engine) end
 
 -- Everyone's copy of the state (the host also keeps g.phrase / g.puzzles).
 function WF:StateMessage(g)
+    local left = g.turnEnds and math.max(0, math.ceil(g.turnEnds - GetTime())) or -1
     return "S", g.id, g.state, g.round, g.rounds, g.turn, g.phase, g.spin, g.sq, g.value,
-        table.concat(g.bank, ","), table.concat(g.total, ","), g.used, g.msg, g.arg, g.cat, g.mask
+        table.concat(g.bank, ","), table.concat(g.total, ","), g.used, g.msg, g.arg, g.cat, g.mask,
+        left, g.auto and 1 or 0, g.prize or ""
 end
+
+-- ---------------------------------------------------------------------
+-- Turn timer: the referee gives each player 25 seconds to act (spin / buy /
+-- solve, or pick a consonant). Any progress restarts the clock; running out
+-- passes the turn. A light check runs only while a game it referees is in play.
+-- ---------------------------------------------------------------------
+WF.TURN_SECONDS = 25
+
+local function waiting(g) return g.state == "playing" and (g.phase == "turn" or g.phase == "letter") end
+
+function WF:ArmTimer(g)
+    if waiting(g) then
+        local key = table.concat({ g.round, g.turn, g.phase, g.used, g.sq, g.value }, ":")
+        if key ~= g.timerKey then g.timerKey, g.turnEnds = key, GetTime() + WF.TURN_SECONDS end
+        if not self.timerTicker then self.timerTicker = C_Timer.NewTicker(0.5, function() WF:CheckTimers() end) end
+    else
+        g.turnEnds, g.timerKey = nil, nil
+    end
+end
+
+function WF:CheckTimers()
+    local any = false
+    for _, g in pairs(self.games) do
+        if self:IsHost(g) and waiting(g) and g.turnEnds then
+            any = true
+            if GetTime() >= g.turnEnds then
+                local seat = g.turn
+                self:NextTurn(g)
+                g.msg, g.arg, g.timerKey = "timeout", tostring(seat), nil
+                self:Broadcast(g)
+            end
+        end
+    end
+    if not any and self.timerTicker then self.timerTicker:Cancel(); self.timerTicker = nil end
+end
+
+-- Prize: a number shows as gold, anything else as written.
+function WF.PrizeText(prize)
+    if not prize or prize == "" then return nil end
+    local n = tonumber((prize:gsub("[,%s]", ""):gsub("[gG]$", "")))
+    if n and n > 0 then
+        return ((BreakUpLargeNumbers and BreakUpLargeNumbers(math.floor(n))) or tostring(math.floor(n))) .. "g |TInterface\\MoneyFrame\\UI-GoldIcon:12:12|t"
+    end
+    return prize
+end
+
+WF.SOLO_NEXT_ROUND = 5      -- seconds the bot host waits before the next round
 
 function WF:Broadcast(g)
     if g.phrase then g.mask = WF.Mask(g.phrase, g.used) end
+    if self:IsHost(g) then self:ArmTimer(g) end
     self:Send(self:StateMessage(g))
     ui("state", g)
     self:BotTurn(g)
+    -- solo and Play-together games move on to the next round by themselves
+    if ((g.engine and self.sim) or g.auto) and g.state == "roundover" and g.autoNext ~= g.round then
+        g.autoNext = g.round
+        local round = g.round
+        C_Timer.After(WF.SOLO_NEXT_ROUND, function()
+            if (WF.sim or g.auto) and g.state == "roundover" and g.round == round then WF:NextRound(g) end
+        end)
+    end
 end
 
 function WF:BroadcastSeats(g)
@@ -315,6 +370,7 @@ function WF:OnMessage(text, sender)
     local g = self.games[id]
     if kind == "N" then
         g = self:NewGame(id, sender, tonumber(f[3]) or 1)
+        g.auto, g.prize = f[4] == "1", WF.Clean(f[5] or "", 48, true)
         ui("new", g)
         return
     end
@@ -339,6 +395,10 @@ function WF:OnMessage(text, sender)
         local function nums(s) local t = {} for n in (s or ""):gmatch("[^,]+") do t[#t + 1] = tonumber(n) or 0 end return t end
         g.bank, g.total = nums(f[11]), nums(f[12])
         g.used, g.msg, g.arg, g.cat, g.mask = f[13] or "", f[14] or "", f[15] or "", f[16] or "", f[17] or ""
+        local left = tonumber(f[18])
+        g.turnEnds = (left and left >= 0) and (GetTime() + left) or nil
+        g.auto = f[19] == "1"
+        if f[20] then g.prize = f[20] end
         ui("state", g, { spun = g.sq ~= prevSq and g.phase == "spinning" })
     elseif kind == "X" then
         g.state = "cancelled"
@@ -375,12 +435,13 @@ end
 function WF:CanPlay()
     if self.sim then return true end
     if not IsInGroup() then return false, "Wheel of Fortune is played with your party or raid - join a group first." end
+    if not ns.DataChannel() then return false, ns.NEEDS_GUILD end
     if ns.InLockdown() then return false, "Can't play during an encounter." end
     return true
 end
 
 -- puzzles = { { category, phrase }, ... }
-function WF:Host(puzzles)
+function WF:Host(puzzles, prize)
     local ok, why = self:CanPlay()
     if not ok then ns.Print(why) return nil end
     local list = {}
@@ -397,22 +458,44 @@ function WF:Host(puzzles)
     end
     if #list == 0 then ns.Print("Add at least one puzzle (category + phrase).") return nil end
     if #list > WF.MAX_ROUNDS then ns.Print("Up to " .. WF.MAX_ROUNDS .. " rounds per game.") return nil end
+    return self:Launch(list, WF.Clean(prize or "", 48, true), false,
+        "%s is hosting Wheel of Fortune (%d round%s) - open Titan Up (/tu wheel) to grab a seat!")
+end
+
+-- Start a game (hosted, or auto = everyone plays): tell the group, and post
+-- a chat invite when everyone in the group is in the guild.
+function WF:Launch(list, prize, auto, invite)
     local id = ns.Short(ns.me) .. "-" .. ((GetServerTime and GetServerTime()) or time())
     local g = self:NewGame(id, ns.me, #list)
-    g.puzzles = list
+    g.puzzles, g.prize = list, prize
+    if auto then g.auto, g.seats = true, { ns.me } end
     self.current = id
-    self:Send("N", id, #list)
+    self:Send("N", id, #list, auto and 1 or 0, prize or "")
     self:BroadcastSeats(g)
-    if not self.sim and IsInGroup() then
-        local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
-        local ch = ns.GroupChannel()
-        if send and ch then
-            pcall(send, ("[Titan Up] %s is hosting Wheel of Fortune (%d round%s) - open Titan Up (/tu wheel) to grab a seat!"):format(
-                ns.Short(ns.me), #list, #list == 1 and "" or "s"), ch)
-        end
+    if not self.sim and IsInGroup() and ns.GroupIsAllGuild() then
+        ns.SayGroup(invite:format(ns.Short(ns.me), #list, #list == 1 and "" or "s"))
     end
     ui("new", g)
     return g
+end
+
+-- Play together: no host. Random built-in puzzles; whoever starts it takes
+-- seat 1 (their addon referees, but their screen never shows the answer);
+-- rounds move on by themselves.
+function WF:Play(rounds, theme)
+    local ok, why = self:CanPlay()
+    if not ok then ns.Print(why) return nil end
+    rounds = math.max(1, math.min(WF.MAX_ROUNDS, tonumber(rounds) or 3))
+    local list, taken = {}, {}
+    for _ = 1, rounds do
+        local pz = WF.RandomPuzzle(theme, taken)
+        if not pz then break end
+        taken[pz[2]] = true
+        list[#list + 1] = { pz[1], pz[2] }
+    end
+    if #list == 0 then ns.Print("No puzzles for that theme.") return nil end
+    return self:Launch(list, nil, true,
+        "%s started Wheel of Fortune (%d round%s, everyone plays) - open Titan Up (/tu wheel) to grab a seat!")
 end
 
 function WF:Join(id)
@@ -446,7 +529,7 @@ end
 -- ---------------------------------------------------------------------
 function WF:HostJoin(g, name)
     if g.state ~= "lobby" or WF.SeatOf(g, name) or #g.seats >= WF.SEATS then return end
-    if name == g.host and not g.engine then return end   -- the host knows the answers
+    if name == g.host and not g.engine and not g.auto then return end   -- a host knows the answers (Play together has none)
     g.seats[#g.seats + 1] = name
     self:BroadcastSeats(g)
 end

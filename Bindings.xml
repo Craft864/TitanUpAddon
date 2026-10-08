@@ -1,0 +1,5 @@
+<Bindings>
+    <Binding name="TITANUP_HUB" header="TITANUP" category="ADDONS">TitanUp_Binding("hub")</Binding>
+    <Binding name="TITANUP_BOARD" category="ADDONS">TitanUp_Binding("board")</Binding>
+    <Binding name="TITANUP_PULLREPORT" category="ADDONS">TitanUp_Binding("pullreport")</Binding>
+</Bindings>

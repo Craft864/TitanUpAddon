@@ -1,10 +1,10 @@
-# Titan Up v0.13.0
+# Titan Up v0.25.1
 
 The Titan Up guild toolkit for World of Warcraft. Modules:
 
 - **TitanBoard**: live raid strategy board (draw on boss rooms, slides, plans, laser pointer, Raidstrats import).
 - **Raid Check**: raid buffs and personal readiness on every ready check and /pull (Heroic/Mythic raids).
-- **Loot**: every raid drop and roll, Mythic+ loot, and who it was traded to until it's equipped.
+- **Loot**: every raid drop and roll, Mythic+ loot, and who it was traded to until it's equipped; optional roll window with BIS / Sidegrade / set tags shared with the raid.
 - **Games**:
   - **Death Roll**: challenge a guildmate to a death roll with on-screen rolls, with a guild-wide ledger.
   - **Wheel of Fortune**: a host runs a game for three players.
@@ -62,8 +62,8 @@ Notes:
 - **Ready check:** reports go out automatically; the person who started it and the raid leader get the results window.
 - **/pull (DBM or BigWigs):** when the leader or an assist types `/pull 7`, Titan Up collects fresh reports for about a second. Everyone ready: the pull goes ahead. Anything missing (or someone without Titan Up): an alert lists who's missing what, with **Pull anyway** / **Cancel**. The raid leader also gets the results window when an assist pulls. Pulls started from a DBM/BigWigs button or Blizzard's countdown button can't be intercepted - only the typed command. Toggle: "Check before /pull" in the window.
 - **Raid buffs** show as x / raid size, and only for buffs a class in the raid provides. Hover any row for the names.
-- **Rules:** approved flask, Hearty feast food, weapon enchant, Vantus Rune, Fury of the Dead, 10+ combat potions, a healthstone (only if a warlock is in the raid), durability 20%+.
-- **Approved flask/food:** eat the Hearty feast, take a cauldron flask and/or a high-quality flask, then click **Learn approved buffs** - only those exact buffs count from then on. Until you do, any current-tier flask and any food buff count.
+- **Rules:** a current-tier flask, a food buff, weapon enchant, Vantus Rune, Fury of the Dead, 10+ combat potions, a healthstone (only if a warlock is in the raid), durability 20%+.
+- **Flask and food:** any current-tier flask (any quality, including the cauldron flasks) and any food buff count.
 
 ## Loot tracker
 
@@ -76,6 +76,7 @@ Notes:
 - Only the two people in a trade can report it, and only the owner can report equipping it.
 - Left side: raid nights and runs by date; filters All / Raid / Mythic+; search by player, item or boss (finds anyone in an item's history). Tracks Epic+ by default (toggle Rare+). Keeps the newest 1,500 drops.
 - Only people who were in the group record the drops (loot history isn't synced through the guild).
+- **Roll window** (Loot settings, off by default): one window for every group-loot roll instead of Blizzard's pop-ups - Need / Greed / Transmog / Pass, BIS / Sidegrade / 2pc / 4pc tags and a note per item, and (click an item) what the rest of the raid tagged and rolled and who won. Close it and any roll you haven't made goes back to a Blizzard pop-up; `/tu rolls` reopens it. "Preview the roll window" shows it with sample items.
 
 ## Wheel of Fortune
 
@@ -93,12 +94,306 @@ The host's addon is the referee: it spins, checks letters and only ever sends th
 
 ## TitanBoard quick reference
 
-`/tb` opens the board, `/tb help` lists its commands, `/tb sim` runs a fake raid for testing.
+`/tb` opens the board, `/tb help` lists its commands.
 Left: draw - Right-drag: pan - Right-click: delete - Wheel: zoom - Ctrl+drag: move an item - Ctrl+wheel: resize an item - Alt+drag: laser - Ctrl+Z: undo.
 
 ## Custom room images
 
 See the comments at the top of `Rooms.lua`. Short version: put a .blp or .tga into `Media/Rooms/`, run `/tb ids` on that boss for its encounter ID, and add an entry to `Rooms.lua`. An encounter can have several images (one per phase); each slide picks one with the Room button.
+
+## Planned
+
+- Match by ID instead of English names: defensive spell IDs, and potion / flask / food item IDs (Raid Check, Pull Report), so non-English clients work too.
+
+## Changes in 0.28.0
+
+- **Version check is live and group-only.** "Check raid versions" (Settings > Titan Up) or `/tu versions` opens the "RAID VERSIONS" window immediately, listing everyone in your party / raid (alphabetical, so rows don't jump) as "waiting...". Each row fills in as that person's answer arrives: green for the newest version seen, orange "(behind)" for older ones. After 5 seconds, anyone who hasn't answered shows "no Titan Up"; offline players and group members outside the guild (the guild addon channel can't reach them) are marked as such. Late answers still fill in. A summary line counts who has it, who's behind, and who's still pending; "Check again" re-asks. Solo, it asks you to join a group first.
+  - Speed: groupmates now answer the moment they're asked (before, every guildmate waited a random 0-4 seconds and the results only showed after 8). Checks from someone outside your group (older versions still ask the whole guild) are answered after the old random wait, so their guild-wide checks keep working. The wire format is unchanged (`Q^version` / `V^version`); older versions in your group answer within 4 seconds, inside the 5-second window.
+  - Each player's Titan Up reports its own installed version (no addon can see another player's addon folder).
+
+## Changes in 0.27.0
+
+- **Loot roll window (new, Loot settings, off by default).** When group-loot rolls start, one window ("LOOT ROLLS", drag to move, position saved) lists every item instead of Blizzard's separate pop-ups. Each item has Need / Greed / Transmog / Pass (sent with `RollOnLoot`, exactly like Blizzard's buttons; unavailable choices are greyed out with the reason), a time-left bar, tags (BIS, Sidegrade, Completes 2pc, Completes 4pc; any combination) and a note (40 characters). Clicking an item shows, for that drop: every raider's tags, note and roll as they come in (Titan Up users' picks, plus the game's live loot-history rolls for everyone), then the winner, and a hint when someone tagged it BIS but the winner didn't ("a trade could help, 2 hours to trade"). Rolls stay listed for 2 hours; a new boss's loot starts a fresh list.
+  - Blizzard's pop-ups are hidden only while this window is open. Closing it (X or Esc) or turning the setting off hands every roll you haven't made back to a Blizzard pop-up, so a roll can't be missed; `/tu rolls` reopens the window (and takes them back).
+  - Shared on a new prefix `TitanUpLR` (guildmates in your group): `P^itemID^rollID^tags^roll^note`, sent a second after your last change. Older versions ignore it. Picks that arrive before your client sees the roll are kept for 2 minutes.
+  - "Preview the roll window" (Loot settings) opens it with sample items and raiders; nothing is rolled or sent, and the sample rolls finish after 20 seconds.
+- **Death Roll: no spoilers while a roll spins.** The action button shows "Rolling..." (disabled), the new roll-history line is held back, and the player cards don't show WINNER / ROLLED A 1 until the animation lands.
+
+## Changes in 0.26.0
+
+- **Code cleanup (about 1,550 lines of code removed, ~9.6%; nothing meant to look or work differently).** Every window is built by one shared helper (`UI.Window` / `Nav:Window`, plus `ns.View` for the show/hide plumbing and `RegisterModule{ view = V }`); shared edit boxes, list rows, tooltips, drag-to-move with saved position (`UI.Draggable`: Combat Timer, Death Alerts, Battle Rez), dropdown carets and class-coloured names; one-line text labels (`UI.Text(parent, font, color, text, point...)`). Addon messages go through `ns.Listen` (register + readable + not yourself + guild / group check), `ns.SendFields` and `ns.SayGroup`; Loot and the Death Roll ledger share one trade watcher (`ns.WatchTrades`). All module defaults live in one table in Core.lua. Dead code removed (unused functions, fields and counters, and old saved-data migrations from 0.9-0.16). TitanBoard: shared drawing geometry, row builders and slide-list refresh. Wire formats are unchanged except the Pull Report record's unused last field (older versions read it as before).
+- **Removed testing-only commands:** `/tb sim` (Board/Sim.lua) and `/tb sim lockdown`, `/tb loop`, `/tu deaths test / fake / clear / check`, `/tu keys art`, `/tu split debug`.
+- **Death Roll spectator list fixed:** it was created but never given a position (the window's own show handler replaced the hook that placed it), so it never appeared. It now opens flush against the right edge of the game window (left edge if there's no room on screen), top edges lined up, and sizes itself to its names.
+- **Death Roll ledger:** records are queued every 0.6s (was 0.25s, faster than the guild channel's ~2 a second), so sharing a long history no longer holds up a live game's messages on the same channel.
+- **One health-potion list:** the Pull Report uses Raid Check's list (and its bag scan), so a new tier is one edit.
+- **Half-received messages expire:** Macro Share and Pull Report drop message parts that never completed after 60 seconds.
+
+## Changes in 0.25.3
+
+- Pull Report: a pull shorter than 20 seconds that isn't a kill (a reset or a bad pull) isn't counted anywhere: it's dropped from tonight's pulls and the Raid Scorecard, and it gives its pull number back. It's only tallied: "N short pulls not counted" shows in the Pull Report (tonight) and the Raid Scorecard (per week and boss). Quick kills still count; debug test pulls are always kept.
+- Death Roll: the "Announce in chat" checkbox shows its check again (the mark was drawn underneath the box), and announcements post in any group, not only when everyone is in the guild.
+- Death Roll: the "< Lobby" button was placed off the window (it was anchored to a settings cog Death Roll no longer has), so Standings and games had no way back without /reload. It now sits beside the X.
+
+## Changes in 0.25.2
+
+- `/tu mem` shows a breakdown: the total (after a cleanup pass), saved data per area largest first (TitanBoard plans, loot history, raid history, Death Roll ledger, Pull Report and so on), the windows opened this session (they stay built until /reload), and the rest (code and everything else), so the parts add up to the total.
+- Pull Report pop-ups are off by default: "Opens after a raid pull" starts at Never; "My death summary" stays off. One time only, a saved "When I'm raid leader" (the old default) becomes Never; anything you pick afterwards is kept, and "Always" is left alone.
+
+## Changes in 0.25.1
+
+- Macro Share: drag a macro from your macro book or an action bar onto the "Share a macro" side (the drop area lights up while you hold one) to fill in its name, text and icon; then pick who gets it and Send. Shared macros keep their real icon (any game icon), which recipients' copies use too.
+
+## Changes in 0.25.0
+
+- **Macro Share** (new, Raid Tools): in a raid, the raid leader or an assistant writes a macro (name, icon, text with a 255-character counter) and sends it to the whole raid, a role, a class or one person. Recipients get a toast; the macro is listed in Macro Share with who sent it and its full text, and dragging its icon onto a bar creates it as a character macro (or updates one with the same name) and places it in one go. Only works in a raid, only from the leader / assistants (re-checked by every recipient); can't be made in combat (it says "after combat"); full macro slots are reported. The received list lasts until you log out (X removes one).
+- Fix: messages from group members are now matched to the group even when they arrive without "-Realm" (affects every group-only feature).
+
+## Changes in 0.24.5
+
+- Patch 12.1.5: the Loot tracker reads item quality through C_Item.GetItemInfo (12.1.5 removed the old GetItemInfo; the link colour is still the last fallback). Keystone Roulette's teleport cooldown sweeps now sit on the plain icon frame instead of the protected spell button (12.1.5 blocks addons from setting cooldowns on protected cooldown frames).
+
+## Changes in 0.24.4
+
+- Raid Scorecard: a week with no pulls shows a short bold "No data for this week" in the bottom-right corner (or "...for that week", "...for this boss this week", "No data yet") instead of a long message that repeated the footer. The stat column headers sit on two lines, centred over their columns, so they no longer crowd each other or run off the edge.
+
+## Changes in 0.24.3
+
+- Settings opens docked beside the window you opened it from (its left, tops lined up; its right if there's no room; centred if no Titan Up window is open). It docks again each time it opens and can be dragged while open.
+- What's new shows on the Titan Up page in Settings, under the buttons - every version, newest first. After an update, the pop-up lists every version since you last played.
+- Pop-ups (What's new, guild versions, the update reminder) size themselves to their text, so nothing runs under the OK button; very long ones scroll.
+
+## Changes in 0.24.2
+
+- Settings: a change made anywhere now shows everywhere at once - flip a tweak in the UI Tweaks window and an open Settings page updates immediately (it already worked the other way).
+- Settings pages follow the tools' order (Titan Up, then Loot, Raid Check, Pull Report, then each UI Tweak).
+- Keystone Roulette and Death Roll no longer have Settings pages or cogs - their choices are per game, in their own windows. Death Roll: rolls are always held back from chat until they land (no longer optional), and "Announce in chat" is a checkbox on the lobby under Create challenge.
+- Tweak pages show their description once; the UI Tweaks intro line no longer runs into the cog.
+
+## Changes in 0.24.1
+
+- **Settings is now pages**: a list of modules on the left (Titan Up, the raid tools, each UI Tweak, Keystone Roulette, Death Roll), each module's options on its own page; tall pages have a scroll bar (mouse wheel or drag). Every UI Tweak's full settings now live here (Death Alerts' sounds and banner, Battle rez size and anchor, Stack splitter presets, ...).
+- **Cogs everywhere**: the cog on each module (Loot, Raid Check, Death Roll, Pull Report, UI Tweaks, Keystone Roulette, and one beside each tweak) opens Settings straight on that module's page. The small option panels are gone.
+- **UI Tweaks** is now just the on/off list, with a cog beside each tweak for its settings. The Combat Timer keeps its own window as before.
+
+## Changes in 0.24.0
+
+- **Settings** - every module's options on one page, a section per module (cog on the hub, `/tu settings`, or right-click Titan Up in Blizzard's addon menu). The cogs on each module still work and show the same settings.
+- **Check guild versions** (in Settings, or `/tu versions`): lists every online guildmate's Titan Up version and who's behind; anyone running an older version gets a one-time "please update" pop-up.
+- **What's new** pop-up once after an update (`/tu new` to see it again).
+- **Blizzard's addon menu** (by the minimap): left-click the hub, right-click Settings. **Key bindings** for the hub, TitanBoard and the Pull Report (Options > Keybindings > AddOns).
+- **Raid Scorecard**: "Died w/ potion" and "Died w/ healthstone" columns (count, %, click-through), and a **boss filter** (also applies to the CSV export).
+- **Pull Report**: a **suggested wipe call** - when half the raid dies within a few seconds, the first death of that cascade is suggested; the raid leader confirms with one click.
+- **Colour-blind friendly**: lit D / P / H squares carry a check mark (a "waiting" mark for a minor-only defensive), and Kill / Wipe tags carry a symbol.
+- Behind the scenes: addon messages go through a small queue per feature that waits its turn and retries anything WoW throttles (nothing lost on busy nights); Death Roll games older than 3 months that are settled are folded into everyone's totals (standings unchanged, unpaid games kept); Wowdle standings drop players who haven't played in 30 days; shared helpers for reading values Midnight may hide; the TitanBoard code is split into two files.
+
+## Changes in 0.23.0
+
+- **Raid Scorecard** (new, Raid Tools): over a raid week (Tuesday reset) or all kept weeks - per player: **first to die**, **in the first 3 dead**, and **died with a defensive available**, as counts and percentages of the pulls they were in. Click any number for the pulls it happened on, then a pull for its full death order with times and what killed them. Heroic & Mythic only; close calls and deaths after the wipe call don't count. Keeps 4 weeks (Clear a week or all). **Sync from raid leader** gets the leader's complete copy of the week (out of combat, merged without duplicates). **Export CSV**: one row per death for Google Sheets / Excel.
+- Pull Report: the raid leader can mark **"Wipe called here"** on a death - later deaths show as "after wipe" and don't count against anyone; the mark is shared with the raid.
+- Pull Report: **Earth Elemental** counts as a Shaman defensive. New **"Other cooldowns ready"** line (every 1-5 minute spell in your spellbook that isn't a defensive, like Analysis Mode tracks) - shown, but doesn't light the D square; those spells also get "used at / ready since" history.
+- Pull Report: a fake death no longer shows an old death's hits, and a real death never reuses a previous recap. D / P / H letters sit above the squares; the reminder is at the bottom of the deaths column.
+- My death summary: the health strip now uses Midnight's health-percentage API and draws even when the game hides the number.
+
+## Changes in 0.22.2
+
+- Pull Report test mode (for testing only - not listed in /tu help): `/tu deaths test` starts a test pull anywhere that acts like a raid boss fight (run it again to end it, counted as a wipe); `/tu deaths fake` records a death snapshot without dying; `/tu deaths clear` removes test pulls. Test pulls are marked TEST, always open the report when they end, and are never sent to the guild. Note: outside real boss fights the game doesn't hide cooldowns or health, so this tests the flow and display, not the hidden-value handling.
+
+## Changes in 0.22.1
+
+- Pull Report: "ready" now uses the cooldown's **on-cooldown / global-cooldown flags**, which Midnight still shares mid-fight (the start time and duration are hidden - which is why Astral Shift showed as not ready). Health potions and healthstones are checked through their spells' cooldowns (Demonic Healthstone when talented). If the game hides even the flags, the defensive is listed as "couldn't tell" instead of silently "not ready".
+- Pull Report: each death now has a **COOLDOWNS** section - when each of your defensives was used and when it came back ("Astral Shift: ready since 1:10 - unused", "Ice Cold: on cooldown (used at 0:52)", "active when they died"); also in your own death summary. The D / P / H reminder moved to the bottom of the window.
+- Release protection: no longer covers the **Accept** button when a battle rez is offered (the game reuses the same pop-up) - the cover only ever sits on the Release Spirit dialog.
+- Death alerts: the banner has no background - just the role icon and outlined text, each line as wide as its content, centred.
+
+## Changes in 0.22.0
+
+- **Battle rez tracker** (UI Tweaks, off until you turn it on): the Rebirth icon with the group's battle-rez charges, shown while you're in combat in a Mythic+ key or a raid boss fight. At zero it greys out, with a cooldown sweep and a countdown to the next charge. Its settings page has the size (small / medium / large), an anchor to drag it into place, and Reset position. It only updates while it's showing.
+
+## Changes in 0.21.0
+
+- **Wheel of Fortune - two ways to play.** **Play together** (the default): everyone plays, including whoever starts it; random built-in puzzles (pick the theme and 1-5 rounds); nobody sees the answer, and rounds move on by themselves. **Host a game**: the host writes custom puzzles and runs it - now with an optional **Prize** (a number shows as gold, e.g. 10000 -> 10,000g; anything else shows as written) on every player's board and in the winner line.
+- **Wheel of Fortune - 25-second turn timer** in both modes: a countdown beside the board; if a player doesn't act in time, the turn passes ("Brakk ran out of time").
+- **Pull Report - active defensives:** each death also notes which defensives were running at the moment of death (shown in blue), separately from what was ready but unused.
+- **Pull Report - my death summary** (off by default; turn it on with the cog): when you die in a raid, a small box shows what killed you, every hit from the last 5 seconds, a 5-second health strip, defensives active / ready, and potions / healthstones. If the raid has a battle rez ready, it waits and shows once when the pull ends.
+
+## Changes in 0.20.0
+
+- **Pull Report** (Raid Tools, raids only): after each raid pull, who died and when - and whether they had a **defensive**, a **health potion** or a **healthstone** ready. Each player's Titan Up records only its own player (the defensive list is the guild's Class Info sheet cross-checked against Open Raid Library's Midnight data and Wowhead; talent replacements like Ice Block / Ice Cold are resolved, tanks skipped, missing spells skipped) plus their last hits from the death recap, and sends it over the guild channel after the fight, out of combat. Cheat-death saves show as orange "close calls". Raiders without Titan Up show as "no data".
+  - Pull list -> click a pull for its deaths -> hover a death for a summary, click it for the details. D / P / H lights: green = ready and unused (yellow D = only a minor defensive ready).
+  - Pops up for the raid leader after each pull (cog: always / when raid leader / never). Tonight's pulls are kept until the daily reset, with a **Scorecard** and **Copy for Discord**.
+  - `/tu deaths check` lists your character's defensives (with spell IDs and cooldowns), what's skipped, and your potions / healthstones.
+- Fix: in TitanBoard, clicking an expanded instance in the encounter list now collapses it again.
+
+## Changes in 0.19.8
+
+- Fix (for real this time): opening Keystone Roulette no longer raises "Cannot anchor protected frames to regions". WoW checks the whole attachment chain, and the frame the teleport buttons attached to was itself attached to the icon texture. The icon's frame is now placed on the row directly, and the icon texture attaches to it instead.
+
+## Changes in 0.19.7
+
+- Fix: opening Keystone Roulette raised "Cannot anchor protected frames to regions". The click-to-teleport buttons were attached to the dungeon icon texture, which the game doesn't allow for spell buttons; they now attach to a frame over the icon.
+
+## Changes in 0.19.6
+
+- Stack splitter: fixed the real cause of slow / scattered guild bank splits. The game fires its "guild bank changed" event instantly, in the middle of a split or drop; the splitter reacted to it by starting the next move before the current one was even recorded, so one click sent a burst of splits to several slots. Each step now finishes before another can start, and the pending move is recorded before asking the game - one split per move, filling the slots in order.
+- Stack splitter: the status message wraps to fit inside the window (two lines at most), and the messages are shorter.
+
+## Changes in 0.19.5
+
+- Stack splitter, guild bank: a short settle pause (0.4s) after each move, because the guild bank can show the stack as unlocked a moment before it will take the next split. A split the server ignores is detected (the stack never locks) and safely asked again, and the pause grows a little each time that happens (up to 1.5s), so it settles into the pace your guild bank accepts.
+- `/tu split debug` prints each move's timing (when the split was asked, when the stack locked, when it landed, the pause before the next) and a summary at the end. Run it again to turn it off.
+
+## Changes in 0.19.4
+
+- Stack splitter, guild bank: now works the way the game expects - split, then drop straight into the next slot, then wait for the source stack to drop. It no longer checks the cursor right after a guild bank split (the server fills it a moment later, which looked like a failure and caused a second split request), never re-uses a slot it already chose (so nothing is dropped onto an existing stack), counts a move as done once the source has dropped by at least the amount, and on a timeout waits once more instead of asking again. Fixes the slow splits and stacks landing in odd slots.
+
+## Changes in 0.19.3
+
+- Stack splitter is fast again: a move now counts as done as soon as the source stack drops by the amount moved (checked every frame while splitting), instead of also waiting for the new slot to update - which in the guild bank happens late, so each split was waiting out a timeout. The fixed pause and per-move guild bank refresh are gone; a split the server wasn't ready for is simply retried a moment later.
+- New stacks fill in neatly: starting right after the original slot and following the game's slot order (in the guild bank, down each column then the next), wrapping around only if needed.
+
+## Changes in 0.19.2
+
+- Stack splitter, guild bank: splits no longer stop after the first move. The guild bank is slower than your bags and ignores a split asked for too soon after the last move, so guild bank moves are now paced (about one per second), each split is checked to have really picked the items up (retrying if not), the tab is refreshed after each move, and a move that times out is re-checked and retried before giving up. A stop part-way now says the guild bank is responding slowly (permissions are only blamed if the very first move fails), and a **Continue** button finishes the rest.
+
+## Changes in 0.19.1
+
+- Performance pass: about 12% less memory at login. TitanBoard import/export now uses the game's built-in compression instead of the bundled LibDeflate library (200 KB of Lua no longer loaded every session); export strings are unchanged, so strings shared by earlier versions still import and new ones work with older versions. Idle cost was already zero (nothing updates or ticks while you're not using a feature) and stays that way.
+- Cleanup: removed a stray build file and an unused function; folded three small files into their natural homes (room images into Board/Content.lua, the board invite into Board/Presence.lua, the hub into Nav.lua).
+
+## Changes in 0.19.0
+
+- **Stack splitter** (UI Tweaks, off until you turn it on): Shift-click a stack in your bags, bank, Warband bank or guild bank for a Titan Up dialog instead of the game's little box. **Take** N onto your cursor, split the whole stack into **stacks of N**, or into **K equal stacks**, or **Combine** that item's partial stacks. Type the amount, scroll, use -/+ or presets (with "Half"). A preview shows the result and whether there are enough free slots (it does as many as fit); a progress bar and Stop show while it works. New stacks stay in the same storage (bags + reagent bag, the bank, one Warband tab, one guild bank tab). Settings: which tab it opens on, remember the last amount, your presets. At vendors the game's own box is used.
+- **Keystone Roulette:** click a key's dungeon icon to teleport there (greyed out if you haven't unlocked it; shows the cooldown). Set up out of combat, as the game requires.
+
+## Changes in 0.18.3
+
+- Keystone Roulette popup: the dungeon art is now cropped to the measured scene, so it fills the popup edge to edge, centered, with no frame or padding showing.
+
+## Changes in 0.18.2
+
+- Keystone Roulette: the level range can be typed (`[-] [12] [+]`; blank = any, 2-30, a minimum above the maximum swaps). Popup art uses a better crop of the dungeon picture, and `/tu keys art` shows the whole picture with a labeled 10% grid to fine-tune it.
+- Tab: the "<- NAME" title is centered in the space between the two sides (the Tools dropdown is narrower), and long names drop to a smaller font - and are shortened as a last resort - so they never run into the dropdown or icons.
+
+## Changes in 0.18.1
+
+- Keystone Roulette popup: the dungeon art now fills the popup edge to edge (the picture's painted frame is cropped off), with a darker band at the bottom so the Teleport button stays readable.
+- The faded Titan Up logo behind each window now always fits inside it (it was spilling past the bottom of short windows like the UI Tweaks list) and re-fits when a window changes size.
+
+## Changes in 0.18.0
+
+- **Death alerts** (UI Tweaks, off until you turn it on): when someone in your group dies, a banner slides in with their role icon, class-colored name and the fight time from the Combat Timer; up to three stack. Tanks, healers and you get a bigger line and your own sounds. Several deaths in a few seconds collapse into one "Wipe likely - 6 dead" banner and one sound. Choose where it runs (raids & dungeons / raids / everywhere), tanks & healers only in raids, size, duration, chat line and sound channel. Sounds: WoW's built-in alerts plus every LibSharedMedia sound (from BigWigs, DBM, sound packs...), with a scrollable picker and preview. Shows your last pull's deaths. Open it from UI Tweaks -> Death alerts -> Settings.
+- **Keystone Roulette** (UI Tweaks section, `/tu keys`): a spinning wheel of your group's keys. Keys come from you, Titan Up guildmates, and BigWigs / Details for everyone else (read locally). Level range, leave dungeons out, equal chances or favor higher keys. **Vote** mode: Titan Up users click Vote, anyone can type the number or short name in party chat; ties are settled by a spin. The winner is posted to party chat, and Titan Up users get a popup with a **Teleport** button for that dungeon (found in your spellbook; set up after combat if needed). Keeps your last 10 picks.
+- **Raid Check:** Concentrated Silvermoon Health Potion counts as a health potion; Liquid Luster counts as a combat potion.
+- Bundles LibSharedMedia-3.0 (LGPL 2.1) and CallbackHandler-1.0 (BSD) for the sound list.
+
+## Changes in 0.17.0
+
+- **Wowdle** (Games): a daily guild word game - the same 5-letter word for everyone each day (new word at the US daily reset), mixing WoW terms with everyday words. Six guesses, real words only, on-screen keyboard (click the board to type with your keyboard; Esc stops). **Standings** are shared guild-wide - today's board plus wins, streaks and average guesses; only guess counts are shared, never guesses. The guess dictionary (public-domain ENABLE list) is checked in place, with no word table built in memory.
+- **UI Tweaks** (new section, with the tools): **Release protection** - in raid instances, Release Spirit only works after holding Alt for 3 seconds (off by default; turn it on in UI Tweaks).
+- **Combat Timer:** a history of the last 10 fights in its settings window, with a green Kill / grey Wipe tag on boss pulls.
+- **Death Roll:** the result announcement waits until the final roll has landed on screen, and Rematch (and the other end buttons) appear only after that reveal.
+- **Tab:** a side with five or more modules becomes one dropdown (the left side is now "Tools", listing Raid Tools and UI Tweaks under headings).
+
+## Changes in 0.16.6
+
+- Slimmer tab (32px, one row): Raid Tools icons on the left, "<- NAME" in the center, Games icons on the right - the RAID TOOLS / GAMES labels and the small TITAN UP line are gone (hover an icon for its name and section; the hub still shows the full names and headings).
+- If a side ever has more than five modules, it automatically turns into a dropdown named after its section ("Games v") listing its modules, so the tab never gets crowded.
+
+## Changes in 0.16.5
+
+- Fix: the hub window's background was only 32px tall (its height calculation was broken in 0.16.4), so the tiles floated over the game and the version overlapped the RAID TOOLS heading.
+- The tab now matches the narrowest window (the hub, 420px), so it never overhangs any window.
+
+## Changes in 0.16.4
+
+- **The tab never moves:** every window is now positioned from its top-center - where the tab sits - so switching modules (bar icons, back arrow, hub tiles) and Wheel of Fortune's setup/game screens keep the tab exactly in place and the window extends down from it. The tab is the same 620px on every window (narrow windows get a slightly overhanging tab, which still counts for keeping the window on screen).
+- **Hub:** the tab's center is just "TITAN UP" (no emblem or grey line); the version moved to the bottom-center of the hub.
+
+## Changes in 0.16.3
+
+- Settings cogs: Loot tracker, Raid Check and Death Roll each have a cog beside the X (same size, thin separator between) that opens a small options panel. Loot's panel holds **Tracking: Epic+ / Rare+** (the search box got wider); Raid Check's holds **Check before /pull**.
+- Raid Check: **Check now** is centered at the bottom; the "runs in Heroic and Mythic raids" note is small grey help text in the bottom-left corner (it explains the guild requirement instead when you're not in a guild).
+
+## Changes in 0.16.2
+
+- **No more title row.** Each window's content moves up; the X sits in the window's top-right corner on its first row. The tab's center shows just the back arrow and the module name (the highlighted icon already shows where you are; the hub keeps its emblem).
+- **TitanBoard:** the options row now holds everything - the plan name at its left end, then colors and size; Undo, Clear, LOCAL, Viewer mode, Mini and the X at its right end (the plan name shrinks to fit when the row is busy). Live Viewers starts below that row. The slide arrows moved to the bottom-center of the map. Mini view and viewer mode keep their compact title row.
+- **Combat Timer:** times boss encounters inside raids and any combat everywhere else - automatically (the "Time" option is gone). New options: a chat summary after each fight ("Combat lasted 3:42 (Sszorak)", on by default) and "Only in dungeons & raids". The switch reads **Timer: On / Off** in green/red, and the preview shows dimmed with "Timer is OFF" when it's off. `/tu timer test` runs it for 10 seconds; `/tu timer debug` prints what it does with each combat/boss event. Settings window is wider so its tab fits.
+- **Death Roll:** the wager label no longer runs into "Opponent" ("also the first roll" is in its tooltip).
+- **Sturdier startup:** each module starts on its own, so one failing can't stop the others (it's named in chat), and an event the game no longer has is skipped instead of breaking startup.
+
+## Changes in 0.16.1
+
+- **New navigation tab:** a trapezoid tab sits on top of every window - Raid Tools icons on the left, "TITAN UP" with the back arrow and the module's name in the center, Games icons on the right. Each window's own title row is back to a slim 32px with just its controls and the X. The tab fits narrow windows and hides in TitanBoard's mini view and viewer mode.
+- **Wheel of Fortune setup screen** is smaller (660px wide) and grows as you add rounds and as open games appear. The game screen keeps its full size; switching between them keeps the window's top-right corner in place.
+
+## Changes in 0.16.0
+
+- **Titan Up works for any guild.** The members-only check is gone. All addon data still travels only over your **own guild's** private addon channel, so each guild's data stays inside that guild: other guilds (and pugs in your raid) never receive it and can't send you any. Group features only listen to guildmates in your group.
+- **No guild:** everything local still works (Combat Timer, Loot tracker, the board on your own, practice/solo games); nothing is sent or received. Playing with others (Death Roll, Wheel of Fortune, Raid Check) explains that it needs a guild. A one-time note appears after a minute if you're not in a guild.
+- Leaving a guild no longer switches Titan Up off - it keeps working and just stops syncing; joining a guild starts syncing with it.
+- Chat announcements (Wheel invites, the board's join link) post only when everyone in the group is in your guild. Death Roll announcements (when "Announce in chat" is ticked) post in any group.
+
+## Changes in 0.15.4
+
+- TitanBoard pane arrows moved again: the left pane's arrow sits at the top-right of the Encounters header (where Locate was) and the right pane's at the top-right of Live Viewers - no more overlap with Send full plan. When a pane is collapsed its arrow stays at the top: above the tool column (left) or at the end of the options bar (right). **Locate** moved to the bottom-right of Encounters, just above the separator before Plan.
+- Every window: the **X** is in the far top-right corner, and a thin separator line runs between the Raid Tools and Games icon rows.
+
+## Changes in 0.15.3
+
+- Every window: a taller title bar (48px) with a **back arrow** by the title (to the Titan Up hub) and the module icons in **two rows** - Raid Tools on top, Games below. The home icon is gone (the back arrow replaces it). TitanBoard keeps a compact title in mini view and viewer mode.
+- TitanBoard: the pane collapse arrows moved to the bottom of each pane's inner edge, pointing toward the edge they collapse to; when collapsed they sit at the window edge pointing back in.
+- Death Roll: the button(s) under the main button are centered (Cancel game on its own is centered).
+- Wheel of Fortune setup: smaller help text; "Random from" is a dropdown next to **Fill all** on the heading line; each round has a **dice** icon for a random puzzle and an **X** that removes the round; **+ Add round** (up to 5); **Open game** centered with **Play solo** under it.
+- Wheel of Fortune solo games: the bot host starts the next round by itself a few seconds after each solve, through to the final winner.
+
+## Changes in 0.15.2
+
+- Death Roll ledger: a debt **Check** that reaches the winner mid-combat is answered as soon as their fight ends (nothing is sent during combat). If there's no answer within a few seconds you're told they may be offline or in combat, and your addon keeps listening for 10 minutes - when the answer arrives you're told whether the payment was confirmed.
+
+## Changes in 0.15.1
+
+- Raid Check: the "Learn approved buffs" and "Reset" buttons are gone. Any current-tier flask (any quality or cauldron) and any food buff count. Old learned lists are cleared.
+- Combat Timer settings: font is now a dropdown; size is **[-] [box v] [+]** - type any size (10-96), pick from a list in steps of 6, or nudge by 1. "Move timer" is now an anchor icon under the close button (click to unlock and drag, click again to lock). "Reset position" is a small button in the bottom-right corner.
+- Combat Timer defaults: times **boss encounters** and keeps the last time on screen (**Always**); default size 30. Applied once to existing installs.
+
+## Changes in 0.15.0
+
+- **Hub redesign:** one window with inline sections - **Raid Tools** (TitanBoard, Loot, Combat Timer, Raid Check) and **Games** (Death Roll, Wheel of Fortune). No more separate Games page. The module bar shows every module, with a divider between Raid Tools and Games.
+- **New: Combat Timer** (`/tu timer`). An on-screen timer for your combat or for boss encounters (pull to kill/wipe). Font, size, color, outline, tenths of a second, how long to keep the final time after combat; "Move timer" to drag it anywhere. Shows a live preview while its settings are open.
+- **Raid Check:** combat potions warn below 5 (was 10) and now include Potion of Zealotry; new **Health potions** row (Silvermoon Health Potion, all qualities) warns below 5.
+- **Death Roll ledger:** debts you owe now have a **Check** button that asks the winner's addon for its record - the winner stays the only source of truth. You're told whether they've confirmed payment, haven't yet, or didn't answer (offline). Not available mid-combat.
+
+## Changes in 0.14.5
+
+- Raid Check: combat potions now count - crafted potions carry their quality icon inside the item name, which broke the name match.
+- Raid Check: the results window only opens for the raid leader (ready checks and /pull). Whoever types /pull still gets the pull alert. "Pull anyway" closes the alert and the results window, and both close by themselves when the boss is engaged.
+- Death Roll ledger: a finished game and a confirmed payment are sent to the other player straight away, so the loser's debt clears within a second or two of the trade (it used to wait for a refresh, up to 10 minutes).
+- Quiet mode is now "during combat" instead of "inside raid instances": between pulls the ledger works normally; while you're in combat or an encounter nothing is sent and incoming ledger records wait until the fight ends. TitanBoard's presence check-ins also pause during combat.
+
+## Changes in 0.14.4
+
+- Death Roll fix: rolls from players on a connected realm weren't recognized by the other player's addon (WoW prints the roll line without the realm, so it was matched against the wrong server) - the opponent's screen stayed on the roller's turn. Roll lines are now matched by character name when the realm is missing, and player links/color codes in the line are handled.
+- Safety net: each player's addon also sends a short report of its own roll; if someone's client can't read that roll from chat within ~1.5s, it uses the report (only players can report their own roll, and it has to fit the rules).
+- `/tu roll debug` lists roll lines that couldn't be read and any time the fallback was used.
+
+## Changes in 0.14.3
+
+- Death Roll: declining a challenge no longer cancels it. The challenged player can Decline (from the pop-up or the game window, or after joining at the Accept step); the challenger sees who declined and can **Open to anyone** - everyone else in the group then gets a pop-up - or cancel. The challenger can also open a reserved challenge early. Only the challenged player can join or decline a reserved challenge.
+- The first roll is always the wager (the "First roll" box is gone).
+- Lobby: "Announce in chat" and "Delay rolls in chat" moved into an options panel behind a settings cog in the title bar; Practice is a small button in the bottom-right corner; the rest of the lobby moved up.
+
+## Changes in 0.14.2
+
+- Death Roll: a spectator list on the side of the game window. Opening someone else's game tells the challenger you're watching (repeated every 30s while you watch); the challenger's addon keeps the list and shares it, dropping anyone who goes quiet for ~75s, leaves the group, or takes the seat. Practice games show no spectators.
+
+## Changes in 0.14.1
+
+- Death Roll: clicking the [Open death roll] chat link now also asks the challenger for the latest state (like the Watch button), so someone who reloaded or zoned mid-game catches up on missed rolls.
+
+## Changes in 0.14.0
+
+- Guild members only: Titan Up runs only for members of <Titan Up> on Medivh, and all addon data goes over the guild addon channel, so players outside the guild (pugs included) never receive it and can't send any. Group features only listen to guildmates in your group; the Death Roll ledger and loot trade updates are guild-wide. Public chat announcements only post when everyone in the group is in the guild. Everyone needs 0.14.0 or later.
 
 ## Changes in 0.13.0
 

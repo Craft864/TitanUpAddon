@@ -39,7 +39,9 @@ function LT.ItemID(link) return tonumber(tostring(link or ""):match("item:(%d+)"
 -- Quality from the item cache, or from the link's color if not cached yet.
 local COLOR_QUALITY = { ["0070dd"] = 3, ["a335ee"] = 4, ["ff8000"] = 5, ["e6cc80"] = 6, ["00ccff"] = 7, ["1eff00"] = 2 }
 function LT.Quality(link)
-    local q = GetItemInfo and select(3, GetItemInfo(link))
+    -- C_Item.GetItemInfo (12.1.5 removed the old global GetItemInfo)
+    local getInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
+    local q = getInfo and select(3, getInfo(link))
     if q then return q end
     local hex = tostring(link or ""):lower():match("|cff(%x%x%x%x%x%x)")
     return hex and COLOR_QUALITY[hex] or nil
@@ -67,11 +69,6 @@ end
 -- Setup
 -- ---------------------------------------------------------------------
 function LT:Init()
-    ns.udb.loot = ns.udb.loot or {}
-    local d = ns.udb.loot
-    d.drops = d.drops or {}
-    d.minQuality = d.minQuality or 4
-    C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
     ns.On("LOOT_HISTORY_UPDATE_DROP", function(encounterID, lootListID) LT:OnDrop(encounterID, lootListID) end)
     ns.On("LOOT_HISTORY_UPDATE_ENCOUNTER", function(encounterID) LT:SweepEncounter(encounterID) end)
     ns.On("ENCOUNTER_LOOT_RECEIVED", function(encounterID, itemID, link, quantity, player, class)
@@ -84,12 +81,17 @@ function LT:Init()
         if not inInstance then LT.keyRun = nil end
     end)
     ns.On("PLAYER_EQUIPMENT_CHANGED", function(slot) LT:OnEquip(slot) end)
-    self:InitTrades()
-    ns.On("CHAT_MSG_ADDON", function(prefix, text, _, sender)
-        if prefix ~= PREFIX or bad(text) or bad(sender) then return end
-        sender = ns.NormalizeSender(sender)
-        if sender and sender ~= ns.me then LT:OnMessage(text, sender) end
-    end)
+    -- trades: which tracked items changed hands
+    ns.WatchTrades(function(t)
+        t.give, t.get = t.give or {}, t.get or {}
+        for i = 1, 6 do
+            local give = GetTradePlayerItemLink and GetTradePlayerItemLink(i)
+            local get = GetTradeTargetItemLink and GetTradeTargetItemLink(i)
+            t.give[i] = (not bad(give)) and give or nil
+            t.get[i] = (not bad(get)) and get or nil
+        end
+    end, function(t) LT:OnTradeComplete(t) end)
+    ns.Listen(PREFIX, "guild", function(text, sender) LT:OnMessage(text, sender) end)
 end
 
 local function instanceInfo()
@@ -252,34 +254,6 @@ function LT:SetEquipped(rec, who, share)
     return true
 end
 
-local trade
-function LT:InitTrades()
-    local function snapshot()
-        if not trade then return end
-        for i = 1, 6 do
-            local give = GetTradePlayerItemLink and GetTradePlayerItemLink(i)
-            local get = GetTradeTargetItemLink and GetTradeTargetItemLink(i)
-            trade.give[i] = (not bad(give)) and give or nil
-            trade.get[i] = (not bad(get)) and get or nil
-        end
-    end
-    ns.On("TRADE_SHOW", function() trade = { partner = ns.FullName("NPC"), give = {}, get = {} } end)
-    ns.On("TRADE_PLAYER_ITEM_CHANGED", snapshot)
-    ns.On("TRADE_TARGET_ITEM_CHANGED", snapshot)
-    ns.On("TRADE_ACCEPT_UPDATE", snapshot)
-    ns.On("UI_INFO_MESSAGE", function(_, msg)
-        if trade and msg and ERR_TRADE_COMPLETE and msg == ERR_TRADE_COMPLETE then
-            local t = trade
-            trade = nil
-            LT:OnTradeComplete(t)
-        end
-    end)
-    ns.On("TRADE_CLOSED", function()
-        local t = trade
-        C_Timer.After(1, function() if trade == t then trade = nil end end)
-    end)
-end
-
 function LT:OnTradeComplete(t)
     if not t.partner then return end
     for i = 1, 6 do
@@ -307,9 +281,7 @@ end
 -- Sharing trades/equips
 -- ---------------------------------------------------------------------
 function LT:Send(...)
-    if ns.InLockdown() then return end
-    local channel = IsInGroup() and ns.GroupChannel() or ((IsInGuild and IsInGuild()) and "GUILD" or nil)
-    if channel then pcall(C_ChatInfo.SendAddonMessage, PREFIX, table.concat({ ... }, SEP), channel) end
+    if not ns.InLockdown() then ns.SendFields(PREFIX, ...) end
 end
 
 function LT:OnMessage(text, sender)

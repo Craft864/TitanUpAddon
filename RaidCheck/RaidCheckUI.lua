@@ -10,14 +10,9 @@ local RC
 local V = {}
 ns.RaidCheckUI = V
 
-local W, H = 640, 500
+local W, H = 640, 470
 
-local function colored(name)
-    local class = ns.ClassOf(name)
-    local cc = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-    if cc then return ("|cff%02x%02x%02x%s|r"):format(cc.r * 255, cc.g * 255, cc.b * 255, ns.Short(name)) end
-    return ns.Short(name)
-end
+local colored = UI.Named
 
 local function nameList(list, max)
     local out = {}
@@ -29,10 +24,13 @@ local function nameList(list, max)
 end
 
 function V:Init() RC = ns.RaidCheck end
-function V:EnsureFrame() if not self.frame then self:Create() end return self.frame end
-function V:IsShown() return self.frame and self.frame:IsShown() or false end
-function V:Show() self:EnsureFrame():Show() end
 function V:ShowResults() self:Show(); self:Refresh() end
+
+-- The pull is happening: close the alert and the results window.
+function V:CloseAll()
+    if self.alert and self.alert:IsShown() then self.alert.doPull = nil; self.alert:Hide() end
+    if self.frame and self.frame:IsShown() then self.frame:Hide() end
+end
 function V:OnReport()
     if self:IsShown() then self:Refresh() end
 end
@@ -48,10 +46,8 @@ local function makeRow(parent, y, x)
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(20, 20)
     row.icon:SetPoint("LEFT", 2, 0)
-    row.label = UI.Text(row, "GameFontHighlight")
-    row.label:SetPoint("LEFT", row.icon, "RIGHT", 8, 0)
-    row.count = UI.Text(row, "GameFontNormal")
-    row.count:SetPoint("RIGHT", -4, 0)
+    row.label = UI.Text(row, "GameFontHighlight", nil, nil, "LEFT", row.icon, "RIGHT", 8, 0)
+    row.count = UI.Text(row, "GameFontNormal", nil, nil, "RIGHT", -4, 0)
     row:SetScript("OnEnter", function(s)
         local r = s.data
         if not r then return end
@@ -72,66 +68,39 @@ end
 local function checkIcon(key) return ns.MEDIA .. "Check\\" .. key end
 
 function V:Create()
-    local f = CreateFrame("Frame", "TitanUpRaidCheck", UIParent, "BackdropTemplate")
-    self.frame = f
-    f:SetSize(W, H)
-    f:SetPoint("CENTER", 0, 40)
-    f:SetFrameStrata("HIGH")
-    f:SetToplevel(true)
-    f:SetClampedToScreen(true)
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    UI.Skin(f, C.bg, C.line)
-    f:Hide()
-    tinsert(UISpecialFrames, "TitanUpRaidCheck")
-    f:SetScript("OnShow", function() V:Refresh() end)
-    UI.Watermark(f, 400, 0.05, -20)
-    self.header = ns.Nav:CreateHeader(f, "raidcheck", { title = "RAID CHECK", icon = ns.MEDIA .. "RaidCheck" })
+    local f = ns.Nav:Window(self, "TitanUpRaidCheck", "raidcheck", "RAID CHECK", W, H, { mark = { 400, 0.05, -20 },
+        cog = { "Raid Check settings", function() ns.Settings:Open("raidcheck", V.frame) end } })
 
-    self.info = UI.Text(f, "GameFontHighlight")
-    self.info:SetPoint("TOPLEFT", 16, -44)
-    self.info:SetPoint("RIGHT", -16, 0)
+    self.info = UI.Text(f, "GameFontHighlight", nil, nil, "TOPLEFT", 16, -14)
+    self.info:SetPoint("RIGHT", -40, 0)              -- clear of the X
     self.info:SetJustifyH("LEFT")
 
-    local lh = UI.Text(f, "GameFontNormalSmall", C.accent); lh:SetPoint("TOPLEFT", 16, -72); lh:SetText("RAID BUFFS")
-    local rh = UI.Text(f, "GameFontNormalSmall", C.accent); rh:SetPoint("TOPLEFT", 330, -72); rh:SetText("PERSONAL")
+    UI.Text(f, "GameFontNormalSmall", C.accent, "RAID BUFFS", "TOPLEFT", 16, -42)
+    UI.Text(f, "GameFontNormalSmall", C.accent, "PERSONAL", "TOPLEFT", 330, -42)
     self.buffRows, self.checkRows = {}, {}
-    for i = 1, #RC.RAID_BUFFS do self.buffRows[i] = makeRow(f, -92 - (i - 1) * 28, 14) end
-    for i = 1, #RC.CHECKS do self.checkRows[i] = makeRow(f, -92 - (i - 1) * 28, 328) end
-    self.noBuffs = UI.Text(f, "GameFontHighlightSmall", C.muted)
-    self.noBuffs:SetPoint("TOPLEFT", 18, -96)
+    for i = 1, #RC.RAID_BUFFS do self.buffRows[i] = makeRow(f, -62 - (i - 1) * 28, 14) end
+    for i = 1, #RC.CHECKS do self.checkRows[i] = makeRow(f, -62 - (i - 1) * 28, 328) end
+    self.noBuffs = UI.Text(f, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", 18, -66)
 
-    self.noReply = UI.Text(f, "GameFontHighlightSmall", C.warn)
-    self.noReply:SetPoint("TOPLEFT", 16, -330)
+    self.noReply = UI.Text(f, "GameFontHighlightSmall", C.warn, nil, "TOPLEFT", 16, -336)
     self.noReply:SetPoint("RIGHT", -16, 0)
     self.noReply:SetJustifyH("LEFT")
 
     -- buttons
     local check = UI.Button(f, 120, 26, "Check now", "Ask everyone for a fresh report (leader/assist, Heroic/Mythic raid)", function()
+        if not ns.DataChannel() then ns.Print("Raid Check needs a guild - reports travel over your guild's private addon channel.") return end
         if not RC:Active() then ns.Print("Raid Check runs in Heroic and Mythic raids.") return end
         if not RC:CanLead() then ns.Print("Only the raid leader or assists can run a check.") return end
         RC:RequestCheck("manual")
         V:Refresh()
     end)
-    check:SetPoint("BOTTOMLEFT", 16, 16)
+    check:SetPoint("BOTTOM", 0, 24)                  -- centered
     UI.SetActive(check, true)
-    local learn = UI.Button(f, 170, 26, "Learn approved buffs", "Eat the Hearty feast and take an approved flask (high quality and/or cauldron), then click. Only those exact buffs will count as flask/food. Learn adds to the list.", function()
-        RC:LearnApproved()
-        V:Refresh()
-    end)
-    learn:SetPoint("LEFT", check, "RIGHT", 8, 0)
-    local reset = UI.Button(f, 70, 26, "Reset", "Forget the approved flask/food list", function()
-        RC:ResetApproved()
-        V:Refresh()
-    end)
-    reset:SetPoint("LEFT", learn, "RIGHT", 6, 0)
-    self.pullBtn = UI.Button(f, 170, 26, "", "When you (leader/assist) type /pull in a Heroic or Mythic raid, check everyone first", function()
-        ns.udb.raidcheck.pullCheck = not ns.udb.raidcheck.pullCheck
-        V:Refresh()
-    end)
-    self.pullBtn:SetPoint("BOTTOMRIGHT", -16, 16)
-    self.approvedText = UI.Text(f, "GameFontHighlightSmall", C.muted)
-    self.approvedText:SetPoint("BOTTOMLEFT", check, "TOPLEFT", 0, 8)
+
+    -- help text: small and grey in the bottom-left corner
+    self.helpText = UI.Text(f, "GameFontDisableSmall", nil, nil, "BOTTOMLEFT", 12, 7)
+    self.helpText:SetTextColor(0.55, 0.57, 0.62)
+    self.helpText:SetJustifyH("LEFT")
 end
 
 local function fill(row, r, icon, name)
@@ -147,19 +116,13 @@ end
 function V:Refresh()
     if not self.frame then return end
     local s = ns.udb.raidcheck
-    self.pullBtn.label:SetText("Check before /pull: " .. (s.pullCheck and "ON" or "OFF"))
-    UI.SetActive(self.pullBtn, s.pullCheck)
-    local nf, nfd = 0, 0
-    for _ in pairs(s.approved.flask) do nf = nf + 1 end
-    for _ in pairs(s.approved.food) do nfd = nfd + 1 end
-    self.approvedText:SetText(("Approved: %s flask%s, %s food buff%s%s"):format(
-        nf == 0 and "any" or nf, nf == 1 and "" or "s", nfd == 0 and "any" or nfd, nfd == 1 and "" or "s",
-        (nf == 0 or nfd == 0) and "  |cffffa340(Learn to restrict to the feast / approved flasks)|r" or ""))
+    local icon = "|T" .. ns.MEDIA .. "Info:12:12:0:0|t "
+    self.helpText:SetText(icon .. (ns.DataChannel() and "Raid Check runs in Heroic and Mythic raids (not Normal or LFR)."
+        or "Raid Check needs a guild: everyone's reports travel over your guild's private addon channel."))
 
     local check = RC.current
     if not check then
-        self.info:SetText(RC:Active() and "No check yet - start a ready check, type /pull, or click Check now."
-            or "|cff8a8f9cRaid Check runs in Heroic and Mythic raids (not Normal or LFR).|r")
+        self.info:SetText("No check yet - start a ready check, type /pull, or click Check now.")
         for _, r in ipairs(self.buffRows) do r:Hide() end
         for _, r in ipairs(self.checkRows) do r:Hide() end
         self.noBuffs:SetText("")
@@ -196,32 +159,16 @@ end
 -- ---------------------------------------------------------------------
 function V:EnsureAlert()
     if self.alert then return self.alert end
-    local a = CreateFrame("Frame", "TitanUpPullAlert", UIParent, "BackdropTemplate")
-    UI.Skin(a, C.bg, C.warn)
-    a:SetSize(520, 340)
-    a:SetPoint("CENTER", 0, 120)
-    a:SetFrameStrata("FULLSCREEN_DIALOG")
-    a:SetToplevel(true)
-    a:EnableMouse(true)
-    a:SetMovable(true)
-    a:RegisterForDrag("LeftButton")
-    a:SetScript("OnDragStart", a.StartMoving)
-    a:SetScript("OnDragStop", a.StopMovingOrSizing)
-    a:Hide()
-    tinsert(UISpecialFrames, "TitanUpPullAlert")
-    local t = UI.Text(a, "GameFontNormalLarge", C.warn)
-    t:SetPoint("TOPLEFT", 16, -14)
-    t:SetText("Not everyone is ready to pull")
-    a.body = UI.Text(a, "GameFontHighlight")
-    a.body:SetPoint("TOPLEFT", 16, -44)
+    local a = UI.Window("TitanUpPullAlert", 520, 340, { y = 120, strata = "FULLSCREEN_DIALOG", border = C.warn, drag = true, noClamp = true })
+    UI.Text(a, "GameFontNormalLarge", C.warn, "Not everyone is ready to pull", "TOPLEFT", 16, -14)
+    a.body = UI.Text(a, "GameFontHighlight", nil, nil, "TOPLEFT", 16, -44)
     a.body:SetPoint("RIGHT", -16, 0)
     a.body:SetJustifyH("LEFT")
     a.body:SetJustifyV("TOP")
     a.body:SetHeight(240)
     a.pull = UI.Button(a, 150, 30, "Pull anyway", nil, function()
         local fn = a.doPull
-        a.doPull = nil
-        a:Hide()
+        V:CloseAll()
         if fn then fn() end
     end)
     a.pull:SetPoint("BOTTOMRIGHT", -16, 14)
@@ -251,15 +198,12 @@ function V:ShowPullAlert(result, msg, doPull)
     a.doPull = doPull
     a:Show()
     if PlaySound and SOUNDKIT and SOUNDKIT.RAID_WARNING then PlaySound(SOUNDKIT.RAID_WARNING) end
-    -- the leader also gets the full results window
-    self:ShowResults()
+    -- the raid leader also gets the full results window
+    if RC:IsLeader() then self:ShowResults() end
 end
 
 ns.RegisterModule({
-    key = "raidcheck", name = "Raid Check", icon = ns.MEDIA .. "RaidCheck", order = 2,
-    desc = "Raid buffs, flasks, food, oils, potions, healthstones and durability - on ready check and /pull.",
-    show = function() V:Show() end,
-    hide = function() if V.frame then V.frame:Hide() end end,
-    isShown = function() return V:IsShown() end,
-    frame = function() return V.frame end,
+    key = "raidcheck", name = "Raid Check", icon = ns.MEDIA .. "RaidCheck", group = "tools", order = 4,
+    desc = "Buffs, consumables and gear on ready check and /pull.",
+    view = V,
 })

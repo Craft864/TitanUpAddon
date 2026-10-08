@@ -21,20 +21,12 @@ local FADE, GONE = 1.0, 2.0  -- start fading / disappear after this long without
 local tokens, lastRefill, lastSend = BURST, 0, 0
 local pending
 Laser.pointers = {}     -- [name] = { x, y, dx, dy, t, trail = { x, y, ... }, ended }
-Laser.sent = 0
 
 local function curPage() return ns.Model.plan and ns.Model.plan.page or 1 end
 
 function Laser:Init()
-    C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
     lastRefill = GetTime()
-    ns.On("CHAT_MSG_ADDON", function(prefix, text, _, sender)
-        if prefix ~= PREFIX then return end
-        if ns.IsSecret(text) or ns.IsSecret(sender) then return end
-        sender = ns.NormalizeSender(sender)
-        if not sender or sender == ns.me then return end
-        Laser:OnMessage(text, sender)
-    end)
+    ns.Listen(PREFIX, "group", function(text, sender) Laser:OnMessage(text, sender) end)   -- only group members point
 end
 
 -- The send timer only runs while a position is waiting to go out.
@@ -65,8 +57,7 @@ function Laser:_flush()
         if self.ticker then self.ticker:Cancel(); self.ticker = nil end
         return
     end
-    local mode = ns.Comms:Mode()
-    if mode == "local" or ns.InLockdown() then
+    if ns.Comms:Mode() == "local" or ns.InLockdown() then
         pending = nil
         return
     end
@@ -74,24 +65,17 @@ function Laser:_flush()
     tokens = math.min(BURST, tokens + (now - lastRefill) * RATE)
     lastRefill = now
     if tokens < 1 or now - lastSend < INTERVAL then return end
-    local msg = pending
-    if mode == "sim" then
-        if ns.Sim then ns.Sim:OnOutgoing(msg) end
-    else
-        local channel, target = ns.GroupChannel(), nil
-        if mode == "loopback" then channel, target = "WHISPER", UnitName("player") end
-        if not channel then pending = nil return end
-        local ok, res = pcall(C_ChatInfo.SendAddonMessage, PREFIX, msg, channel, target)
-        local E = Enum and Enum.SendAddonMessageResult
-        if ok and E and res == E.AddonMessageThrottle then
-            tokens = 0      -- keep the newest position, try again shortly
-            return
-        end
+    local channel = ns.DataChannel()
+    if not channel then pending = nil return end
+    local ok, res = pcall(C_ChatInfo.SendAddonMessage, PREFIX, pending, channel)
+    local E = Enum and Enum.SendAddonMessageResult
+    if ok and E and res == E.AddonMessageThrottle then
+        tokens = 0      -- keep the newest position, try again shortly
+        return
     end
     pending = nil
     tokens = tokens - 1
     lastSend = now
-    self.sent = self.sent + 1
 end
 
 -- ---------------------------------------------------------------------
@@ -111,12 +95,6 @@ end
 function Laser:OnMessage(text, sender)
     local page, data = text:match("^(%d+);(.+)$")
     if not page then return end
-    -- Only group members (or the simulator's fake raiders) can point.
-    local member = false
-    for _, n in ipairs(ns.GroupNames()) do
-        if n == sender then member = true break end
-    end
-    if not member then return end
     if tonumber(page) ~= curPage() then
         self.pointers[sender] = nil
         if ns.Board then ns.Board:RenderLasers() end

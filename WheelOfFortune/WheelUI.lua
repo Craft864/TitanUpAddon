@@ -10,49 +10,20 @@ local WF
 local V = {}
 ns.WheelUI = V
 
-local W, H = 820, 640
+local W, H = 820, 610          -- the game screen
+local LOBBY_W = 660             -- the setup screen (height fits its content)
 local TILE_W, TILE_H, TILE_GAP = 38, 46, 3
 local WHEEL = 250
 
 local function money(n) return "$" .. ns.DeathRoll.Fmt(n or 0) end
 
-local function colored(name)
-    if not name then return "?" end
-    local class = ns.ClassOf(name)
-    local cc = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-    if cc then return ("|cff%02x%02x%02x%s|r"):format(cc.r * 255, cc.g * 255, cc.b * 255, ns.Short(name)) end
-    return ns.Short(name)
-end
-
-local function textBox(parent, w, maxLetters)
-    local e = CreateFrame("EditBox", nil, parent, "BackdropTemplate")
-    UI.Skin(e, C.canvas, C.line)
-    e:SetSize(w, 24)
-    e:SetFontObject("ChatFontNormal")
-    e:SetTextInsets(6, 6, 0, 0)
-    e:SetAutoFocus(false)
-    e:SetMaxLetters(maxLetters or 60)
-    e:SetScript("OnEscapePressed", e.ClearFocus)
-    e:SetScript("OnEnterPressed", e.ClearFocus)
-    return e
-end
-
-local function section(parent, text, x, y)
-    local t = UI.Text(parent, "GameFontNormalSmall", C.muted)
-    t:SetPoint("TOPLEFT", x, y)
-    t:SetText(text)
-    return t
-end
+local colored = UI.Named
+local function textBox(parent, w, maxLetters) return UI.EditBox(parent, w, 24, { inset = 6, max = maxLetters or 60 }) end
 
 -- ---------------------------------------------------------------------
 -- Setup
 -- ---------------------------------------------------------------------
 -- Built the first time it's needed (nothing at login).
-function V:EnsureFrame()
-    if not self.frame then self:Create() end
-    return self.frame
-end
-
 function V:Init()
     WF = ns.Wheel
     local LINK = "addon:TitanUp:wof:"
@@ -69,35 +40,16 @@ function V:Init()
     if SetItemRef then hooksecurefunc("SetItemRef", function(link) onLink(link) end) end
 end
 
-function V:IsShown() return self.frame and self.frame:IsShown() or false end
-function V:Show() self:EnsureFrame():Show() end
-
 function V:Create()
-    local f = CreateFrame("Frame", "TitanUpWheel", UIParent, "BackdropTemplate")
-    self.frame = f
-    f:SetSize(W, H)
-    f:SetPoint("CENTER", 0, 20)
-    f:SetFrameStrata("HIGH")
-    f:SetToplevel(true)
-    f:SetClampedToScreen(true)
-    f:SetMovable(true)
-    f:EnableMouse(true)
-    UI.Skin(f, C.bg, C.line)
-    f:Hide()
-    tinsert(UISpecialFrames, "TitanUpWheel")
-    f:SetScript("OnShow", function() V:Refresh() end)
-    UI.Watermark(f, 480, 0.05, -40)
-
-    local header = ns.Nav:CreateHeader(f, "wheel", { title = "WHEEL OF FORTUNE", icon = ns.MEDIA .. "WheelIcon" })
-    self.header = header
+    local f, header = ns.Nav:Window(self, "TitanUpWheel", "wheel", "WHEEL OF FORTUNE", W, H, { y = 20, mark = { 480, 0.05, -40 } })
     self.backBtn = UI.Button(header, 70, 22, "< Lobby", "Back to the lobby", function() V:ShowLobby() end)
-    self.backBtn:SetPoint("RIGHT", header.bar, "LEFT", -8, 0)
+    self.backBtn:SetPoint("RIGHT", header.close, "LEFT", -8, 0)
 
     self.lobby = CreateFrame("Frame", nil, f)
-    self.lobby:SetPoint("TOPLEFT", 0, -36)
+    self.lobby:SetPoint("TOPLEFT", 0, -6)
     self.lobby:SetPoint("BOTTOMRIGHT")
     self.game = CreateFrame("Frame", nil, f)
-    self.game:SetPoint("TOPLEFT", 0, -36)
+    self.game:SetPoint("TOPLEFT", 0, -6)
     self.game:SetPoint("BOTTOMRIGHT")
     self:CreateLobby(self.lobby)
     self:CreateGame(self.game)
@@ -108,20 +60,23 @@ end
 -- Lobby
 -- ---------------------------------------------------------------------
 function V:CreateLobby(p)
-    section(p, "HOST A GAME", 16, -8)
-    local help = UI.Text(p, "GameFontHighlightSmall", C.muted)
-    help:SetPoint("TOPLEFT", 16, -26)
-    help:SetText("You run the game and see the answers; three players take the seats. Up to 5 rounds. Puzzles: 4 rows of 14 letters.")
-    -- ready-made puzzle helpers
+    -- two ways to play: everyone plays (no host), or a host runs it
+    self.mode = "play"
+    self.modeBtns = {}
+    for i, m in ipairs({ { "play", "Play together", "Everyone plays - including you. Random puzzles; nobody sees the answer." },
+                         { "host", "Host a game", "You write the puzzles (and a prize), watch, and run it; 3 players take the seats." } }) do
+        local b = UI.Button(p, 116, 24, m[2], m[3], function() V.mode = m[1]; V:LayoutLobby(); V:RefreshLobby() end)
+        b:SetPoint("TOPLEFT", 16 + (i - 1) * 120, -6)
+        self.modeBtns[m[1]] = b
+    end
+    self.help = UI.Text(p, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", 16, -34)
+
+    -- ready-made puzzles: theme dropdown + Fill all, on the heading line
     self.themeIndex = 1
-    self.themeBtn = UI.Button(p, 168, 22, "", "Which ready-made puzzles Random and Fill all pick from", function()
-        V.themeIndex = (V.themeIndex % #WF.THEMES) + 1
-        V:RefreshTheme()
-    end)
-    self.themeBtn:SetPoint("TOPRIGHT", -112, -44)
-    local fill = UI.Button(p, 90, 22, "Fill all", "Fill every round with a different random puzzle", function()
+    local fill = UI.Button(p, 70, 22, "Fill all", "Fill every round shown with a different random puzzle", function()
         local taken = {}
-        for _, row in ipairs(V.setupRows) do
+        for i = 1, V.roundCount do
+            local row = V.setupRows[i]
             local pz = WF.RandomPuzzle(V:Theme(), taken)
             if pz then
                 row.cat:SetText(pz[1]); row.phrase:SetText(pz[2])
@@ -129,62 +84,92 @@ function V:CreateLobby(p)
             end
         end
     end)
-    fill:SetPoint("LEFT", self.themeBtn, "RIGHT", 6, 0)
+    fill:SetPoint("TOPRIGHT", -40, -6)           -- clear of the X
+    self.fillBtn = fill
+    self.themeBtn = UI.Button(p, 160, 22, "", "Which ready-made puzzles the dice and Fill all pick from", function() V:ThemeMenu() end)
+    self.themeBtn:SetPoint("RIGHT", fill, "LEFT", -6, 0)
+    self.themeBtn.label:ClearAllPoints()
+    self.themeBtn.label:SetPoint("LEFT", 8, 0)
+    local arrow = self.themeBtn:CreateTexture(nil, "OVERLAY")
+    arrow:SetTexture(ns.MEDIA .. "Down")
+    arrow:SetSize(12, 12)
+    arrow:SetPoint("RIGHT", -6, 0)
     self:RefreshTheme()
-    local cl = UI.Text(p, "GameFontHighlightSmall", C.muted); cl:SetPoint("TOPLEFT", 40, -48); cl:SetText("Category")
-    local pl = UI.Text(p, "GameFontHighlightSmall", C.muted); pl:SetPoint("TOPLEFT", 214, -48); pl:SetText("Puzzle")
+
+    local cl = UI.Text(p, "GameFontHighlightSmall", C.muted, "Category", "TOPLEFT", 40, -50)
+    local pl = UI.Text(p, "GameFontHighlightSmall", C.muted, "Puzzle", "TOPLEFT", 188, -50)
+    self.catLabel, self.puzLabel = cl, pl
+    -- rounds: only as many rows as you've added (1-5); X removes a round
     self.setupRows = {}
     for i = 1, WF.MAX_ROUNDS do
         local row = CreateFrame("Frame", nil, p)
-        row:SetSize(W - 32, 26)
+        row:SetSize(LOBBY_W - 32, 26)
         row:SetPoint("TOPLEFT", 16, -64 - (i - 1) * 30)
-        local n = UI.Text(row, "GameFontNormal", C.muted); n:SetPoint("LEFT", 0, 0); n:SetText(i .. ".")
-        row.cat = textBox(row, 164, 24); row.cat:SetPoint("LEFT", 22, 0)
-        row.phrase = textBox(row, 440, 56); row.phrase:SetPoint("LEFT", row.cat, "RIGHT", 10, 0)
-        row.random = UI.Button(row, 70, 24, "Random", "Fill this round with a ready-made puzzle (from the theme picked above)", function()
+        UI.Text(row, "GameFontNormal", C.muted, i .. ".", "LEFT", 0, 0)
+        row.cat = textBox(row, 140, 24); row.cat:SetPoint("LEFT", 22, 0)
+        row.phrase = textBox(row, 396, 56); row.phrase:SetPoint("LEFT", row.cat, "RIGHT", 10, 0)
+        row.random = UI.IconButton(row, 24, ns.MEDIA .. "Dice", "Random puzzle for this round (from the theme picked above)", function()
             local pz = WF.RandomPuzzle(V:Theme(), V:TakenPhrases(row))
             if pz then row.cat:SetText(pz[1]); row.phrase:SetText(pz[2]) end
         end)
+        row.random.keepIconColor = true
         row.random:SetPoint("LEFT", row.phrase, "RIGHT", 8, 0)
-        row.clear = UI.Button(row, 24, 24, "X", "Clear this round", function() row.cat:SetText(""); row.phrase:SetText("") end)
+        row.clear = UI.Button(row, 24, 24, "X", "Remove this round", function() V:RemoveRound(i) end)
         row.clear:SetPoint("LEFT", row.random, "RIGHT", 4, 0)
         self.setupRows[i] = row
     end
     self.setupRows[1].cat:SetText("PHRASE")
+    self.addRound = UI.Button(p, 110, 22, "+ Add round", "Add another round (up to " .. WF.MAX_ROUNDS .. ")", function() V:AddRound() end)
+    self.roundCount = 1
+    self:LayoutRounds()
 
-    local open = UI.Button(p, 160, 30, "Open game", "Post the game to your group so players can take seats", function()
-        local list = {}
-        for _, row in ipairs(V.setupRows) do
-            if row.phrase:GetText() ~= "" then list[#list + 1] = { row.cat:GetText(), row.phrase:GetText() } end
+    -- Host: an optional prize (a number shows as gold)
+    self.prizeLabel = UI.Text(p, "GameFontHighlight", C.text, "Prize")
+    self.prizeBox = textBox(p, 300, 48)
+    self.prizeHint = UI.Text(p, "GameFontHighlightSmall", C.muted, "optional - a number shows as gold, e.g. 10000")
+    -- Play together: how many rounds
+    self.playRounds = 3
+    self.playLabel = UI.Text(p, "GameFontHighlight", C.text, "Rounds")
+    self.playMinus = UI.Button(p, 24, 24, "-", nil, function() V.playRounds = math.max(1, V.playRounds - 1); V:RefreshLobby() end)
+    self.playValue = UI.Text(p, "GameFontNormalLarge", C.text)
+    self.playPlus = UI.Button(p, 24, 24, "+", nil, function() V.playRounds = math.min(WF.MAX_ROUNDS, V.playRounds + 1); V:RefreshLobby() end)
+
+    local open = UI.Button(p, 180, 32, "Open game", "Post the game to your group so players can take seats", function()
+        local g
+        if V.mode == "play" then
+            g = WF:Play(V.playRounds, V:Theme())
+        else
+            local list = {}
+            for i = 1, V.roundCount do
+                local row = V.setupRows[i]
+                if row.phrase:GetText() ~= "" then list[#list + 1] = { row.cat:GetText(), row.phrase:GetText() } end
+            end
+            g = WF:Host(list, V.prizeBox:GetText())
         end
-        local g = WF:Host(list)
         if g then V:ShowGame(g.id) end
     end)
-    open:SetPoint("TOPLEFT", 16, -222)
+    open:SetPoint("TOP", 0, -248)
     UI.SetActive(open, true)
-    local practice = UI.Button(p, 130, 30, "Practice solo", "Play against two bots with a fake host (/tu wheel sim)", function()
+    local solo = UI.Button(p, 120, 22, "Play solo", "Play against two bots, with a bot host (/tu wheel sim)", function()
         local g = WF:StartSim()
         if g then V:ShowGame(g.id) end
     end)
-    practice:SetPoint("LEFT", open, "RIGHT", 10, 0)
+    solo:SetPoint("TOP", open, "BOTTOM", 0, -6)
+    self.openBtn, self.soloBtn = open, solo
 
-    section(p, "OPEN GAMES IN YOUR GROUP", 16, -276)
+    self.openHeading = UI.Text(p, "GameFontNormalSmall", C.muted, "OPEN GAMES IN YOUR GROUP", "TOPLEFT", 16, -326)
     self.openRows = {}
     for i = 1, 6 do
         local row = CreateFrame("Frame", nil, p)
-        row:SetSize(W - 32, 28)
-        row:SetPoint("TOPLEFT", 16, -296 - (i - 1) * 32)
-        row.text = UI.Text(row, "GameFontHighlight")
-        row.text:SetPoint("LEFT", 4, 0)
+        row:SetSize(LOBBY_W - 32, 28)
+        row.text = UI.Text(row, "GameFontHighlight", nil, nil, "LEFT", 4, 0)
         row.join = UI.Button(row, 90, 24, "Take a seat", nil, function() if row.g then WF:Join(row.g.id); V:ShowGame(row.g.id) end end)
         row.join:SetPoint("RIGHT", -84, 0)
         row.watch = UI.Button(row, 76, 24, "Watch", nil, function() if row.g then WF:Watch(row.g.id); V:ShowGame(row.g.id) end end)
         row.watch:SetPoint("RIGHT", 0, 0)
         self.openRows[i] = row
     end
-    self.noGames = UI.Text(p, "GameFontHighlightSmall", C.muted)
-    self.noGames:SetPoint("TOPLEFT", 20, -302)
-    self.noGames:SetText("No games right now - host one above.")
+    self.noGames = UI.Text(p, "GameFontHighlightSmall", C.muted, "No games right now - host one above.", "TOPLEFT", 20, -352)
 end
 
 function V:Theme() return WF.THEMES[self.themeIndex or 1].key end
@@ -193,10 +178,109 @@ function V:RefreshTheme()
     self.themeBtn.label:SetText("Random from: " .. WF.THEMES[self.themeIndex or 1].label)
 end
 
+function V:ThemeMenu()
+    local items = {}
+    for i, t in ipairs(WF.THEMES) do
+        items[#items + 1] = { text = t.label, checked = (self.themeIndex or 1) == i, onClick = function()
+            V.themeIndex = i
+            V:RefreshTheme()
+        end }
+    end
+    UI.Menu(self.themeBtn, items)
+end
+
+-- Show rows 1..roundCount; "+ Add round" sits under the last one.
+function V:LayoutRounds()
+    for i, row in ipairs(self.setupRows) do row:SetShown(self.mode == "host" and i <= self.roundCount) end
+    self.addRound:ClearAllPoints()
+    self.addRound:SetPoint("TOPLEFT", 38, -64 - self.roundCount * 30 - 2)
+    self.addRound:SetShown(self.roundCount < WF.MAX_ROUNDS)
+    self:LayoutLobby()
+end
+
+-- Resize a window while keeping its top-center (the tab) where it is.
+local resizeKeepCorner = UI.ResizeKeepTab
+V.ResizeKeepCorner = resizeKeepCorner
+
+-- The setup screen grows with its content: rounds, the buttons, and as
+-- many open-game rows as there are games.
+function V:LayoutLobby()
+    if not self.openBtn then return end
+    local host = self.mode == "host"
+    for key, b in pairs(self.modeBtns) do UI.SetActive(b, key == self.mode) end
+    self.help:SetText(host and "You write the puzzles and watch - 3 players take the seats."
+        or "Everyone plays, including you. Random puzzles - nobody sees the answer.")
+    self.fillBtn:SetShown(host)
+    self.catLabel:SetShown(host); self.puzLabel:SetShown(host)
+    for i, row in ipairs(self.setupRows) do row:SetShown(host and i <= self.roundCount) end
+    self.addRound:SetShown(host and self.roundCount < WF.MAX_ROUNDS)
+    for _, w in ipairs({ self.prizeLabel, self.prizeBox, self.prizeHint }) do w:SetShown(host) end
+    for _, w in ipairs({ self.playLabel, self.playMinus, self.playValue, self.playPlus }) do w:SetShown(not host) end
+    self.openBtn.label:SetText(host and "Open game" or "Start a game")
+    local y
+    if host then
+        y = -64 - self.roundCount * 30
+        y = y - (self.roundCount < WF.MAX_ROUNDS and 30 or 6)          -- + Add round
+        self.prizeLabel:ClearAllPoints(); self.prizeLabel:SetPoint("TOPLEFT", 38, y - 4)
+        self.prizeBox:ClearAllPoints(); self.prizeBox:SetPoint("TOPLEFT", 90, y)
+        self.prizeHint:ClearAllPoints(); self.prizeHint:SetPoint("LEFT", self.prizeBox, "RIGHT", 8, 0)
+        y = y - 32
+    else
+        self.playLabel:ClearAllPoints(); self.playLabel:SetPoint("TOPLEFT", 38, -64)
+        self.playMinus:ClearAllPoints(); self.playMinus:SetPoint("TOPLEFT", 110, -60)
+        self.playValue:ClearAllPoints(); self.playValue:SetPoint("LEFT", self.playMinus, "RIGHT", 12, 0)
+        self.playPlus:ClearAllPoints(); self.playPlus:SetPoint("LEFT", self.playMinus, "RIGHT", 40, 0)
+        y = -96
+    end
+    self.openBtn:ClearAllPoints()
+    self.openBtn:SetPoint("TOP", 0, y - 12)
+    y = y - 12 - 32 - 6 - 22                                         -- Open game + Play solo
+    self.openHeading:ClearAllPoints()
+    self.openHeading:SetPoint("TOPLEFT", 16, y - 20)
+    local listTop = y - 40
+    local shown = 0
+    for i, row in ipairs(self.openRows) do
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", 16, listTop - (i - 1) * 32)
+        if row:IsShown() then shown = shown + 1 end
+    end
+    self.noGames:ClearAllPoints()
+    self.noGames:SetPoint("TOPLEFT", 20, listTop - 6)
+    local listH = math.max(1, shown) * 32
+    local height = 6 - listTop + listH + 12
+    if not self.gameId then resizeKeepCorner(self.frame, LOBBY_W, height) end
+end
+
+function V:AddRound()
+    if self.roundCount >= WF.MAX_ROUNDS then return end
+    self.roundCount = self.roundCount + 1
+    local row = self.setupRows[self.roundCount]
+    row.cat:SetText(""); row.phrase:SetText("")
+    self:LayoutRounds()
+end
+
+-- Remove a round: the rounds below move up. The last remaining round just clears.
+function V:RemoveRound(i)
+    local rows = self.setupRows
+    if self.roundCount <= 1 then
+        rows[1].cat:SetText(""); rows[1].phrase:SetText("")
+        return
+    end
+    for k = i, self.roundCount - 1 do
+        rows[k].cat:SetText(rows[k + 1].cat:GetText())
+        rows[k].phrase:SetText(rows[k + 1].phrase:GetText())
+    end
+    local last = rows[self.roundCount]
+    last.cat:SetText(""); last.phrase:SetText("")
+    self.roundCount = self.roundCount - 1
+    self:LayoutRounds()
+end
+
 -- Phrases already used in the other rounds (so Random doesn't repeat them).
 function V:TakenPhrases(except)
     local taken = {}
-    for _, row in ipairs(self.setupRows) do
+    for i = 1, self.roundCount or #self.setupRows do
+        local row = self.setupRows[i]
         if row ~= except then
             local t = WF.Clean(row.phrase:GetText(), 56)
             if t ~= "" then taken[t] = true end
@@ -217,21 +301,29 @@ function V:RefreshLobby()
         row:SetShown(g ~= nil)
         if g then
             local status = g.state == "lobby" and ("%d/%d seats"):format(#g.seats, WF.SEATS) or ("round %d of %d"):format(g.round, g.rounds)
-            row.text:SetText(("%s's game  |cff8a8f9c%d round%s - %s|r"):format(colored(g.host), g.rounds, g.rounds == 1 and "" or "s", status))
+            local prize = WF.PrizeText(g.prize)
+            row.text:SetText(("%s's game  |cff8a8f9c%d round%s - %s - %s|r%s"):format(colored(g.host), g.rounds, g.rounds == 1 and "" or "s", status,
+                g.auto and "everyone plays" or "hosted", prize and ("  |cffffd94dPrize: " .. prize .. "|r") or ""))
             row.join:SetShown(g.state == "lobby" and #g.seats < WF.SEATS and g.host ~= ns.me and not WF.SeatOf(g, ns.me))
         end
     end
     self.noGames:SetShown(#list == 0)
+    if self.playValue then self.playValue:SetText(tostring(self.playRounds)) end
+    self:LayoutLobby()
 end
 
 -- ---------------------------------------------------------------------
 -- Game view
 -- ---------------------------------------------------------------------
 function V:CreateGame(p)
-    self.catText = UI.Text(p, "GameFontNormalLarge", C.accent)
-    self.catText:SetPoint("TOP", 0, -4)
+    self.catText = UI.Text(p, "GameFontNormalLarge", C.accent, nil, "TOP", 0, -4)
     self.roundText = UI.Text(p, "GameFontHighlightSmall", C.muted)
-    self.roundText:SetPoint("TOPRIGHT", -16, -8)
+    self.roundText:SetPoint("TOPLEFT", 16, -8)     -- "< Lobby" and the X are top-right
+    -- left gutter (beside the board): the prize and the turn countdown
+    self.prizeText = UI.Text(p, "GameFontHighlightSmall", C.text, nil, "TOPLEFT", 16, -26)
+    self.prizeText:SetWidth(92); self.prizeText:SetJustifyH("LEFT")
+    self.timerLabel = UI.Text(p, "GameFontHighlightSmall", C.muted, "Turn timer", "TOPLEFT", 16, -96)
+    self.timerText = UI.Text(p, "GameFontNormalHuge", C.text, nil, "TOPLEFT", self.timerLabel, "BOTTOMLEFT", 0, -4)
 
     -- puzzle board
     local boardW = WF.COLS * (TILE_W + TILE_GAP) - TILE_GAP
@@ -269,8 +361,7 @@ function V:CreateGame(p)
     pointer:SetSize(30, 30)
     pointer:SetPoint("BOTTOM", wheelFrame, "TOP", 0, -14)
     self.wheelRot = 0
-    self.wedgeText = UI.Text(p, "GameFontNormalLarge")
-    self.wedgeText:SetPoint("TOP", wheelFrame, "BOTTOM", 0, -6)
+    self.wedgeText = UI.Text(p, "GameFontNormalLarge", nil, nil, "TOP", wheelFrame, "BOTTOM", 0, -6)
 
     -- player cards
     self.cards = {}
@@ -279,14 +370,13 @@ function V:CreateGame(p)
         UI.Skin(c, C.panel, C.line)
         c:SetSize(166, 72)
         c:SetPoint("TOPLEFT", 300 + (i - 1) * 172, -262)
-        c.name = UI.Text(c, "GameFontNormal"); c.name:SetPoint("TOP", 0, -8)
-        c.round = UI.Text(c, "GameFontNormalLarge"); c.round:SetPoint("TOP", c.name, "BOTTOM", 0, -4)
-        c.total = UI.Text(c, "GameFontHighlightSmall", C.muted); c.total:SetPoint("TOP", c.round, "BOTTOM", 0, -3)
+        c.name = UI.Text(c, "GameFontNormal", nil, nil, "TOP", 0, -8)
+        c.round = UI.Text(c, "GameFontNormalLarge", nil, nil, "TOP", c.name, "BOTTOM", 0, -4)
+        c.total = UI.Text(c, "GameFontHighlightSmall", C.muted, nil, "TOP", c.round, "BOTTOM", 0, -3)
         self.cards[i] = c
     end
 
-    self.status = UI.Text(p, "GameFontHighlightLarge")
-    self.status:SetPoint("TOPLEFT", 300, -346)
+    self.status = UI.Text(p, "GameFontHighlightLarge", nil, nil, "TOPLEFT", 300, -346)
     self.status:SetWidth(500)
     self.status:SetJustifyH("LEFT")
 
@@ -300,8 +390,7 @@ function V:CreateGame(p)
     end)
     self.solveBtn:SetPoint("LEFT", self.spinBtn, "RIGHT", 8, 0)
     self.solveBtn.label:SetFontObject("GameFontNormalLarge")
-    self.vowelHint = UI.Text(p, "GameFontHighlightSmall", C.muted)
-    self.vowelHint:SetPoint("LEFT", self.solveBtn, "RIGHT", 12, 0)
+    self.vowelHint = UI.Text(p, "GameFontHighlightSmall", C.muted, nil, "LEFT", self.solveBtn, "RIGHT", 12, 0)
 
     -- letters: consonants (after a spin) and vowels ($250)
     self.letterBtns = {}
@@ -319,9 +408,7 @@ function V:CreateGame(p)
         letterButton(ch, 300 + col * 35, -420 - row * 32, "Call " .. ch)
         i = i + 1
     end
-    local vl = UI.Text(p, "GameFontHighlightSmall", C.muted)
-    vl:SetPoint("TOPLEFT", 300, -490)
-    vl:SetText("BUY A VOWEL  $250")
+    UI.Text(p, "GameFontHighlightSmall", C.muted, "BUY A VOWEL  $250", "TOPLEFT", 300, -490)
     i = 0
     for ch in WF.VOWELS:gmatch(".") do
         letterButton(ch, 420 + i * 35, -484, "Buy " .. ch .. " for $250")
@@ -342,11 +429,8 @@ function V:CreateGame(p)
     hp:SetSize(W - 48, 66)
     hp:SetPoint("BOTTOM", 0, 10)
     self.hostPanel = hp
-    local ht = UI.Text(hp, "GameFontNormalSmall", C.accent)
-    ht:SetPoint("TOPLEFT", 10, -8)
-    ht:SetText("HOST  (only you can see this)")
-    self.answerText = UI.Text(hp, "GameFontHighlight")
-    self.answerText:SetPoint("TOPLEFT", 10, -26)
+    UI.Text(hp, "GameFontNormalSmall", C.accent, "HOST  (only you can see this)", "TOPLEFT", 10, -8)
+    self.answerText = UI.Text(hp, "GameFontHighlight", nil, nil, "TOPLEFT", 10, -26)
     self.answerText:SetWidth(440)
     self.answerText:SetJustifyH("LEFT")
     self.hostStart = UI.Button(hp, 100, 26, "Start game", nil, function() WF:Start() end)
@@ -387,6 +471,7 @@ function V:ShowGame(id)
     self.lobby:Hide()
     self.game:Show()
     self.backBtn:Show()
+    V.ResizeKeepCorner(self.frame, W, H)          -- the game screen keeps its full size
     if not self.frame:IsShown() then self.frame:Show() end
     self:RefreshGame()
 end
@@ -408,9 +493,11 @@ function V:StatusText(g)
         if g.state == "over" then
             local best, bi = -1, 1
             for i = 1, #g.seats do if (g.total[i] or 0) > best then best, bi = g.total[i] or 0, i end end
+            local prize = WF.PrizeText(g.prize)
             text = text .. ("\n|cffffd94d%s wins the game with %s!|r"):format(colored(g.seats[bi]), money(best))
+                .. (prize and ("\n|cffffd94d%s wins the prize: %s|r"):format(colored(g.seats[bi]), prize) or "")
         else
-            text = text .. "  |cff8a8f9cWaiting for the host to start the next round.|r"
+            text = text .. (g.engine and "  |cff8a8f9cNext round starting...|r" or "  |cff8a8f9cWaiting for the host to start the next round.|r")
         end
         return text
     end
@@ -431,6 +518,9 @@ function V:StatusText(g)
     elseif m == "wrong" then lead = "That's not it."
     elseif m == "noconsonants" then lead = "No consonants left - buy a vowel or solve."
     elseif m == "skipped" then lead = "Turn skipped."
+    elseif m == "timeout" then
+        local s = tonumber(a)
+        lead = ("%s ran out of time."):format(s and g.seats[s] and colored(g.seats[s]) or "They")
     end
     local prompt = (g.phase == "letter") and "" or (who .. "'s turn.")
     return lead and (lead .. "  " .. prompt) or prompt
@@ -442,6 +532,9 @@ function V:RefreshGame()
     local amHost = g.host == ns.me
     local mySeat = WF.SeatOf(g, ns.me)
     self.catText:SetText(g.state == "lobby" and "WHEEL OF FORTUNE" or g.cat)
+    local prize = WF.PrizeText(g.prize)
+    self.prizeText:SetText(prize and ("|cffffd94dPrize|r\n" .. prize) or (g.auto and "|cff8a8f9cEveryone plays|r" or ""))
+    self:UpdateTimer(g)
     self.roundText:SetText(g.round > 0 and ("Round %d of %d"):format(g.round, g.rounds) or (g.rounds .. " round" .. (g.rounds == 1 and "" or "s")))
 
     -- board
@@ -538,16 +631,21 @@ function V:RefreshGame()
     end
     self.vowelHint:SetText(myTurn and g.phase == "turn" and bank < WF.VOWEL_COST and "Vowels cost $250 of your round money." or "")
 
-    -- host panel
+    -- host panel (Play together: the starter runs it, but never sees the answer)
     self.hostPanel:SetShown(amHost)
     if amHost then
         local phrase = g.phrase or ""
-        self.answerText:SetText(g.state == "lobby" and ("%d puzzle(s) ready. Players: %d/%d"):format(g.rounds, #g.seats, WF.SEATS)
-            or ("Answer: |cffffd94d" .. phrase .. "|r"))
+        if g.auto then
+            self.answerText:SetText(g.state == "lobby" and ("Everyone plays - %d round(s). Players: %d/%d. Start when ready."):format(g.rounds, #g.seats, WF.SEATS)
+                or "Everyone plays - nobody sees the answer. Rounds move on by themselves.")
+        else
+            self.answerText:SetText(g.state == "lobby" and ("%d puzzle(s) ready. Players: %d/%d"):format(g.rounds, #g.seats, WF.SEATS)
+                or ("Answer: |cffffd94d" .. phrase .. "|r"))
+        end
         self.hostStart:SetShown(g.state == "lobby")
         UI.SetDisabled(self.hostStart, #g.seats == 0)
-        self.hostNext:SetShown(g.state == "roundover")
-        self.hostSkip:SetShown(g.state == "playing")
+        self.hostNext:SetShown(g.state == "roundover" and not g.auto)
+        self.hostSkip:SetShown(g.state == "playing" and not g.auto)
         self.hostEnd:SetShown(g.state ~= "over" and g.state ~= "cancelled")
     end
 end
@@ -555,6 +653,20 @@ end
 -- ---------------------------------------------------------------------
 -- Animation: the wheel spin and freshly revealed tiles
 -- ---------------------------------------------------------------------
+-- the turn countdown (the referee sends the seconds left with each update)
+function V:UpdateTimer(g)
+    if not self.timerText then return end
+    local left = g and g.turnEnds and math.max(0, math.ceil(g.turnEnds - GetTime()))
+    local on = left ~= nil and g.state == "playing"
+    self.timerLabel:SetShown(on)
+    self.timerText:SetShown(on)
+    if on then
+        self.timerText:SetText(("0:%02d"):format(left))
+        local c = left <= 5 and { 1, 0.35, 0.35 } or (left <= 10 and { 1, 0.82, 0.3 } or C.text)
+        self.timerText:SetTextColor(c[1], c[2], c[3])
+    end
+end
+
 function V:StartSpin(g)
     local target = math.rad((g.spin - 1) * 15) + math.rad(math.random(-5, 5))
     local from = self.wheelRot or 0
@@ -566,6 +678,10 @@ function V:StartSpin(g)
 end
 
 function V:Animate()
+    -- turn countdown: redraw only when the second changes
+    local gm = self:Game()
+    local left = gm and gm.turnEnds and math.ceil(gm.turnEnds - GetTime()) or nil
+    if left ~= self.lastLeft then self.lastLeft = left; self:UpdateTimer(gm) end
     local a = self.spinAnim
     if a then
         local t = math.min(1, (GetTime() - a.t0) / a.dur)
@@ -619,8 +735,7 @@ function V:CreateToast()
     icon:SetTexture(ns.MEDIA .. "WheelIcon")
     icon:SetSize(40, 40)
     icon:SetPoint("LEFT", 12, 0)
-    t.text = UI.Text(t, "GameFontHighlight")
-    t.text:SetPoint("TOPLEFT", icon, "TOPRIGHT", 10, 2)
+    t.text = UI.Text(t, "GameFontHighlight", nil, nil, "TOPLEFT", icon, "TOPRIGHT", 10, 2)
     t.join = UI.Button(t, 100, 22, "Take a seat", nil, function() t:Hide(); if t.g then WF:Join(t.g.id); V:ShowGame(t.g.id) end end)
     t.join:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 10, -6)
     t.watch = UI.Button(t, 70, 22, "Watch", nil, function() t:Hide(); if t.g then WF:Watch(t.g.id); V:ShowGame(t.g.id) end end)
@@ -645,10 +760,7 @@ end
 
 ns.RegisterModule({
     key = "wheel", name = "Wheel of Fortune", icon = ns.MEDIA .. "WheelIcon", group = "games", order = 2,
-    desc = "Host a game for three players: spin, call letters, buy vowels, solve the puzzle.",
-    show = function() V:Show() end,
-    hide = function() if V.frame then V.frame:Hide() end end,
-    isShown = function() return V:IsShown() end,
-    frame = function() return V.frame end,
+    desc = "Host a puzzle game for three players.",
+    view = V,
     sim = function() local g = ns.Wheel:StartSim(); if g then V:ShowGame(g.id) end end,
 })
