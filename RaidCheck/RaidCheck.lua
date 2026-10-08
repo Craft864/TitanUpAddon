@@ -56,7 +56,11 @@ RC.CHECKS = {
 }
 
 local function settings() return ns.udb.raidcheck end
-local function bad(v) return v == nil or ns.IsSecret(v) end          -- (see ns.Safe for the shared readers)
+
+-- Heroic and Mythic raids (difficulty IDs): Raid Check, the Pull Report's
+-- archive and the Raid Scorecard all count only these.
+RC.HEROIC_MYTHIC = { [15] = "Heroic", [16] = "Mythic" }
+function RC.HeroicOrMythic(diff) return RC.HEROIC_MYTHIC[diff] ~= nil end
 
 -- ---------------------------------------------------------------------
 -- When it applies
@@ -64,7 +68,7 @@ local function bad(v) return v == nil or ns.IsSecret(v) end          -- (see ns.
 function RC:Active()
     if not IsInRaid() or not ns.DataChannel() then return false end      -- reports travel over your guild channel
     local _, kind, diffID = GetInstanceInfo()
-    return kind == "raid" and (diffID == 15 or diffID == 16)    -- Heroic / Mythic
+    return kind == "raid" and RC.HeroicOrMythic(diffID)
 end
 
 -- Only the raid leader gets the results window (whoever types /pull still
@@ -90,7 +94,7 @@ local function playerAuras()
     for i = 1, 80 do
         local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
         if not ok or not a then break end
-        if not bad(a.name) and not bad(a.spellId) then list[#list + 1] = a end
+        if ns.Safe.Text(a.name) and ns.Safe.Num(a.spellId) then list[#list + 1] = a end
     end
     return list
 end
@@ -105,27 +109,47 @@ function RC.ItemName(link)
     return (inner:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
--- How many of these items are in your bags (by name, any quality), and
--- their item IDs. Asking for "Healthstone" counts every kind of healthstone.
-function RC.BagCount(names)
-    local want = {}
-    for _, n in ipairs(names) do want[n:lower()] = true end
-    local total, ids = 0, {}
-    if not (C_Container and C_Container.GetContainerNumSlots) then return 0, ids end
+-- How many of each list's items are in your bags (by name, any quality),
+-- and their item IDs - every list in one pass over the bags:
+-- RC.BagCounts({ pots = {...}, hs = {...} }) -> { pots = { count, ids }, ... }.
+-- Asking for "Healthstone" counts every kind of healthstone.
+function RC.BagCounts(lists)
+    local want, out = {}, {}
+    for key, names in pairs(lists) do
+        out[key] = { count = 0, ids = {} }
+        for _, n in ipairs(names) do
+            local l = n:lower()
+            want[l] = want[l] or {}
+            table.insert(want[l], key)
+        end
+    end
+    if not (C_Container and C_Container.GetContainerNumSlots) then return out end
+    local anyStone, hit = want.healthstone, {}
     for bag = 0, 5 do
         for slot = 1, C_Container.GetContainerNumSlots(bag) or 0 do
             local info = C_Container.GetContainerItemInfo(bag, slot)
             local name = info and info.hyperlink and RC.ItemName(info.hyperlink)
             local lname = name and name:lower()
-            if lname and (want[lname] or (want.healthstone and lname:find("healthstone", 1, true))) then
-                total = total + (info.stackCount or 1)
-                if info.itemID then ids[info.itemID] = true end
+            if lname then
+                wipe(hit)
+                for _, key in ipairs(want[lname] or {}) do hit[key] = true end
+                if anyStone and lname:find("healthstone", 1, true) then for _, key in ipairs(anyStone) do hit[key] = true end end
+                for key in pairs(hit) do
+                    local o = out[key]
+                    o.count = o.count + (info.stackCount or 1)
+                    if info.itemID then o.ids[info.itemID] = true end
+                end
             end
         end
     end
-    return total, ids
+    return out
 end
-local function bagCount(names) return (RC.BagCount(names)) end
+
+-- one list: count, ids
+function RC.BagCount(names)
+    local o = RC.BagCounts({ x = names }).x
+    return o.count, o.ids
+end
 
 local function lowestDurability()
     local low = 100
@@ -163,10 +187,10 @@ function RC:Snapshot()
     elseif GetWeaponEnchantInfo then
         hasMain = GetWeaponEnchantInfo()
     end
+    local bags = RC.BagCounts({ pots = self.POTIONS, hs = { "Healthstone" }, hpots = self.HEALTH_POTIONS })
     return {
         buffs = table.concat(buffs), flask = flask, food = food, weapon = hasMain and 1 or 0,
-        vantus = vantus, weekly = weekly, pots = bagCount(self.POTIONS), hs = bagCount({ "Healthstone" }),
-        hpots = bagCount(self.HEALTH_POTIONS),
+        vantus = vantus, weekly = weekly, pots = bags.pots.count, hs = bags.hs.count, hpots = bags.hpots.count,
         dur = lowestDurability(),
     }
 end
@@ -187,7 +211,7 @@ end
 -- Messaging + collecting
 -- ---------------------------------------------------------------------
 function RC:Send(...)
-    if not ns.InLockdown() and IsInGroup() then ns.SendFields(PREFIX, ...) end
+    if IsInGroup() then ns.SendFields(PREFIX, ...) end
 end
 
 RC.current = nil      -- { id, kind, by, t, reports = { [name] = report }, watching }
@@ -205,7 +229,7 @@ function RC:Init()
     -- the results.
     ns.On("READY_CHECK", function(initiator)
         if not RC:Active() then return end
-        local by = (not bad(initiator) and ns.NormalizeSender(initiator)) or ns.LeaderName() or "?"
+        local by = ns.NormalizeSender(ns.Safe.Text(initiator)) or ns.LeaderName() or "?"
         local check = RC:NewCheck("ready", by)
         check.id = "rc"                     -- everyone uses the same id for a ready check
         RC:Send(encode("rc", check.reports[ns.me]))
@@ -219,12 +243,19 @@ function RC:Init()
     self:HookPull()
 end
 
+-- the raid leader or an assist (only they ask for checks)
+local function leads(name)
+    local unit = ns.UnitForName(name)
+    return unit and (ns.Safe.Call(UnitIsGroupLeader, unit) or ns.Safe.Call(UnitIsGroupAssistant, unit)) and true or false
+end
+
 function RC:OnMessage(text, sender)
     local f = ns.Split(text, SEP)
     local kind, id = f[1], f[2]
+    if not id or id == "" or #id > 40 then return end
     if kind == "Q" then
-        if not self:Active() then return end
-        -- someone (leader/assist) asked: record their check locally and answer
+        if not self:Active() or not leads(sender) then return end
+        -- the leader or an assist asked: record their check locally and answer
         local check = { id = id, kind = f[3] or "manual", by = sender, t = time(), reports = {} }
         check.reports[ns.me] = self:Snapshot()
         self.current = check
@@ -318,8 +349,19 @@ end
 -- ---------------------------------------------------------------------
 -- /pull: check first, then pull (or ask)
 -- ---------------------------------------------------------------------
+RC.SCAN_GAP = 5              -- look for /pull at most this often (addons load in bursts)
+
 function RC:HookPull()
     if self.pullHooked then return end
+    local now = GetTime()
+    if self.scannedAt and now - self.scannedAt < RC.SCAN_GAP then
+        if not self.scanQueued then
+            self.scanQueued = true
+            C_Timer.After(RC.SCAN_GAP - (now - self.scannedAt), function() RC.scanQueued = nil; RC:HookPull() end)
+        end
+        return
+    end
+    self.scannedAt = now
     for key, fn in pairs(SlashCmdList) do
         for i = 1, 12 do
             local cmd = _G["SLASH_" .. key .. i]
@@ -336,6 +378,8 @@ function RC:HookPull()
     end
 end
 
+local function allReady(result) return result.issues == 0 and #result.noReply == 0 end
+
 function RC:OnPull(msg, doPull)
     if not (settings().pullCheck and self:Active() and self:CanLead()) or InCombatLockdown() then
         return doPull()
@@ -346,12 +390,7 @@ function RC:OnPull(msg, doPull)
     C_Timer.After(self.COLLECT_TIME, function()
         RC.pendingPull = nil
         local result = RC:Evaluate(check)
-        if result.issues == 0 and #result.noReply == 0 then
-            doPull()
-        elseif ns.RaidCheckUI then
-            ns.RaidCheckUI:ShowPullAlert(result, msg, doPull)
-        else
-            doPull()
-        end
+        if allReady(result) or not ns.RaidCheckUI then doPull()
+        else ns.RaidCheckUI:ShowPullAlert(result, msg, doPull) end
     end)
 end

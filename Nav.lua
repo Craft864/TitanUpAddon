@@ -266,6 +266,9 @@ function Nav:Place(key)
     if not h then return end
     local x, y = self:Pos()
     local f = h.frame
+    -- a window holding secure buttons (Keystone Roulette's teleports) can't
+    -- be moved in combat; it opens where it last was instead
+    if InCombatLockdown() and f.IsAnchoringRestricted and f:IsAnchoringRestricted() then return end
     f:ClearAllPoints()
     f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x + self:RailWidth(h) - 1, y - self.TITLE_H + 1)
 end
@@ -538,11 +541,6 @@ function Nav:RefreshChrome(h)
     end
 end
 
--- Settings cog in the title bar (kept for callers of the old helper).
-function Nav:AddCog(header, frame, tip, onClick)
-    return header.cog
-end
-
 -- =====================================================================
 -- Home and the minimap button
 -- =====================================================================
@@ -584,14 +582,13 @@ local TILE_W, TILE_H, TILE_GAP = 134, 72, 8
 
 local function myLootToTrade()
     local d = ns.udb and ns.udb.loot
-    local now = (GetServerTime and GetServerTime()) or time()
+    local now = ns.Now()
     local n = 0
     for _, r in pairs(d and d.drops or {}) do
         if r.owner == ns.me and not r.equipped and r.kind == "raid" and now - (r.t or 0) < 7200 then n = n + 1 end
     end
     return n
 end
-Hub.LootToTrade = myLootToTrade
 
 -- One card per thing worth knowing tonight. Each returns its lines:
 -- big number / word, small line, action text; click opens the module.

@@ -235,8 +235,89 @@ function UI.ResizeKeepTab(f, w, h)
 end
 UI.ResizeKeepCorner = UI.ResizeKeepTab
 
--- "Name-Realm" -> "Name"
-function UI.Short(name) return name and (name:match("^[^-]+") or name) end
+-- "Name-Realm" -> "Name" (nil stays nil; ns.Short gives "?")
+function UI.Short(name) return name and ns.Short(name) end
+
+-- a group member's class colour as r, g, b (fr, fg, fb - or white - when unknown)
+function UI.ClassRGB(name, fr, fg, fb)
+    local class = name and ns.ClassOf(name)
+    local cc = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+    if cc then return cc.r, cc.g, cc.b end
+    return fr or 1, fg or 1, fb or 1
+end
+
+-- ---------------------------------------------------------------------
+-- UI.ScrollArea(parent, w, h, step): a clipped view that scrolls with the
+-- mouse wheel, with a draggable scroll bar beside it (shown only when the
+-- content is taller than the view). Anchor sa.view; sa:SetContent(region,
+-- height) puts a region (a frame or a font string inside sa.view) in it.
+-- ---------------------------------------------------------------------
+local Scroll = {}
+Scroll.__index = Scroll
+
+function UI.ScrollArea(parent, w, h, step)
+    local sa = setmetatable({ offset = 0, contentH = 0, viewH = h }, Scroll)
+    local view = CreateFrame("Frame", nil, parent)
+    view:SetSize(w, h)
+    if view.SetClipsChildren then view:SetClipsChildren(true) end
+    view:EnableMouseWheel(true)
+    view:SetScript("OnMouseWheel", function(_, d) sa:ScrollBy(-d * (step or 40)) end)
+    local track = CreateFrame("Frame", nil, parent)
+    track:SetPoint("TOPLEFT", view, "TOPRIGHT", 8, 0)
+    track:SetSize(8, h)
+    track.bg = track:CreateTexture(nil, "BACKGROUND")
+    track.bg:SetAllPoints()
+    track.bg:SetColorTexture(1, 1, 1, 0.06)
+    local thumb = CreateFrame("Button", nil, track)
+    thumb:SetWidth(8)
+    thumb.tex = thumb:CreateTexture(nil, "ARTWORK")
+    thumb.tex:SetAllPoints()
+    thumb.tex:SetColorTexture(C.accent[1], C.accent[2], C.accent[3], 0.7)
+    thumb:RegisterForDrag("LeftButton")
+    thumb:SetScript("OnDragStart", function()
+        local _, cy = GetCursorPosition()
+        local from, start = cy / (UIParent:GetEffectiveScale() or 1), sa.offset
+        thumb:SetScript("OnUpdate", function()
+            local _, ny = GetCursorPosition()
+            ny = ny / (UIParent:GetEffectiveScale() or 1)
+            local span = sa.viewH - (thumb:GetHeight() or 1)
+            if span > 0 then sa:ScrollTo(start + (from - ny) / span * sa:MaxScroll()) end
+        end)
+    end)
+    thumb:SetScript("OnDragStop", function() thumb:SetScript("OnUpdate", nil) end)
+    sa.view, sa.track, sa.thumb = view, track, thumb
+    track:Hide()
+    return sa
+end
+
+function Scroll:SetContent(region, height)
+    self.content, self.contentH = region, height or 0
+    self:ScrollTo(0)
+end
+
+function Scroll:SetViewHeight(h)
+    self.viewH = h
+    self.view:SetHeight(h)
+    self.track:SetHeight(h)
+    self:ScrollTo(self.offset)
+end
+
+function Scroll:MaxScroll() return math.max(0, self.contentH - self.viewH) end
+function Scroll:ScrollBy(d) self:ScrollTo(self.offset + d) end
+
+function Scroll:ScrollTo(v)
+    local max = self:MaxScroll()
+    self.offset = math.max(0, math.min(max, v or 0))
+    local c = self.content
+    if c then c:ClearAllPoints(); c:SetPoint("TOPLEFT", self.view, "TOPLEFT", 0, self.offset) end
+    self.track:SetShown(max > 0)
+    if max > 0 then
+        local th = math.max(24, self.viewH * self.viewH / self.contentH)
+        self.thumb:SetHeight(th)
+        self.thumb:ClearAllPoints()
+        self.thumb:SetPoint("TOP", self.track, "TOP", 0, -((self.viewH - th) * self.offset / max))
+    end
+end
 
 -- a short name in its class colour
 function UI.ClassName(name, class)
@@ -426,6 +507,7 @@ function UI.Prompt(opts)
     dialog = dialog or buildDialog()
     dialog.title:SetText(opts.title or "TitanBoard")
     dialog.help:SetText(opts.help or "")
+    dialog.box:SetMaxLetters(opts.max or 0)             -- 0: no limit
     dialog.box:SetText(opts.text or "")
     dialog.box:SetShown(not opts.noInput)
     dialog.onAccept = opts.onAccept
@@ -434,4 +516,66 @@ function UI.Prompt(opts)
     dialog:Show()
     if not opts.noInput then dialog.box:SetFocus() end
     if opts.select then dialog.box:HighlightText() end
+end
+
+-- ---------------------------------------------------------------------
+-- Toast: a docked pop-up with an icon, a line of text and a row of buttons.
+-- UI.Toast(name, icon, buttons, o): buttons = { { key=, text=, w=, tip=,
+-- click = function(t) }, ... } (each hides the toast, then runs click; the
+-- button is t[key]). o: w, h, y, iconSize, pad, font, silent (no sound),
+-- onClick (the whole toast is a button). t:Pop(text, secs) shows it for
+-- secs seconds; t:Layout() lines up the buttons that are shown.
+-- ---------------------------------------------------------------------
+function UI.Toast(name, icon, buttons, o)
+    o = o or {}
+    local t = CreateFrame(o.onClick and "Button" or "Frame", name, UIParent, "BackdropTemplate")
+    UI.Skin(t, C.bg, C.accent)
+    t:SetSize(o.w or 380, o.h or 74)
+    t:SetPoint("TOP", 0, o.y or -140)
+    t:SetFrameStrata("DIALOG")
+    t:Hide()
+    local size = o.iconSize or 36
+    t.icon = t:CreateTexture(nil, "ARTWORK")
+    if icon then t.icon:SetTexture(icon) end
+    t.icon:SetSize(size, size)
+    t.icon:SetPoint("LEFT", o.pad or 12, 0)
+    t.buttons = {}
+    if buttons and #buttons > 0 then
+        t.text = UI.Text(t, o.font or "GameFontHighlight", nil, nil, "TOPLEFT", t.icon, "TOPRIGHT", 10, 2)
+        t.text:SetPoint("RIGHT", -10, 0)
+    else
+        t.text = UI.Text(t, o.font or "GameFontHighlight", C.text, nil, "LEFT", t.icon, "RIGHT", 8, 0)
+        t.text:SetPoint("RIGHT", -8, 0)
+    end
+    t.text:SetJustifyH("LEFT")
+    for i, spec in ipairs(buttons or {}) do
+        local b = UI.Button(t, spec.w or 70, 22, spec.text, spec.tip, function()
+            t:Hide()
+            if spec.click then spec.click(t) end
+        end)
+        t[spec.key] = b
+        t.buttons[i] = b
+    end
+    if o.onClick then t:SetScript("OnClick", function(s) s:Hide(); o.onClick(s) end) end
+    function t:Layout()
+        local prev
+        for _, b in ipairs(self.buttons) do
+            if b:IsShown() then
+                b:ClearAllPoints()
+                if prev then b:SetPoint("LEFT", prev, "RIGHT", 6, 0) else b:SetPoint("BOTTOMLEFT", self.icon, "BOTTOMRIGHT", 10, -6) end
+                prev = b
+            end
+        end
+    end
+    function t:Pop(text, secs)
+        self.text:SetText(text)
+        self:Layout()
+        self:Show()
+        if not o.silent and PlaySound and SOUNDKIT and SOUNDKIT.TELL_MESSAGE then PlaySound(SOUNDKIT.TELL_MESSAGE) end
+        local token = {}
+        self.token = token
+        C_Timer.After(secs or 20, function() if self.token == token then self:Hide() end end)
+    end
+    ns.Dock:Add(t)                  -- stacks with the other pop-ups
+    return t
 end

@@ -25,8 +25,16 @@ ns.PullReport = PR
 local PREFIX = "TitanUpPR"
 local CHUNK = 200
 local MAX_HITS = 5
+local STALE = 15 * 60          -- a pull still open after this long was cut off (a /reload, a disconnect)
 
 local function db() return ns.udb.pullReport end
+local heroicOrMythic = ns.RaidCheck.HeroicOrMythic
+
+-- the windows redraw only while they're showing (they redraw when opened)
+local function refreshUI()
+    local V = ns.PullReportUI
+    if V and V:IsShown() then V:Refresh() end
+end
 
 -- ---------------------------------------------------------------------
 -- Session (tonight's pulls)
@@ -59,7 +67,12 @@ function PR:Init()
         if PR.outbox then C_Timer.After(1, function() PR:Flush() end) end
         if PR.wipeOut then C_Timer.After(1.5, function() PR:FlushWipe() end) end
     end)
+    -- your defensive lists change only with spells, spec or talents
+    for _, ev in ipairs({ "SPELLS_CHANGED", "PLAYER_SPECIALIZATION_CHANGED", "TRAIT_CONFIG_UPDATED" }) do
+        ns.On(ev, function() PR.cdCache = nil end)
+    end
     ns.Listen(PREFIX, "group", function(msg, sender) PR:OnMessage(msg, sender) end)
+    self:CloseStale()
 end
 
 -- ---------------------------------------------------------------------
@@ -71,9 +84,16 @@ local function known(id)
     return false
 end
 
+-- the spec functions moved to C_SpecializationInfo (11.2); old globals as fallback
+local function spec(fn, ...)
+    local f = (C_SpecializationInfo and C_SpecializationInfo[fn]) or _G[fn]
+    if f then return f(...) end
+end
+
 function PR.IsTank()
-    local spec = GetSpecialization and GetSpecialization()
-    local role = spec and GetSpecializationRole and GetSpecializationRole(spec)
+    local index = ns.Safe.Num(spec("GetSpecialization"))
+    local role = index and ns.Safe.Text(spec("GetSpecializationRole", index))
+    if not role then role = ns.Safe.Text(UnitGroupRolesAssigned and UnitGroupRolesAssigned("player")) end    -- spec unknown: the group role
     return role == "TANK"
 end
 
@@ -135,6 +155,24 @@ function PR.ScanOtherCooldowns(defs)
     return out
 end
 
+-- The two lists above, worked out once and kept until your spells, spec or
+-- talents change (not rescanned at every pull).
+function PR:Cooldowns()
+    if not self.cdCache then
+        local defs = self.ResolveDefensives()
+        self.cdCache = { defs = defs, others = self.ScanOtherCooldowns(defs) }
+    end
+    return self.cdCache.defs, self.cdCache.others
+end
+
+-- a cooldown's start / duration says it's done (nil when the game hides them)
+local function cdDone(start, dur)
+    if type(dur) ~= "number" or ns.IsSecret(dur) then return nil end
+    if dur == 0 or dur <= 1.5 then return true end
+    if type(start) ~= "number" or ns.IsSecret(start) then return nil end
+    return start + dur <= GetTime() + 0.05
+end
+
 -- Ready right now? true / false, or nil when the game won't say.
 -- Like the analysis recorders that work in Midnight: the cooldown's
 -- isActive / isOnGCD flags (still readable when the start time and duration
@@ -152,20 +190,12 @@ function PR.Ready(id)
         return (not cd.isActive) or (cd.isOnGCD == true)
     end
     -- older clients without the flags: work it out from the timings
-    local start, dur = cd.startTime, cd.duration
-    if ns.IsSecret(start) or ns.IsSecret(dur) or type(dur) ~= "number" then return nil end
-    if dur == 0 or dur <= 1.5 then return true end
-    return (start + dur) <= GetTime() + 0.05
+    return cdDone(cd.startTime, cd.duration)
 end
-
-local bagItems = ns.RaidCheck.BagCount
 
 local function itemReady(ids)
     for id in pairs(ids) do
-        local start, dur = C_Container.GetItemCooldown(id)
-        if type(start) == "number" and type(dur) == "number" and not ns.IsSecret(dur) then
-            if dur == 0 or dur <= 1.5 or start + dur <= GetTime() + 0.05 then return true end
-        end
+        if cdDone(C_Container.GetItemCooldown(id)) then return true end
     end
     return false
 end
@@ -176,8 +206,8 @@ D.HEALTH_POTION_SPELL = 1295247
 D.HEALTHSTONE_SPELL, D.DEMONIC_HEALTHSTONE_SPELL, D.DEMONIC_TALENT = 6262, 452930, 386689
 
 function PR.Consumables()
-    local pc, pids = bagItems(D.HEALTH_POTIONS)
-    local hc, hids = bagItems(D.HEALTHSTONES)
+    local bags = ns.RaidCheck.BagCounts({ p = D.HEALTH_POTIONS, h = D.HEALTHSTONES })      -- one pass over the bags
+    local pc, pids, hc, hids = bags.p.count, bags.p.ids, bags.h.count, bags.h.ids
     local function ready(count, spell, ids)
         if count <= 0 then return false end
         local r = PR.Ready(spell)
@@ -203,24 +233,57 @@ function PR:OnEncounterStart(id, name, diff, size)
     pull.leader = ns.LeaderName() or ns.me
     table.insert(s.pulls, pull)
     self.current, self.mine, self.auraSeen = pull, {}, {}
-    self.defs = self.ResolveDefensives()
-    self.others = self.ScanOtherCooldowns(self.defs)
+    self.defs, self.others = self:Cooldowns()
     self:WatchAuras(true)
     self:SampleHealth(true)
-    -- cast history: when each defensive / big cooldown was used / became ready again
-    self.history = {}
+    -- cast history: when each defensive / big cooldown was used / became ready
+    -- again; watch = the ones still on cooldown (only those are checked)
+    self.history, self.watch = {}, {}
     for _, list in ipairs({ self.defs, self.others }) do
-        for _, dft in ipairs(list) do self.history[dft.name] = { since = (PR.Ready(dft.id) == true) and 0 or nil } end
+        for _, dft in ipairs(list) do
+            local ready = PR.Ready(dft.id) == true
+            self.history[dft.name] = { since = ready and 0 or nil }
+            if not ready then self.watch[dft.name] = dft end
+        end
     end
     self:WatchCasts(true)
 end
 
+local function resultOf(success)
+    if ns.IsSecret(success) or success == nil then return nil end
+    return (success == 1 or success == true) and "kill" or "wipe"
+end
+
+-- A pull cut off by a /reload or a disconnect never got its end. The boss
+-- that just ended (enc) closes its pull; anything else left open for 15
+-- minutes is closed as "?" - so nothing stays "In progress" forever, and
+-- what counts is kept for the Raid Scorecard.
+function PR:CloseStale(enc, success)
+    local now, pulls = ns.Now(), self:Session().pulls
+    for i = #pulls, 1, -1 do
+        local p = pulls[i]
+        if not p.result and p ~= self.current then
+            local this = enc and p.enc == enc
+            if this or now - (p.start or now) > STALE then
+                p.result = this and resultOf(success) or "?"
+                p.dur = p.dur or (this and now - p.start) or nil
+                p.t0 = nil
+                if this then enc = nil end                          -- (one pull per boss end)
+                self:Archive(p)
+            end
+        end
+    end
+end
+
 function PR:OnEncounterEnd(id, name, diff, size, success)
     local pull = self.current
-    if not pull then return end
+    if not pull then
+        self:CloseStale(not ns.IsSecret(id) and id or nil, success)
+        return refreshUI()
+    end
     pull.dur = GetTime() - pull.t0
     pull.t0 = nil
-    if not ns.IsSecret(success) then pull.result = (success == 1 or success == true) and "kill" or "wipe" end
+    pull.result = resultOf(success) or "?"                       -- (the game can hide the outcome)
     self.current = nil
     self:WatchAuras(false)
     self:SampleHealth(false)
@@ -233,7 +296,7 @@ function PR:OnEncounterEnd(id, name, diff, size, success)
         for i = #s.pulls, 1, -1 do if s.pulls[i] == pull then table.remove(s.pulls, i) end end
         s.short = (s.short or 0) + 1
         self.mine, self.pendingSummary = nil, nil
-        if ns.RaidScorecard and ns.RaidScorecard.CountShort and (pull.diff == 15 or pull.diff == 16) then
+        if ns.RaidScorecard and ns.RaidScorecard.CountShort and heroicOrMythic(pull.diff) then
             ns.RaidScorecard:CountShort(pull)
         end
         local V = ns.PullReportUI
@@ -249,7 +312,9 @@ function PR:OnEncounterEnd(id, name, diff, size, success)
         C_Timer.After(1, function() PR:ShowSummary(rec) end)       -- held back for a battle rez: shown once, now
     end
     if self.mine and #self.mine > 0 then
-        self.outbox = { key = pull.enc .. ":" .. pull.start, recs = self.mine }
+        -- (a list: an earlier pull's records may still be waiting to go out)
+        self.outbox = self.outbox or {}
+        table.insert(self.outbox, { key = pull.enc .. ":" .. pull.start, recs = self.mine })
         if not InCombatLockdown() then C_Timer.After(1, function() PR:Flush() end) end
     end
     self.mine = nil
@@ -296,7 +361,7 @@ end
 
 function PR.ReadRecap(window)
     local events = recapEvents()
-    if not events or events[1].overkill == -1 then return {} end              -- none, or no real death entry
+    if not events or ns.Safe.Num(events[1].overkill) == -1 then return {} end   -- none, or no real death entry
     local hits, last = {}, nil
     for _, e in ipairs(events) do
         local ts, amt = e.timestamp, e.amount
@@ -369,7 +434,7 @@ function PR:Snapshot(kind, saver)
         C_Timer.After(0.5, fill)
         C_Timer.After(1.5, fill)
         if db().personal then
-            rec.health = self:HealthStrip()
+            PR.healthFor[rec] = self:HealthStrip()
             if PR.BattleRezReady() then
                 self.pendingSummary = rec                                -- a rez may be coming: show it when the pull ends
             else
@@ -404,7 +469,11 @@ end
 
 -- Your health over the last few seconds (only while a raid boss is engaged
 -- AND your death summary is on): sampled 10x a second into a short buffer.
+-- A death's strip is kept beside its record, never in saved data (the
+-- readings can be hidden values, which mustn't be saved; it's only for the
+-- summary shown right away).
 local SAMPLES = 60
+PR.healthFor = setmetatable({}, { __mode = "k" })
 function PR:SampleHealth(on)
     if self.healthTicker then self.healthTicker:Cancel(); self.healthTicker = nil end
     self.hp, self.hpAt = {}, 0
@@ -478,18 +547,25 @@ function PR:OnCast(unit, castGUID, spellID)
             if dft.id == spellID or (base and dft.id == base) then
                 local h = self.history[dft.name]
                 h.used, h.since = self:FightTime(), nil
+                self.watch[dft.name] = dft                          -- on cooldown again: watch it
             end
         end
     end
 end
 
+-- Cooldown updates come several times a second in a fight: checked at
+-- most 4 times a second, and only for what's still on cooldown.
 function PR:OnCooldowns()
-    if not (self.current and self.history) then return end
-    for _, list in ipairs({ self.defs or {}, self.others or {} }) do
-        for _, dft in ipairs(list) do
-            local h = self.history[dft.name]
-            if h and not h.since and PR.Ready(dft.id) == true then h.since = self:FightTime() end
-        end
+    if not (self.current and self.watch and next(self.watch)) then return end
+    ns.Debounce("pullreport-cooldowns", 0.25, function() PR:CheckCooldowns() end)
+end
+
+function PR:CheckCooldowns()
+    if not (self.current and self.history and self.watch) then return end
+    for name, dft in pairs(self.watch) do
+        local h = self.history[name]
+        if not h or h.since then self.watch[name] = nil
+        elseif PR.Ready(dft.id) == true then h.since = self:FightTime(); self.watch[name] = nil end
     end
 end
 
@@ -499,9 +575,17 @@ function PR:WatchAuras(on)
     if not list then return end
     if not self.auraFrame then
         self.auraFrame = CreateFrame("Frame")
-        self.auraFrame:SetScript("OnEvent", function() PR:CheckAuras() end)
+        self.auraFrame:SetScript("OnEvent", function(_, _, _, info) if PR.AuraNews(info) then PR:CheckAuras() end end)
     end
     if on then self.auraFrame:RegisterUnitEvent("UNIT_AURA", "player") else self.auraFrame:UnregisterAllEvents() end
+end
+
+-- an aura update that added or removed something (or a full update) -
+-- the others (durations, stacks) can't start or end a cheat-death
+function PR.AuraNews(info)
+    if type(info) ~= "table" or ns.IsSecret(info.isFullUpdate) or info.isFullUpdate then return true end
+    local added, removed = info.addedAuras, info.removedAuraInstanceIDs
+    return (type(added) == "table" and #added > 0) or (type(removed) == "table" and #removed > 0) or false
 end
 
 local function hasAura(name)
@@ -522,16 +606,50 @@ function PR:CheckAuras()
     end
 end
 
+-- A real death in your group, from UNIT_DIED (Death Alerts uses it too):
+-- fn(unit, fullName, class, isMe). Feign Death fires UNIT_DIED as well, so
+-- the unit must really be dead; if the game hides that, it's asked again
+-- half a second later (still hidden: counted as a death).
+local function unitForGUID(guid)
+    if UnitTokenFromGUID then
+        local u = ns.Safe.Text(UnitTokenFromGUID(guid))
+        if u then return u end
+    end
+    if UnitGUID("player") == guid then return "player" end
+    for _, u in ipairs(ns.GroupUnits()) do
+        if UnitGUID(u) == guid then return u end
+    end
+end
+
+function PR.GroupDeath(guid, fn)
+    if not guid or ns.IsSecret(guid) then return end
+    local unit = unitForGUID(guid)
+    if not unit then return end
+    local isMe = ns.Safe.Bool(UnitIsUnit(unit, "player")) or false
+    if not isMe and not (ns.Safe.Call(UnitInParty, unit) or ns.Safe.Call(UnitInRaid, unit)) then return end
+    local function check(final)
+        local dead = UnitIsDead(unit)
+        if ns.IsSecret(dead) then
+            if not final then return C_Timer.After(0.5, function() check(true) end) end
+            dead = true                                              -- still can't tell: a real death
+        end
+        if not dead then return end                                  -- Feign Death
+        local name = ns.FullName(unit)
+        if name then fn(unit, name, ns.Safe.Class(unit), isMe) end
+    end
+    check(false)
+end
+
 -- Deaths of raiders without Titan Up (shown as "no data" until a report arrives)
 function PR:OnUnitDied(guid)
     local pull = self.current
-    if not pull or not guid or ns.IsSecret(guid) then return end
-    local unit = UnitTokenFromGUID and UnitTokenFromGUID(guid)
-    if not ns.Safe.Text(unit) or ns.Safe.Bool(UnitIsUnit(unit, "player")) then return end
-    if not (ns.Safe.Call(UnitInRaid, unit) or ns.Safe.Call(UnitInParty, unit)) then return end
-    local name = ns.FullName(unit)
-    if not name then return end
-    self:AddDeath(pull, name, { kind = "death", ft = GetTime() - (pull.t0 or GetTime()), nodata = true, class = ns.Safe.Class(unit) })
+    if not pull then return end
+    local ft = GetTime() - (pull.t0 or GetTime())
+    PR.GroupDeath(guid, function(_, name, class, isMe)
+        if isMe then return end                                      -- your own: PLAYER_DEAD records it
+        PR:AddDeath(pull, name, { kind = "death", ft = ft, nodata = true, class = class })
+        refreshUI()
+    end)
 end
 
 -- One row per death; a report replaces a "no data" row for the same person.
@@ -552,7 +670,7 @@ end
 
 -- Heroic / Mythic raid pulls are kept for the Raid Scorecard
 function PR:Archive(pull)
-    if not (pull.diff == 15 or pull.diff == 16) then return end
+    if not heroicOrMythic(pull.diff) then return end
     if ns.RaidScorecard and ns.RaidScorecard.Store then ns.RaidScorecard:Store(pull) end
 end
 
@@ -593,7 +711,7 @@ function PR:MarkWipe(pull, ft)
     self:Archive(pull)
     self.wipeOut = ("W^%s^%s"):format(pull.enc .. ":" .. pull.start, ft and ("%.1f"):format(ft) or "-")
     self:FlushWipe()
-    if ns.PullReportUI then ns.PullReportUI:Refresh() end
+    refreshUI()
 end
 
 function PR:FlushWipe()
@@ -666,17 +784,20 @@ function PR.Decode(s)
              cds = PR.DecodeCds(f[14]), unknown = list(f[15]), other = list(f[16]) }
 end
 
+--   R key idx part n chunk   one record (idx) of a pull (key), in parts
+--   W key ft                 the raid leader's wipe call ("-" = removed)
 function PR:Flush()
-    local box = self.outbox
-    if not box or ns.Busy() then return end
+    local boxes = self.outbox
+    if not boxes or InCombatLockdown() then return end              -- (sent after combat; ns.Send holds them through a boss fight)
     local ch = ns.DataChannel()
     self.outbox = nil
     if not ch then return end
-    for i, rec in ipairs(box.recs) do
-        local payload = PR.Encode(rec)
-        local n = math.ceil(#payload / CHUNK)
-        for p = 1, n do
-            ns.Send(PREFIX, ("R^%s^%d^%d^%d^%s"):format(box.key, i, p, n, payload:sub((p - 1) * CHUNK + 1, p * CHUNK)), ch)
+    for _, box in ipairs(boxes) do
+        for i, rec in ipairs(box.recs) do
+            local parts = ns.Chunks(PR.Encode(rec), CHUNK)
+            for p, chunk in ipairs(parts) do
+                ns.Send(PREFIX, ("R^%s^%d^%d^%d^%s"):format(box.key, i, p, #parts, chunk), ch)
+            end
         end
     end
 end
@@ -689,28 +810,21 @@ function PR:OnMessage(msg, sender)
         if p and p.leader == sender then
             p.wipeAt = tonumber(wft)
             self:Archive(p)
-            if ns.PullReportUI then ns.PullReportUI:Refresh() end
+            refreshUI()
         end
         return
     end
-    local kind, key, idx, part, n, chunk = msg:match("^(R)%^([%d:]+)%^(%d+)%^(%d+)%^(%d+)%^(.*)$")
-    if not kind then return end
-    idx, part, n = tonumber(idx), tonumber(part), tonumber(n)
+    local key, idx, part, n, chunk = msg:match("^R%^([%d:]+)%^(%d+)%^(%d+)%^(%d+)%^(.*)$")
+    if not key then return end
     self.inbox = self.inbox or {}
-    for k, b in pairs(self.inbox) do if GetTime() - b.at > 60 then self.inbox[k] = nil end end   -- never finished
-    local id = sender .. "|" .. key .. "|" .. idx
-    local box = self.inbox[id] or { parts = {}, got = 0, at = GetTime() }
-    self.inbox[id] = box
-    if not box.parts[part] then box.parts[part] = chunk; box.got = box.got + 1 end
-    if box.got < n then return end
-    self.inbox[id] = nil
-    local rec = PR.Decode(table.concat(box.parts))
+    local text = ns.Reassemble(self.inbox, sender .. "|" .. key .. "|" .. idx, part, n, chunk, 40)
+    local rec = text and PR.Decode(text)
     if not rec then return end
     local enc, start = key:match("^(%d+):(%d+)$")
     local pull = self:FindPull(tonumber(enc), tonumber(start))
     if not pull then return end
     self:AddDeath(pull, sender, rec)
-    if ns.PullReportUI then ns.PullReportUI:Refresh() end
+    refreshUI()
 end
 
 -- the same pull on everyone's machine: same boss, started within 20 seconds
@@ -982,8 +1096,8 @@ function V:Refresh()
     local s = PR:Session()
     -- pulls
     self.empty:SetShown(#s.pulls == 0)
-    local short = s.short or 0
-    self.shortText:SetText(short > 0 and ("%d short pull%s not counted"):format(short, short == 1 and "" or "s") or "")
+    local nShort = s.short or 0
+    self.shortText:SetText(nShort > 0 and ("%d short pull%s not counted"):format(nShort, nShort == 1 and "" or "s") or "")
     for i, r in ipairs(self.pullRows) do
         local p = s.pulls[#s.pulls - i + 1]               -- newest first
         r.pull = p
@@ -1180,7 +1294,7 @@ function PR:ShowSummary(rec)
     if type(bodyH) ~= "number" or bodyH <= 0 then bodyH = 14 * 12 end
     f.strip:ClearAllPoints()
     f.strip:SetPoint("TOPLEFT", f.body, "BOTTOMLEFT", 0, -10)
-    local hp = rec.health
+    local hp = PR.healthFor[rec]
     f.strip:SetShown(hp ~= nil)
     f.stripLabel:SetShown(hp ~= nil)
     f.noHealth:ClearAllPoints()

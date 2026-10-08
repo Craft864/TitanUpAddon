@@ -4,7 +4,7 @@
 -- permissions and slash commands; every module hangs off the shared `ns`.
 local ADDON, ns = ...
 
-ns.VERSION = "0.31.1"
+ns.VERSION = "0.32.0"
 ns.PREFIX = "TitanBoard"     -- board sync channel (unchanged, so it stays compatible)
 ns.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 ns.U = 4095            -- board coordinates run 0..4095 on both axes
@@ -18,24 +18,30 @@ ns.Core = Core
 local handlers = {}
 
 -- Event registration can't break startup: an event the game no longer
--- has is skipped (noted for /tu debug) instead of throwing.
-ns.skippedEvents = {}
+-- has is skipped instead of throwing.
 function ns.On(event, fn)
     if not handlers[event] then
         handlers[event] = {}
-        local ok = pcall(Core.RegisterEvent, Core, event)
-        if not ok then ns.skippedEvents[#ns.skippedEvents + 1] = event end
+        pcall(Core.RegisterEvent, Core, event)
     end
     table.insert(handlers[event], fn)
+end
+
+-- ns.Try(fn, ...): run fn; an error goes to the error handler and the caller
+-- carries on. In game, xpcall passes the arguments on and reports the
+-- failing handler's own stack; plain Lua 5.1 (the test harness) can't.
+local XPCALL_ARGS = select(2, xpcall(function(a) return a end, function() end, true)) == true
+function ns.Try(fn, ...)
+    if XPCALL_ARGS then return xpcall(fn, geterrorhandler(), ...) end
+    local ok, err = pcall(fn, ...)
+    if not ok then geterrorhandler()(err) end
+    return ok
 end
 
 Core:SetScript("OnEvent", function(_, event, ...)
     local list = handlers[event]
     if not list then return end
-    for i = 1, #list do
-        local ok, err = pcall(list[i], ...)
-        if not ok then geterrorhandler()(err) end
-    end
+    for i = 1, #list do ns.Try(list[i], ...) end
 end)
 
 -- ---------------------------------------------------------------------
@@ -247,18 +253,27 @@ end
 
 -- ---------------------------------------------------------------------
 -- Sending: one small queue per message prefix (each feature has its own
--- prefix, and WoW limits each prefix separately). A burst goes straight
--- out; beyond that, messages wait their turn (~2 a second). If WoW says a
--- message was throttled, it's put back and retried after a short pause
--- instead of being lost. A timer runs only while something is waiting.
+-- prefix, and WoW limits each prefix separately: a burst of 10, then about
+-- one a second). A burst goes straight out; beyond that, messages wait
+-- their turn. If WoW says a message was throttled, it's put back and
+-- retried after a short pause instead of being lost. During a boss fight
+-- the game refuses addon messages, so the queue holds them until the fight
+-- ends. A timer runs only while something is waiting.
 -- ---------------------------------------------------------------------
-local SEND_BURST, SEND_RATE = 10, 2
+local SEND_BURST, SEND_RATE, QUEUE_MAX = 10, 1, 200
 local sendQ = {}
 local sendTicker
 
-local function throttled(r)
+-- ns.TrySend(prefix, msg, channel, target): one addon message straight out.
+-- true when sent, "throttle" when the server asked to slow down, false
+-- when it failed for good (a bad message).
+function ns.TrySend(prefix, msg, channel, target)
+    local ok, r = pcall(C_ChatInfo.SendAddonMessage, prefix, msg, channel, target)
+    if not ok then return false end
     local R = Enum and Enum.SendAddonMessageResult
-    return r == false or (R and type(r) == "number" and (r == R.AddonMessageThrottle or r == R.ChannelThrottle))
+    if r == false or (R and type(r) == "number" and (r == R.AddonMessageThrottle or r == R.ChannelThrottle)) then return "throttle" end
+    if r == nil or r == true or (R and r == R.Success) or not R then return true end
+    return false
 end
 
 local function queueFor(prefix)
@@ -270,17 +285,17 @@ local function queueFor(prefix)
     return q
 end
 
-local function attempt(prefix, item)
-    local ok, r = pcall(C_ChatInfo.SendAddonMessage, prefix, item[1], item[2], item[3])
-    if not ok then return true end                       -- a bad message: drop it rather than loop
-    return not throttled(r)
-end
+-- false only when throttled (a message that failed for good is dropped rather than retried)
+local function attempt(prefix, item) return ns.TrySend(prefix, item[1], item[2], item[3]) ~= "throttle" end
+
+local function ready(q) return #q.items > 0 and q.tokens >= 1 and GetTime() >= (q.pauseUntil or 0) end
 
 local function pump()
     local waiting = false
+    local held = ns.InLockdown()
     for prefix, q in pairs(sendQ) do
         queueFor(prefix)
-        while #q.items > 0 and q.tokens >= 1 and GetTime() >= (q.pauseUntil or 0) do
+        while not held and ready(q) do
             if attempt(prefix, q.items[1]) then
                 table.remove(q.items, 1)
                 q.tokens = q.tokens - 1
@@ -298,34 +313,107 @@ function ns.Send(prefix, msg, channel, target)
     if not (prefix and msg and channel) then return false end
     local q = queueFor(prefix)
     local item = { msg, channel, target }
-    if #q.items == 0 and q.tokens >= 1 and GetTime() >= (q.pauseUntil or 0) then
+    if #q.items == 0 and not ns.InLockdown() and q.tokens >= 1 and GetTime() >= (q.pauseUntil or 0) then
         if attempt(prefix, item) then q.tokens = q.tokens - 1 return true end
         q.tokens, q.pauseUntil = 0, GetTime() + 1
     end
+    if #q.items >= QUEUE_MAX then table.remove(q.items, 1) end      -- never grows without limit
     q.items[#q.items + 1] = item
     if not sendTicker then sendTicker = C_Timer.NewTicker(0.25, pump) end
     return true
 end
 
--- fields joined with "^", to your guild's channel (nothing without a guild)
+-- Fields joined with "^", to your guild's channel (nothing without a guild).
+-- A nil field is sent empty, so fields added at the end stay in place.
+function ns.Join(...)
+    local n = select("#", ...)
+    local t = {}
+    for i = 1, n do
+        local v = select(i, ...)
+        t[i] = v == nil and "" or tostring(v)
+    end
+    return table.concat(t, "^")
+end
+
 function ns.SendFields(prefix, ...)
     local ch = ns.DataChannel()
-    if ch then ns.Send(prefix, table.concat({ ... }, "^"), ch) end
+    if ch then ns.Send(prefix, ns.Join(...), ch) end
     return ch ~= nil
 end
 
+-- Long messages go out in numbered parts: ns.Chunks splits, and
+-- ns.Reassemble(inbox, key, part, n, chunk, maxParts) collects them and
+-- returns the whole text once every part is in. A message whose parts
+-- stop arriving for a minute is dropped; bad part numbers are ignored.
+function ns.Chunks(s, size)
+    local out = {}
+    for i = 1, math.max(1, math.ceil(#s / size)) do out[i] = s:sub((i - 1) * size + 1, i * size) end
+    return out
+end
+
+function ns.Reassemble(inbox, key, part, n, chunk, maxParts)
+    part, n = tonumber(part), tonumber(n)
+    if not (part and n and n >= 1 and n <= (maxParts or 400) and part >= 1 and part <= n
+            and part % 1 == 0 and n % 1 == 0) then return end
+    local now = GetTime()
+    for k, b in pairs(inbox) do if now - b.at > 60 then inbox[k] = nil end end
+    local box = inbox[key]
+    if not box or box.n ~= n then box = { parts = {}, got = 0, n = n } inbox[key] = box end
+    box.at = now                    -- each part restarts the clock, so slow long messages still finish
+    if not box.parts[part] then box.parts[part] = chunk; box.got = box.got + 1 end
+    if box.got < n then return end
+    inbox[key] = nil
+    return table.concat(box.parts)
+end
+
+-- Player text that goes into a message: separators, escape codes and
+-- control characters removed, cut to max bytes without splitting a letter.
+function ns.Truncate(s, max)
+    if not max or #s <= max then return s end
+    local cut = max
+    while cut > 0 and (s:byte(cut + 1) or 0) >= 0x80 and (s:byte(cut + 1) or 0) < 0xC0 do cut = cut - 1 end
+    return s:sub(1, cut)
+end
+
+function ns.CleanField(s, max, extra)
+    s = tostring(s or ""):gsub("[%c%^|]", "")
+    if extra then s = s:gsub(extra, "") end
+    return ns.Truncate(s, max)
+end
+
+-- ns.Debounce(key, delay, fn): run fn once, delay seconds after the first
+-- call; more calls in between are folded into that one run.
+local debounced = {}
+function ns.Debounce(key, delay, fn)
+    if debounced[key] then return end
+    debounced[key] = true
+    C_Timer.After(delay, function() debounced[key] = nil; fn() end)
+end
+
+function ns.Now() return (GetServerTime and GetServerTime()) or time() end
+
 -- ns.Listen(prefix, scope, fn): fn(msg, sender, channel) for each readable
 -- message on prefix from a guildmate - in your group if scope is "group"
--- (scope can also be a function of the message) - never your own.
+-- (scope can also be a function of the message; nil from it ignores the
+-- message) - never your own. One event handler serves every prefix.
+local listeners = {}
 function ns.Listen(prefix, scope, fn)
     C_ChatInfo.RegisterAddonMessagePrefix(prefix)
-    ns.On("CHAT_MSG_ADDON", function(p, msg, channel, sender)
-        if p ~= prefix or ns.IsSecret(msg) then return end
-        sender = ns.NormalizeSender(sender)
-        if not sender or sender == ns.me then return end
-        if not ns.AcceptAddon(channel, sender, type(scope) == "function" and scope(msg) or scope) then return end
-        fn(msg, sender, channel)
-    end)
+    if not next(listeners) then
+        ns.On("CHAT_MSG_ADDON", function(p, msg, channel, sender)
+            local list = listeners[p]
+            if not list or ns.IsSecret(msg) then return end
+            sender = ns.NormalizeSender(sender)
+            if not sender or sender == ns.me then return end
+            for _, l in ipairs(list) do
+                local sc = l.scope
+                if type(sc) == "function" then sc = sc(msg) end
+                if sc and ns.AcceptAddon(channel, sender, sc) then ns.Try(l.fn, msg, sender, channel) end
+            end
+        end)
+    end
+    listeners[prefix] = listeners[prefix] or {}
+    table.insert(listeners[prefix], { scope = scope, fn = fn })
 end
 
 -- A "[Titan Up] ..." line in party / raid chat.
@@ -452,22 +540,36 @@ function ns.DataChannel()
     return nil
 end
 
--- Fast "is this person in my party/raid" (rebuilt on roster changes, and
--- at most once a second on a miss in case an update is still pending).
-local groupSet, groupBuilt, groupCount = {}, -10, -1
-local function rebuildGroup()
-    wipe(groupSet)
-    for _, n in ipairs(ns.GroupNames()) do groupSet[n] = true end
-    groupBuilt = GetTime()
-    groupCount = GetNumGroupMembers()
+-- The roster cache: who's in your group, which unit each name is, who
+-- leads, and each player's class. Rebuilt on the first lookup after a
+-- roster change (or if the group size changed, or after 2 seconds), so the
+-- board, lasers and lists never rescan the raid per frame or per row.
+local roster = { units = {}, built = -10, count = -1 }
+local classOf = {}                       -- name -> class token (a class never changes)
+ns.On("GROUP_ROSTER_UPDATE", function() roster.built = -10 end)
+ns.On("PARTY_LEADER_CHANGED", function() roster.built = -10 end)
+local function fresh()
+    local now = GetTime()
+    if now - roster.built < 2 and GetNumGroupMembers() == roster.count then return roster end
+    wipe(roster.units)
+    roster.leader = nil
+    for _, unit in ipairs(ns.GroupUnits()) do
+        if UnitExists(unit) then
+            local n = ns.FullName(unit)
+            if n then
+                roster.units[n] = unit
+                if not classOf[n] then classOf[n] = ns.Safe.Class(unit) end
+                if UnitIsGroupLeader(unit) then roster.leader = n end
+            end
+        end
+    end
+    roster.built, roster.count = now, GetNumGroupMembers()
+    return roster
 end
-ns.On("GROUP_ROSTER_UPDATE", function() groupBuilt = -10 end)
+
 function ns.InMyGroup(name)
     if not name then return false end
-    if groupSet[name] and GetTime() - groupBuilt < 30 then return true end
-    -- miss: rebuild if the group changed size, or at most once a second
-    if GetTime() - groupBuilt >= 1 or GetNumGroupMembers() ~= groupCount then rebuildGroup() end
-    return groupSet[name] == true
+    return fresh().units[name] ~= nil
 end
 
 -- Every Titan Up message handler checks this first.
@@ -541,21 +643,22 @@ function ns.GroupNames()
 end
 
 function ns.UnitForName(full)
-    for _, unit in ipairs(ns.GroupUnits()) do
-        if UnitExists(unit) and ns.FullName(unit) == full then return unit end
-    end
+    if not full then return nil end
+    return fresh().units[full]
 end
 
 function ns.ClassOf(full)
+    if not full then return nil end
+    if classOf[full] then return classOf[full] end
     local unit = (full == ns.me) and "player" or ns.UnitForName(full)
-    if unit then return ns.Safe.Class(unit) end
+    local c = unit and ns.Safe.Class(unit)
+    classOf[full] = c
+    return c
 end
 
 function ns.LeaderName()
     if not IsInGroup() then return ns.me end
-    for _, unit in ipairs(ns.GroupUnits()) do
-        if UnitExists(unit) and UnitIsGroupLeader(unit) then return ns.FullName(unit) end
-    end
+    return fresh().leader
 end
 
 -- The "owner" answers snapshot requests and is the authority on the
@@ -703,6 +806,11 @@ local function guildCheck(final)
             ns.Print(("Joined <%s> - Titan Up now syncs with your guild."):format(name))
         end
         toldNoGuild = false
+        local canSpeak = C_GuildInfo and C_GuildInfo.CanSpeakInGuildChat
+        if canSpeak and not ns._toldMuted and ns.Safe.Call(canSpeak) == false then
+            ns._toldMuted = true
+            ns.Print("Your guild rank can't talk in guild chat, so Titan Up probably can't sync with your guild (board, games, checks). Ask an officer if that's not intended.")
+        end
         return true
     end
     if ok == nil and not final then return false end       -- guild info still loading
@@ -747,7 +855,7 @@ local HELP = {
     "/tb ids - print the instance/encounter IDs of the current board (for custom room images)",
     "/tb ids all - list every boss in the current instance with its encounter ID",
     "/tb testroom - toggle the sample custom room image on the current board",
-    "/tb rate <n> - messages per second the send queue refills (default 1)",
+    "/tb rate <n> - messages per second the send queue refills (0.2 to 5, default 1)",
     "/tb debug - toggle debug output",
 }
 
@@ -836,7 +944,8 @@ SlashCmdList.TITANBOARD = function(msg)
         ns.Board:RenderAll()
     elseif cmd == "rate" then
         local n = tonumber(arg)
-        if n and n > 0 then
+        if n and n == n then                                         -- (n == n is false for nan)
+            n = math.max(0.2, math.min(5, n))
             ns.db.settings.rate = n
             ns.Print("Send rate set to " .. n .. " msg/s.")
         else

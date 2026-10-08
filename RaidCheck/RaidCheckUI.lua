@@ -40,8 +40,9 @@ function V:CloseAll()
     if self.alert and self.alert:IsShown() then self.alert.doPull = nil; self.alert:Hide() end
     if self.frame and self.frame:IsShown() then self.frame:Hide() end
 end
+-- reports arrive in a burst on a ready check: redraw once for the lot
 function V:OnReport()
-    if self:IsShown() then self:Refresh() end
+    ns.Debounce("raidcheck-report", 0.2, function() if V:IsShown() then V:Refresh() end end)
 end
 
 local function makeRow(parent, y, x)
@@ -124,9 +125,8 @@ end
 
 function V:Refresh()
     if not self.frame then return end
-    local s = ns.udb.raidcheck
-    local icon = "|T" .. ns.MEDIA .. "Info:12:12:0:0|t "
-    self.helpText:SetText(icon .. (ns.DataChannel() and "Raid Check runs in Heroic and Mythic raids (not Normal or LFR)."
+    local info = "|T" .. ns.MEDIA .. "Info:12:12:0:0|t "
+    self.helpText:SetText(info .. (ns.DataChannel() and "Raid Check runs in Heroic and Mythic raids (not Normal or LFR)."
         or "Raid Check needs a guild: everyone's reports travel over your guild's private addon channel."))
 
     local check = RC.current

@@ -16,9 +16,10 @@
 -- hidden - so players can't read the answer from addon traffic.
 --
 -- Messages ("TitanUpWF", fields joined by ^):
---   N id rounds                      host opened a game
+--   N id rounds auto prize           host opened a game (the id starts with the host's name)
 --   P id name,name,name              seats
---   S id ...state... cat mask        game state (mask: "_" = hidden letter)
+--   S id ...state... cat mask left auto prize   game state (mask: "_" = hidden letter;
+--                                    the prize is left off when it won't fit)
 --   X id                             host closed the game
 --   J id / L id                      take / leave a seat (to host)
 --   A id action arg                  spin | letter X | vowel X | solve text (to host)
@@ -272,9 +273,19 @@ end
 -- ---------------------------------------------------------------------
 -- Messaging
 -- ---------------------------------------------------------------------
+-- (during an encounter the send queue holds them until it ends)
 function WF:Send(...)
-    if not self.sim and IsInGroup() and not ns.InLockdown() then ns.SendFields(PREFIX, ...) end
+    if not self.sim and IsInGroup() then ns.SendFields(PREFIX, ...) end
 end
+
+-- a whole number from a message within lo..hi, else nil (nan / inf too)
+local function int(v, lo, hi)
+    local n = tonumber(v)
+    if n and n == n and n % 1 == 0 and n >= lo and n <= hi then return n end
+end
+
+-- a game id starts with its host's name ("Ryan-1790000000")
+local function hostsId(id, name) return id:sub(1, #ns.Short(name) + 1) == ns.Short(name) .. "-" end
 
 local function ui(what, g, extra)
     if ns.WheelUI then ns.WheelUI:OnChange(what, g, extra) end
@@ -288,11 +299,15 @@ end
 function WF:IsHost(g) return g and (g.host == ns.me or g.engine) end
 
 -- Everyone's copy of the state (the host also keeps g.phrase / g.puzzles).
+-- The prize (also in the N) is left off when the message would pass the
+-- 255-byte limit; receivers then keep the prize they have.
 function WF:StateMessage(g)
     local left = g.turnEnds and math.max(0, math.ceil(g.turnEnds - GetTime())) or -1
-    return "S", g.id, g.state, g.round, g.rounds, g.turn, g.phase, g.spin, g.sq, g.value,
+    local text = ns.Join("S", g.id, g.state, g.round, g.rounds, g.turn, g.phase, g.spin, g.sq, g.value,
         table.concat(g.bank, ","), table.concat(g.total, ","), g.used, g.msg, g.arg, g.cat, g.mask,
-        left, g.auto and 1 or 0, g.prize or ""
+        left, g.auto and 1 or 0)
+    local full = text .. "^" .. (g.prize or "")
+    return #full <= 255 and full or text
 end
 
 -- ---------------------------------------------------------------------
@@ -369,12 +384,20 @@ function WF:OnMessage(text, sender)
     if not id or id == "" then return end
     local g = self.games[id]
     if kind == "N" then
-        g = self:NewGame(id, sender, tonumber(f[3]) or 1)
+        -- a new game: never one that already exists, and only under the sender's own name
+        local rounds = int(f[3], 1, WF.MAX_ROUNDS)
+        if g or not rounds or not hostsId(id, sender) then return end
+        g = self:NewGame(id, sender, rounds)
         g.auto, g.prize = f[4] == "1", WF.Clean(f[5] or "", 48, true)
         ui("new", g)
         return
     end
-    if not g then return end
+    if not g then
+        -- a game we never saw opened (we /reloaded, or joined the group late):
+        -- picked up from its host's own seat list or state
+        if (kind ~= "S" and kind ~= "P") or not hostsId(id, sender) then return end
+        g = self:NewGame(id, sender, int(f[5], 1, WF.MAX_ROUNDS) or 1)
+    end
     if g.host == ns.me then
         -- we're the referee
         if kind == "J" then self:HostJoin(g, sender)
@@ -390,21 +413,51 @@ function WF:OnMessage(text, sender)
         ui("seats", g)
     elseif kind == "S" then
         local prevSq = g.sq
-        g.state, g.round, g.rounds, g.turn = f[3], tonumber(f[4]) or 0, tonumber(f[5]) or 1, tonumber(f[6]) or 0
-        g.phase, g.spin, g.sq, g.value = f[7] or "", tonumber(f[8]) or 0, tonumber(f[9]) or 0, tonumber(f[10]) or 0
-        local function nums(s) local t = {} for n in (s or ""):gmatch("[^,]+") do t[#t + 1] = tonumber(n) or 0 end return t end
+        g.state, g.round, g.rounds, g.turn = f[3], int(f[4], 0, WF.MAX_ROUNDS) or 0, int(f[5], 1, WF.MAX_ROUNDS) or 1, int(f[6], 0, WF.SEATS) or 0
+        g.phase, g.spin, g.sq, g.value = f[7] or "", int(f[8], 0, #WF.WEDGES) or 0, int(f[9], 0, 1e9) or 0, int(f[10], 0, 1e6) or 0
+        local function nums(s) local t = {} for n in (s or ""):gmatch("[^,]+") do t[#t + 1] = int(n, -1e9, 1e9) or 0 end return t end
         g.bank, g.total = nums(f[11]), nums(f[12])
         g.used, g.msg, g.arg, g.cat, g.mask = f[13] or "", f[14] or "", f[15] or "", f[16] or "", f[17] or ""
-        local left = tonumber(f[18])
+        local left = int(f[18], -1, 600)
         g.turnEnds = (left and left >= 0) and (GetTime() + left) or nil
         g.auto = f[19] == "1"
-        if f[20] then g.prize = f[20] end
+        if f[20] then g.prize = WF.Clean(f[20], 48, true) end
+        self:HeardHost(g)
         ui("state", g, { spun = g.sq ~= prevSq and g.phase == "spinning" })
     elseif kind == "X" then
         g.state = "cancelled"
         g.msg = "ended"
         ui("state", g)
     end
+end
+
+-- Players' side: a game whose host has gone quiet while it's being played
+-- (they /reloaded or went offline - offline players stay in the group) is
+-- ended after a full turn plus half a minute. The host's referee sends an
+-- update at least every turn, so silence that long means it's gone.
+WF.HOST_SILENCE = WF.TURN_SECONDS + 30
+
+function WF:HeardHost(g)
+    g.heardAt = GetTime()
+    if g.state == "playing" and not self.hostTicker then
+        self.hostTicker = C_Timer.NewTicker(5, function() WF:CheckHosts() end)
+    end
+end
+
+function WF:CheckHosts()
+    local any = false
+    for _, g in pairs(self.games) do
+        if not self:IsHost(g) and g.state == "playing" and g.heardAt then
+            if ns.InLockdown() then
+                g.heardAt = GetTime()             -- an encounter holds every message: not the host's fault
+            elseif GetTime() - g.heardAt > WF.HOST_SILENCE then
+                g.state, g.msg = "cancelled", "lost"
+                ui("state", g)
+            end
+            any = any or g.state == "playing"
+        end
+    end
+    if not any and self.hostTicker then self.hostTicker:Cancel(); self.hostTicker = nil end
 end
 
 -- Finished/closed games are dropped after 30 minutes.
@@ -465,7 +518,8 @@ end
 -- Start a game (hosted, or auto = everyone plays): tell the group, and post
 -- a chat invite when everyone in the group is in the guild.
 function WF:Launch(list, prize, auto, invite)
-    local id = ns.Short(ns.me) .. "-" .. ((GetServerTime and GetServerTime()) or time())
+    self._idSeq = ((self._idSeq or 0) % 9) + 1
+    local id = ns.Short(ns.me) .. "-" .. ((GetServerTime and GetServerTime()) or time()) .. self._idSeq
     local g = self:NewGame(id, ns.me, #list)
     g.puzzles, g.prize = list, prize
     if auto then g.auto, g.seats = true, { ns.me } end
@@ -590,7 +644,7 @@ function WF:HostAct(g, name, action, arg)
     if g.state ~= "playing" then return end
     local seat = WF.SeatOf(g, name)
     if not seat or seat ~= g.turn then return end
-    local cLeft, vLeft = remaining(g.phrase, g.used)
+    local cLeft = remaining(g.phrase, g.used)
     if action == "spin" then
         if g.phase ~= "turn" then return end
         if cLeft == 0 then g.msg, g.arg = "noconsonants", ""; return self:Broadcast(g) end

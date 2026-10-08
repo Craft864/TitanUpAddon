@@ -10,8 +10,10 @@
 -- shows what will happen and whether there's room; a progress bar and Stop
 -- button show while it works. Each move waits for the game to finish
 -- (its "item moved" events, plus a light check that only runs mid-job).
--- At a vendor, or anywhere the slot can't be identified, Blizzard's own box
--- is left alone. Nothing is built until the first Shift-click with it on.
+-- At a vendor, in combat, or anywhere the slot can't be identified,
+-- Blizzard's own box is left alone (in combat, closing Blizzard's box from
+-- addon code could get in the way of using an item from that bag slot).
+-- Nothing is built until the first Shift-click with it on.
 local ADDON, ns = ...
 
 local UI = ns.UI
@@ -45,7 +47,7 @@ local function db() return ns.udb.splitter end
 
 function SS:Init()
     -- add onto Blizzard's split box opening (never replace it)
-    local function hook(...) SS:OnBlizzardOpen(...) end
+    local function hook(_, parent) SS:OnBlizzardOpen(parent) end
     if StackSplitFrame and StackSplitFrame.OpenStackSplitFrame and hooksecurefunc then
         hooksecurefunc(StackSplitFrame, "OpenStackSplitFrame", function(_, ...) hook(...) end)
     elseif OpenStackSplitFrame and hooksecurefunc then
@@ -189,8 +191,9 @@ end
 -- ---------------------------------------------------------------------
 -- Opening: replace Blizzard's box when we can
 -- ---------------------------------------------------------------------
-function SS:OnBlizzardOpen(maxStack, parent)
+function SS:OnBlizzardOpen(parent)
     if not db().enabled or self.job then return end
+    if InCombatLockdown and InCombatLockdown() then return end          -- combat: Blizzard's box
     if MerchantFrame and MerchantFrame:IsShown() then return end         -- vendors: Blizzard's box
     local loc = SS.Locate(parent)
     if not loc then return end

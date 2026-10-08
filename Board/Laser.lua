@@ -5,17 +5,19 @@
 -- their name and a short fading trail.
 --
 -- Pointer traffic uses its own addon prefix and its own small send budget
+-- (the server allows each prefix a burst of 10, then about one a second)
 -- so it never delays drawing messages, and only the NEWEST position is
 -- ever sent - a pointer that's a second late is useless, so nothing queues.
--- Like everything else it's silent during an encounter lockdown.
+-- Other people's pointers glide between updates. Like everything else it's
+-- silent during an encounter lockdown.
 local ADDON, ns = ...
 
 local Laser = {}
 ns.Laser = Laser
 
 local PREFIX = "TitanBoardL"
-local INTERVAL = 0.15   -- seconds between position updates from one person
-local BURST, RATE = 10, 4
+local INTERVAL = 0.3    -- seconds between position updates from one person
+local BURST, RATE = 10, 1
 local FADE, GONE = 1.0, 2.0  -- start fading / disappear after this long without updates
 
 local tokens, lastRefill, lastSend = BURST, 0, 0
@@ -65,11 +67,7 @@ function Laser:_flush()
     tokens = math.min(BURST, tokens + (now - lastRefill) * RATE)
     lastRefill = now
     if tokens < 1 or now - lastSend < INTERVAL then return end
-    local channel = ns.DataChannel()
-    if not channel then pending = nil return end
-    local ok, res = pcall(C_ChatInfo.SendAddonMessage, PREFIX, pending, channel)
-    local E = Enum and Enum.SendAddonMessageResult
-    if ok and E and res == E.AddonMessageThrottle then
+    if ns.Comms.TrySend(PREFIX, pending) == "throttle" then
         tokens = 0      -- keep the newest position, try again shortly
         return
     end
@@ -81,14 +79,16 @@ end
 -- ---------------------------------------------------------------------
 -- Receiving (other people's pointers)
 -- ---------------------------------------------------------------------
+-- (the board draws pointers every frame while any are showing; the
+-- colour and name are looked up once, when a pointer first appears)
 function Laser:_track(name, x, y)
     local p = self.pointers[name]
     if not p then
-        p = { x = x, y = y, dx = x, dy = y, trail = {} }
+        local r, g, b = ns.UI.ClassRGB(name, 1, 0.25, 0.25)
+        p = { x = x, y = y, dx = x, dy = y, trail = {}, r = r, g = g, b = b, short = ns.Short(name) }
         self.pointers[name] = p
     end
     p.x, p.y, p.t, p.ended = x, y, GetTime(), nil
-    if ns.Board then ns.Board:RenderLasers() end
     return p
 end
 

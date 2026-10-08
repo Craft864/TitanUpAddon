@@ -100,10 +100,7 @@ function Board:_listClick(item)
         return
     end
     if item.kind ~= "boss" and item.kind ~= "free" then return end
-    if IsInGroup() and not ns.CanDraw() then
-        ns.Print("You're following the leader's board - they choose the encounter.")
-        return
-    end
+    if self:Following("encounter") then return end
     local ctx = (item.kind == "boss") and ns.Content:MakeContext(item.inst, item.enc) or ns.Content:MakeContext()
     self:SelectContext(ctx, 1)
 end
@@ -119,8 +116,10 @@ local STATUS_TEXT = {
     offline = { "offline", C.muted },
 }
 
+-- Runs when presence, the roster or permissions change (and every few
+-- seconds from Presence), not per frame; nothing to do while the panel is hidden.
 function Board:UpdateViewers()
-    if not self.frame or not self.frame:IsShown() then return end
+    if not self.frame or not self.frame:IsShown() or not self.right:IsShown() then return end
     local list, counts = ns.Presence:List()
     self.countText:SetText(("|cff66e08c%d|r / %d watching   |cffffa340%d closed|r   |cff8a8f9c%d other|r"):format(
         counts.watching, counts.total, counts.closed, counts.none))
@@ -145,12 +144,8 @@ function Board:UpdateViewers()
             local st = STATUS_TEXT[v.status]
             local active = v.status == "watching" or v.status == "mini"
             row.dot:SetVertexColor(st[2][1], st[2][2], st[2][3], active and 1 or 0.6)
-            local class = ns.ClassOf(v.name)
-            local cc = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
-            local name = ns.Short(v.name) .. ((v.name == ns.me) and " (you)" or "")
-            row.name:SetText(name)
-            local r, g, b = C.text[1], C.text[2], C.text[3]
-            if cc then r, g, b = cc.r, cc.g, cc.b end
+            row.name:SetText(ns.Short(v.name) .. ((v.name == ns.me) and " (you)" or ""))
+            local r, g, b = UI.ClassRGB(v.name, C.text[1], C.text[2], C.text[3])
             row.name:SetTextColor(r, g, b, active and 1 or 0.45)
             local status = st[1]
             if v.recent then status = "|cff4fc3f7tuned in|r" end
@@ -373,15 +368,18 @@ function Board:DeletePlan()
     })
 end
 
+-- Every half second while the board is open: keep it cheap.
 function Board:UpdateStatus()
-    if self.FitOptionsBar then self:FitOptionsBar() end
     if not self.frame then return end
     local mode = ns.Comms:Mode()
     local queued = ns.Comms:QueueSize()
     local locked = ns.InLockdown()
+    local noGuild = IsInGroup() and not ns.DataChannel()
     local pill, pc
     if locked then
         pill, pc = "LOCKDOWN", C.warn
+    elseif noGuild then
+        pill, pc = "NO GUILD", C.warn
     elseif mode == "group" then
         pill, pc = "LIVE", C.good
     else
@@ -394,6 +392,8 @@ function Board:UpdateStatus()
     local banner
     if locked then
         banner = ("|cffffa340Encounter lockdown|r - nothing can be sent right now. %d change(s) queued."):format(queued)
+    elseif noGuild then
+        banner = "|cffffa340Not syncing|r - the board shares through your guild, so without one nobody else sees it."
     elseif IsInGroup() and not ns.CanDraw() then
         local leader = ns.LeaderName()
         local synced = ns.Sync:InSync()
@@ -411,8 +411,10 @@ function Board:UpdateStatus()
     local canDraw = ns.CanDraw()
     for m, b in pairs(self.toolBtns) do b:SetAlpha((canDraw or m == "R") and 1 or 0.4) end
     for _, b in pairs(self.stampBtns) do b:SetAlpha(canDraw and 1 or 0.4) end
-    self.syncBtn.label:SetText(ns.IsOwner() and "Send full plan" or "Request resync")
-    self:UpdateViewers()
+    local owner = ns.IsOwner()
+    self.syncBtn.label:SetText(owner and "Send full plan" or "Request resync")
+    self.miniPrev:SetShown(owner)          -- only the leader changes the slide
+    self.miniNext:SetShown(owner)
 end
 
 -- ---------------------------------------------------------------------
@@ -423,14 +425,13 @@ function Board:RefreshRoomUI()
     if not b then return end
     local ctx = Model.plan and Model.plan.ctx
     local list = ctx and ns.Rooms:List(ctx) or {}
-    if #list == 0 or ns.testRoom then
-        b:Hide()
-        return
+    b:SetShown(#list > 0 and not ns.testRoom)
+    if b:IsShown() then
+        local room = ns.Rooms:Get(ctx, Model:Page().bg)
+        b.label:SetText("Room: " .. (room and room.label or "Blizzard map"))
+        UI.SetDisabled(b, not ns.CanDraw())
     end
-    b:Show()
-    local room = ns.Rooms:Get(ctx, Model:Page().bg)
-    b.label:SetText("Room: " .. (room and room.label or "Blizzard map"))
-    UI.SetDisabled(b, not ns.CanDraw())
+    self:FitOptionsBar()               -- the room button came or went
 end
 
 function Board:ShowRoomMenu()

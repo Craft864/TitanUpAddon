@@ -17,6 +17,21 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.32.0", {
+        "A big clean-up and bug-fix release from a full review of the addon.",
+        "Pull Report: the window no longer breaks after a wipe, and a hunter's Feign Death no longer counts as a death.",
+        "TitanBoard: bigger plans now reach the whole raid, and watching the leader's board never overwrites your own saved plan. A line you were drawing when combat starts is finished instead of left half-drawn, and your laser stops when the board closes.",
+        "TitanBoard: only the raid leader moves the board view and switches the boss for everyone. Assistants can still draw.",
+        "TitanBoard is much lighter while panning, zooming and pointing, especially in a full raid.",
+        "Messages sent during a boss fight (loot tags, reports, macros) now go out right after the fight instead of being lost.",
+        "Battle rez tracker: it stays up while you're dead.",
+        "Loot: drops no longer show twice when you open the Loot window late in the evening, and a Need or Greed on a bind-on-pickup item only counts once you confirm the bind question. Older loot history takes less space.",
+        "Death Roll: rolls and results can't be faked by other players, games that run long catch up properly after combat or a /reload, and the guild ledger stops re-sending itself so often. A game whose opponent goes offline ends by itself.",
+        "Wheel of Fortune: if the host leaves or reloads, players' games end instead of freezing, and a player who reloads can rejoin.",
+        "Keystone Roulette: the Teleport button no longer stays on screen after you close it in combat, and a vote can't lock the window.",
+        "Macro Share: shared macros show their exact text, ones that run scripts are marked, and saving one never overwrites an account-wide macro.",
+        "Version check: only your group answers, and the \"newer version\" reminder waits until you're out of combat and out of the raid.",
+    } },
     { "0.31.1", {
         "The side rail is a little wider, so long names like Macro Workstation, Keystone Roulette and Wheel of Fortune show in full.",
     } },
@@ -112,6 +127,10 @@ end
 function UP:Init()
     ns.Listen(PREFIX, "guild", function(msg, sender) UP:OnMessage(msg, sender) end)
     C_Timer.After(8, function() UP:WhatsNewCheck() end)
+    -- an update reminder held back during a fight or a raid shows afterwards
+    local function later() if UP.pendingNag then UP:Saw() end end
+    ns.On("PLAYER_REGEN_ENABLED", later)
+    ns.On("ZONE_CHANGED_NEW_AREA", later)
 end
 
 -- ---------------------------------------------------------------------
@@ -128,6 +147,10 @@ function UP:Check()
         ns.Print("The version check lists your group - join a party or raid first.")
         return
     end
+    if ns.InLockdown() then
+        ns.Print("The version check can't ask during a boss fight - try again after the pull.")
+        return
+    end
     local roster = {}
     for _, unit in ipairs(ns.GroupUnits()) do
         local name = UnitExists(unit) and ns.FullName(unit)
@@ -142,8 +165,17 @@ function UP:Check()
     self.roster, self.timedOut = roster, false
     self.checkId = (self.checkId or 0) + 1
     local id = self.checkId
-    if not ns.SendFields(PREFIX, "Q", ns.VERSION) then ns.Print("The version check asks over your guild's addon channel - it needs a guild.") end
+    if not ns.SendFields(PREFIX, "Q", ns.VERSION) then
+        ns.Print("The version check asks over your guild's addon channel - it needs a guild.")
+        for _, r in pairs(roster) do if not r.v then r.noChannel = true end end
+    end
     self:ShowResults()
+    -- one check at a time: "Check again" waits until this one has finished
+    local again = self.panels.versions and self.panels.versions.again
+    if again then
+        UI.SetDisabled(again, true)
+        C_Timer.After(TIMEOUT, function() UI.SetDisabled(again, false) end)
+    end
     C_Timer.After(TIMEOUT, function()
         if UP.checkId ~= id then return end
         UP.timedOut = true
@@ -154,12 +186,16 @@ end
 function UP:OnMessage(msg, sender)
     local kind, ver = msg:match("^([QV])%^([%d%.]+)$")
     if not kind then return end
-    self:Saw(ver)
+    self:Saw(ver, sender)
     if kind == "Q" then
-        -- your group's check: answer at once; anyone else's (older versions
-        -- still check the whole guild): after a short random wait
-        if ns.InMyGroup(sender) then ns.SendFields(PREFIX, "V", ns.VERSION)
-        else C_Timer.After(math.random() * 4, function() ns.SendFields(PREFIX, "V", ns.VERSION) end) end
+        -- Your group's check: answer at once. Since 0.28.0 a check lists
+        -- only the asker's group, so someone outside it only gets an answer
+        -- if they run an older version (those still check the whole guild),
+        -- after a short random wait. Several checks close together share one
+        -- answer (it goes to the whole guild channel anyway).
+        local reply = function() ns.SendFields(PREFIX, "V", ns.VERSION) end
+        if ns.InMyGroup(sender) then ns.Debounce("UP.reply", 0.3, reply)
+        elseif ns.VersionNewer("0.28.0", ver) then ns.Debounce("UP.replyGuild", math.random() * 4, reply) end
     elseif kind == "V" then
         local r = self.roster and self.roster[sender]
         if r then
@@ -169,11 +205,23 @@ function UP:OnMessage(msg, sender)
     end
 end
 
--- someone runs a newer Titan Up than us: remind once per session
-function UP:Saw(ver)
-    if self.nagged or not ns.VersionNewer(ver, ns.VERSION) then return end
-    self.nagged = ver
-    self:ShowUpdate(ver)
+-- Someone runs a newer Titan Up than us: remind once per session - once
+-- two different guildmates report it (one test build or a prank doesn't),
+-- and never mid-fight or inside a raid (held until afterwards).
+function UP:Saw(ver, sender)
+    if self.nagged then return end
+    if ver and sender and ns.VersionNewer(ver, ns.VERSION) then
+        self.seenBy = self.seenBy or {}
+        local by = self.seenBy[ver] or {}
+        self.seenBy[ver] = by
+        by[sender] = true
+        local n = 0
+        for _ in pairs(by) do n = n + 1 end
+        if n >= 2 and not (self.pendingNag and ns.VersionNewer(self.pendingNag, ver)) then self.pendingNag = ver end
+    end
+    if not self.pendingNag or InCombatLockdown() or ns.InRaidInstance() then return end
+    self.nagged, self.pendingNag = self.pendingNag, nil
+    self:ShowUpdate(self.nagged)
 end
 
 function UP:Latest()
@@ -200,6 +248,8 @@ function UP:ResultLines()
             status = "|cff8a8f9coffline|r"
         elseif r.noGuild then
             status = "|cff8a8f9cnot in the guild - can't check|r"
+        elseif r.noChannel then
+            status = "|cff8a8f9ccan't check (you're not in a guild)|r"
         elseif self.timedOut then
             missing = missing + 1
             status = "|cffff5a5ano Titan Up|r"
@@ -236,9 +286,7 @@ function UP:RefreshResults(force)
         local lines, summary = self:ResultLines()
         f.body:SetText("|cff8a8f9c" .. summary .. ".|r\n\n" .. table.concat(lines, "\n"))
     end
-    local scroll = f.scroll
-    self:Fit(f)
-    if scroll and not force then self:ScrollPanel(f, scroll) end      -- answers arriving don't jump the list back up
+    self:Fit(f, not force)                  -- answers arriving don't jump the list back up
 end
 
 function UP:ShowUpdate(ver)
@@ -277,20 +325,10 @@ function UP:Panel(key, title)
         local x = UI.Button(f, 22, 20, "X", "Close", function() f:Hide() end)
         x:SetPoint("TOPRIGHT", -6, -6)
         -- the text, inside a clipped area that scrolls when it's long
-        f.view = CreateFrame("Frame", nil, f)
-        f.view:SetPoint("TOPLEFT", 14, -38)
-        f.view:SetSize(PANEL_W - 40, 100)
-        if f.view.SetClipsChildren then f.view:SetClipsChildren(true) end
-        f.view:EnableMouseWheel(true)
-        f.view:SetScript("OnMouseWheel", function(_, d) UP:ScrollPanel(f, -d * 30) end)
-        f.body = UI.Text(f.view, "GameFontHighlightSmall", C.text, nil, "TOPLEFT", 0, 0)
+        f.sa = UI.ScrollArea(f, PANEL_W - 40, 100, 30)
+        f.sa.view:SetPoint("TOPLEFT", 14, -38)
+        f.body = UI.Text(f.sa.view, "GameFontHighlightSmall", C.text, nil, "TOPLEFT", 0, 0)
         f.body:SetWidth(PANEL_W - 44); f.body:SetJustifyH("LEFT"); f.body:SetSpacing(2)
-        f.track = f:CreateTexture(nil, "ARTWORK")
-        f.track:SetColorTexture(1, 1, 1, 0.06)
-        f.track:SetWidth(6)
-        f.thumb = f:CreateTexture(nil, "OVERLAY")
-        f.thumb:SetColorTexture(C.accent[1], C.accent[2], C.accent[3], 0.7)
-        f.thumb:SetWidth(6)
         f.ok = UI.Button(f, 90, 24, "OK", nil, function() f:Hide() end)
         f.ok:SetPoint("BOTTOM", 0, 12)
         UI.SetActive(f.ok, true)
@@ -302,38 +340,20 @@ function UP:Panel(key, title)
 end
 
 -- size the panel to its text: title + text + OK; cap it and scroll beyond
-function UP:Fit(f)
+-- (keep: stay at the same scroll position, e.g. while answers come in)
+function UP:Fit(f, keep)
     local h = f.body:GetStringHeight()
     if type(h) ~= "number" or h <= 0 then
         local lines = 1
         for _ in (f.body:GetText() or ""):gmatch("\n") do lines = lines + 1 end
         h = lines * 14
     end
-    f.textH = h
     local viewH = math.min(h, PANEL_MAX - 38 - 52)
-    f.view:SetHeight(viewH)
+    local at = keep and f.sa.offset or 0
+    f.sa:SetViewHeight(viewH)
+    f.sa:SetContent(f.body, h)
+    f.sa:ScrollTo(at)
     f:SetHeight(38 + viewH + 52)
-    f.scroll = 0
-    self:ScrollPanel(f, 0)
-end
-
-function UP:ScrollPanel(f, by)
-    local viewH = f.view:GetHeight() or 0
-    local max = math.max(0, (f.textH or 0) - viewH)
-    f.scroll = math.max(0, math.min(max, (f.scroll or 0) + by))
-    f.body:ClearAllPoints()
-    f.body:SetPoint("TOPLEFT", 0, f.scroll)
-    local show = max > 0
-    f.track:SetShown(show); f.thumb:SetShown(show)
-    if show then
-        f.track:ClearAllPoints()
-        f.track:SetPoint("TOPLEFT", f.view, "TOPRIGHT", 8, 0)
-        f.track:SetHeight(viewH)
-        local th = math.max(24, viewH * viewH / f.textH)
-        f.thumb:SetHeight(th)
-        f.thumb:ClearAllPoints()
-        f.thumb:SetPoint("TOPLEFT", f.view, "TOPRIGHT", 8, -((viewH - th) * f.scroll / max))
-    end
 end
 
 -- ---------------------------------------------------------------------

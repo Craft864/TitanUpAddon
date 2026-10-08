@@ -12,6 +12,9 @@ ns.ImportExport = IE
 -- then one field per slide with ops joined by "~".
 -- "!TB1!" strings from v0.1-0.3 (4 fixed phases) still import.
 local Codec = ns.Codec
+-- Pastes and unpacked plans bigger than this aren't plans (the largest real
+-- ones are a few hundred KB); refusing them keeps a bad paste from eating memory.
+IE.MAX_PASTE, IE.MAX_PAYLOAD = 500000, 2000000
 
 function IE:Encode()
     local Model = ns.Model
@@ -34,6 +37,7 @@ function IE:Decode(str)
     local compressed = Codec.DecodeForPrint(body)
     local payload = compressed and Codec.Decompress(compressed)
     if not payload then return nil, "The string is damaged or incomplete." end
+    if #payload > IE.MAX_PAYLOAD then return nil, "That plan is too big to import." end
     local f = ns.Split(payload, "\031")
     local data = { inst = tonumber(f[2]), enc = tonumber(f[3]), map = tonumber(f[4]), bg = f[5] }
     if version == "1" and f[1] == "1" and #f >= 9 then
@@ -83,7 +87,10 @@ function IE:ShowImport()
     })
 end
 
+-- Everything is decoded and checked first: a string that can't be read
+-- changes nothing on the board.
 function IE:Import(text)
+    if type(text) == "string" and #text > IE.MAX_PASTE then ns.Print("That's too much text for a plan string.") return end
     local data, err
     local fromRaidstrats = ns.RaidstratsImport and ns.RaidstratsImport.IsRaidstrats(text)
     if fromRaidstrats then
@@ -130,6 +137,6 @@ function IE:RaidstratsSummary(data)
         ns.Print(("Raidstrats boss \"%s\" wasn't found in the journal, so the plan went on the board you had open."):format(tostring(data.boss or "?")))
     end
     if n.truncated then ns.Print(("Only the first %d scenes fit (%d dropped)."):format(ns.Model.MAX_SLIDES, n.truncated)) end
-    if n.skipped then ns.Print(n.skipped .. " item(s) of an unknown type were skipped.") end
+    if n.skipped then ns.Print(n.skipped .. " item(s) of an unknown type, or that couldn't be read, were skipped.") end
     ns.Print("Positions are placed relative to the room image. If Raidstrats used a different picture of the room, things may need nudging.")
 end

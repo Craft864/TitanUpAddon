@@ -1,7 +1,10 @@
 -- TitanBoard - Sync.lua
--- The board protocol on top of Comms. Every drawing message is checked on
--- the RECEIVING side: a client only applies it if the sender may draw
--- (leader, assistant, or on the leader's grant list).
+-- The board protocol on top of Comms. Every message is checked on the
+-- RECEIVING side: drawing (O S D X B I) only from someone who may draw
+-- (leader, assistant, or on the leader's grant list); what everyone looks
+-- at (C V F, plus K and A) only from the group leader - assistants draw,
+-- but only the leader moves the board for the group. (Older versions let
+-- any drawer send C and V; those are ignored.)
 --
 --   O  page;op           finished op (same id = update/move)
 --   S  page;a|r op       live stroke in progress (a = append points, r = replace)
@@ -40,6 +43,12 @@ end
 local function allowed(sender)
     if ns.CanDraw(sender) then return true end
     ns.Debug("ignored drawing message from", sender, "(no permission)")
+    return false
+end
+
+local function fromLeader(sender)
+    if sender == ns.LeaderName() then return true end
+    ns.Debug("ignored board view message from", sender, "(not the leader)")
     return false
 end
 
@@ -82,10 +91,12 @@ function Sync:SendClear(page)
     Comms:Send("X", tostring(page or curPage()))
 end
 
-function Sync:SendAll() self:SendContext(); self:SendSnapshot() end
+-- force: send even if the same snapshot just went out ("Send full plan")
+function Sync:SendAll(force) self:SendContext(); self:SendSnapshot(force) end
 
+-- (C and V: in a group only the leader moves the board for everyone)
 function Sync:SendContext()
-    if not live() or not ns.CanDraw() or not Model.plan then return end
+    if not live() or not ns.IsOwner() or not Model.plan then return end
     local ctx = Model.plan.ctx
     Comms:Send("C", table.concat({ ctx.inst or 0, ctx.enc or 0, ctx.map or 0, curPage() }, ","), "ctx")
 end
@@ -96,7 +107,8 @@ function Sync:RequestSnapshot()
     Comms:Send("R", "", "req")
 end
 
-function Sync:SendSnapshot()
+function Sync:SendSnapshot(force)
+    if force then self._snapMsg = nil end
     if not live() or not ns.IsOwner() or self._snapTimer then return end
     self._snapTimer = true
     C_Timer.After(0.5, function()
@@ -110,14 +122,19 @@ function Sync:SendSnapshot()
             Model:SlideMeta(),
         }
         Model:AddPageFields(parts)
-        Comms:Send("F", table.concat(parts, "\031"), "snapshot")
+        local msg = table.concat(parts, "\031")
+        -- one snapshot (sent to the whole group) answers everyone who asks
+        -- while it's on its way: don't queue the same one again
+        if msg == self._snapMsg and (Comms:SendingParts() or GetTime() - self._snapAt < 15) then return end
+        self._snapMsg, self._snapAt = msg, GetTime()
+        Comms:Send("F", msg, "snapshot")
         self:SendACL()
         self:AnnounceSum()
     end)
 end
 
 function Sync:SendView()
-    if not live() or not ns.CanDraw() or not Model.plan then return end
+    if not live() or not ns.IsOwner() or not Model.plan then return end
     if self._viewTimer then return end
     self._viewTimer = true
     C_Timer.After(0.4, function()
@@ -167,6 +184,8 @@ local function applySnapshot(payload, sender)
     ns.Board:ApplyRemoteContext(tonumber(inst), tonumber(enc), tonumber(map), 1, true)
     Model.plan.page = tonumber(page)
     Model:SetSlides(fields[2] ~= "" and fields[2] or nil, slides, false)
+    Model.plan.remote = sender          -- the leader's plan: never saved over one of yours
+    wipe(ns.Board._undo)                -- slide numbers may have moved under the history
     ns.Board:ApplySlideView()
     ns.Board:RenderAll()
     ns.Debug("snapshot from", sender)
@@ -203,21 +222,26 @@ function Sync:Init()
     end)
 
     Comms:On("C", function(p, sender)
-        if not allowed(sender) then return end
+        if not fromLeader(sender) then
+            -- an older version's assistant switched boss or slide: the
+            -- leader's client puts everyone (older clients too) back
+            if ns.IsOwner() and IsInGroup() and ns.CanDraw(sender) then
+                ns.Debounce("tb:reassert", 2, function() Sync:SendContext() end)
+            end
+            return
+        end
         local inst, enc, map, page = p:match("^(%d+),(%d+),(%d+),(%d+)$")
         if not inst then return end
         ns.Board:ApplyRemoteContext(tonumber(inst), tonumber(enc), tonumber(map), tonumber(page))
-        -- An assistant switched bosses: the leader's client sends its saved plan.
-        if ns.IsOwner() then Sync:SendSnapshot() end
     end)
 
     Comms:On("V", function(p, sender)
-        if not allowed(sender) then return end
+        if not fromLeader(sender) then return end
         local page, z, cx, cy = p:match("^(%d+),(%d+),(%d+),(%d+)$")
         local sl = page and Model:Page(tonumber(page))
         if not sl or tonumber(z) < 100 then return end
         sl.view = { z = tonumber(z) / 100, cx = tonumber(cx), cy = tonumber(cy) }
-        if tonumber(page) == curPage() then ns.Board:ApplySlideView(); ns.Board:RenderAll() end
+        if tonumber(page) == curPage() then ns.Board:ApplySlideView(); ns.Board:RenderCanvas() end
     end)
 
     Comms:On("B", function(p, sender)
@@ -239,7 +263,7 @@ function Sync:Init()
     end)
 
     Comms:On("F", function(p, sender)
-        if not allowed(sender) then return end
+        if not fromLeader(sender) then return end
         applySnapshot(p, sender)
     end)
 
@@ -255,7 +279,8 @@ function Sync:Init()
             Sync._healTimer = nil
             local ls = Sync._leaderSum
             if ls and ls.page == curPage() and ls.sum ~= Model:Checksum()
-                and GetTime() - (Sync._lastRequest or 0) > 10 then
+                and GetTime() - (Sync._lastRequest or 0) > 10
+                and not Comms:Receiving(sender) then        -- (a snapshot still arriving)
                 ns.Debug("board differs from leader's - resyncing")
                 Sync:RequestSnapshot()
             end

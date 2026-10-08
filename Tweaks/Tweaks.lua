@@ -36,7 +36,7 @@ TW.LIST = {
       set = function(on) ns.udb.splitter.enabled = on end,
       page = function() return ns.StackSplitter end, title = "STACK SPLITTER" },
     { key = "brez", name = "Battle rez tracker",
-      desc = "The group's battle-rez charges on screen while you're in combat in Mythic+ or a raid boss fight - grey at zero, with a countdown to the next.",
+      desc = "The group's battle-rez charges on screen during Mythic+ keys and raid boss fights (even while you're dead) - grey at zero, with a countdown to the next.",
       get = function() return ns.udb.brez.enabled end,
       set = function(on) ns.udb.brez.enabled = on; ns.BattleRez:Check() end,
       page = function() return ns.BattleRez end, title = "BATTLE REZ TRACKER" },
@@ -59,8 +59,6 @@ function TW:Init()
     ns.On("PLAYER_UNGHOST", function() TW:ReleaseGuardOff() end)
 end
 
-TW.InRaidInstance = ns.InRaidInstance
-
 -- The visible death dialog's Release button, if any.
 local function releaseButton()
     local dialog = StaticPopup_FindVisible and StaticPopup_FindVisible("DEATH")
@@ -70,7 +68,7 @@ local function releaseButton()
 end
 
 function TW:GuardRelease()
-    if not db().releaseGuard or not TW.InRaidInstance() then return end
+    if not db().releaseGuard or not ns.InRaidInstance() then return end
     local button, dialog = releaseButton()
     if not button then return end
     local g = self.guard
@@ -93,7 +91,7 @@ function TW:GuardRelease()
     g.button, g.dialog = button, dialog
     g:ClearAllPoints()
     g:SetAllPoints(button)
-    g.held = 0
+    g.held, g.shown = 0, nil
     g:Show()
     self:OnGuardUpdate(0)
 end
@@ -118,7 +116,11 @@ function TW:OnGuardUpdate(elapsed)
     local left = math.max(0, HOLD_SECONDS - g.held)
     local w = g:GetWidth()
     if type(w) == "number" and w > 4 then g.fill:SetWidth(math.max(0.01, (w - 4) * (g.held / HOLD_SECONDS))) end
-    g.text:SetText(g.held > 0 and ("Keep holding Alt... %.1f"):format(left) or "Hold Alt (3s) to release")
+    local tenths = g.held > 0 and math.floor(left * 10 + 0.5) or -1      -- the text only changes with the tenths
+    if tenths ~= g.shown then
+        g.shown = tenths
+        g.text:SetText(tenths >= 0 and ("Keep holding Alt... %.1f"):format(tenths / 10) or "Hold Alt (3s) to release")
+    end
     if g.held >= HOLD_SECONDS then
         -- step aside: the real Release button works normally now
         g:Hide()
@@ -128,6 +130,21 @@ end
 
 function TW:ReleaseGuardOff()
     if self.guard then self.guard:Hide() end
+end
+
+-- The "move it" controls of an on-screen display (Combat Timer, Death
+-- alerts, Battle rez tracker): the anchor button (click to unlock and
+-- drag, again to lock) and "Reset position"; leaving the page locks it
+-- again. target has unlocked, SetUnlocked(on) and ResetPosition();
+-- o = { size, tip, resetW, resetH, after (run after a click) }.
+function TW.MoveControls(parent, target, o)
+    local anchor = UI.IconButton(parent, o.size or 24, ns.MEDIA .. "Anchor", o.tip, function()
+        target:SetUnlocked(not target.unlocked)
+        if o.after then o.after() end
+    end)
+    local reset = UI.Button(parent, o.resetW or 92, o.resetH or 22, "Reset position", o.resetTip, function() target:ResetPosition() end)
+    parent:HookScript("OnHide", function() if target.unlocked then target:SetUnlocked(false) end end)
+    return anchor, reset
 end
 
 -- ---------------------------------------------------------------------

@@ -8,7 +8,9 @@
 --  * Coalescing: queued messages can carry a key so a newer version of the
 --    same thing (an op being dragged, presence state) replaces the old one.
 --  * Messages over 250 bytes are split into numbered parts and reassembled.
---  * Solo ("local" mode) nothing is sent.
+--    Parts wait behind ordinary messages, so a big snapshot never holds up
+--    live drawing, the camera or presence.
+--  * Solo, or without a guild to send through ("local" mode), nothing is sent.
 --
 -- Wire format: "<kind>^<payload>"; parts are "#^<msgid>,<i>,<n>^<chunk>".
 local ADDON, ns = ...
@@ -19,21 +21,26 @@ ns.Comms = Comms
 local SEP = "^"
 local MAXLEN = 250
 local CHUNK = 230
+local MAX_PARTS = 400       -- receivers (every version) drop anything longer
 
 local queue = {}
+local parts = {}            -- { m = part, id = msgid, key }, sent when queue is empty
 local tokens, lastRefill = 0, 0
 local ticker
 local handlers = {}
 local partial = {}
-local msgCounter = 0
+-- a random start, so ids after a /reload don't collide with parts of a
+-- message from before it that receivers may still be holding
+local msgCounter = math.random(0, 4094)
 
 Comms.stats = { sent = 0, recv = 0, throttled = 0 }
 
 function Comms:On(kind, fn) handlers[kind] = fn end
 
-function Comms:Mode() return IsInGroup() and "group" or "local" end
+function Comms:Mode() return (IsInGroup() and ns.DataChannel()) and "group" or "local" end
 
-function Comms:QueueSize() return #queue end
+function Comms:QueueSize() return #queue + #parts end
+function Comms:SendingParts() return #parts > 0 end
 
 function Comms:Init()
     tokens = ns.db.settings.burst
@@ -81,15 +88,38 @@ function Comms:Pump()
     ticker = C_Timer.NewTicker(0.1, function() Comms:_tick() end)
 end
 
-function Comms:_split(msg)
+-- A newer message with the same key (a newer snapshot) replaces the
+-- unsent parts of the older one.
+function Comms:_split(msg, key)
+    local chunks = ns.Chunks(msg, CHUNK)
+    if #chunks > MAX_PARTS then
+        ns.Print(("This plan is too big to share live (%d KB). Share it with Export instead."):format(math.floor(#msg / 1024)))
+        return
+    end
+    if key then
+        for i = #parts, 1, -1 do if parts[i].key == key then table.remove(parts, i) end end
+    end
     msgCounter = (msgCounter % 4095) + 1
     local id = ("%x"):format(msgCounter)
-    local n = math.ceil(#msg / CHUNK)
-    local parts = {}
-    for i = 1, n do
-        parts[i] = "#" .. SEP .. id .. "," .. i .. "," .. n .. SEP .. msg:sub((i - 1) * CHUNK + 1, i * CHUNK)
+    for i, c in ipairs(chunks) do
+        parts[#parts + 1] = { m = "#" .. SEP .. id .. "," .. i .. "," .. #chunks .. SEP .. c, id = id, key = key }
     end
-    return parts
+end
+
+-- the next message to send: ordinary ones first, then parts
+local function nextMessage()
+    local e = queue[1]
+    if not e then
+        local p = table.remove(parts, 1)
+        return p and p.m, p
+    end
+    if e.gen then
+        local kind, payload, more = e.gen()
+        if not kind or not more then table.remove(queue, 1) end
+        return kind and (kind .. SEP .. payload), nil, e.key
+    end
+    table.remove(queue, 1)
+    return e.msg, nil, e.key
 end
 
 function Comms:_tick()
@@ -97,62 +127,45 @@ function Comms:_tick()
     local now = GetTime()
     tokens = math.min(s.burst, tokens + (now - lastRefill) * s.rate)
     lastRefill = now
-    if #queue == 0 then
+    if #queue == 0 and #parts == 0 then
         ticker:Cancel()
         ticker = nil
         return
     end
     if ns.InLockdown() then return end
-    if self:Mode() == "local" then wipe(queue) return end
+    if self:Mode() == "local" then wipe(queue); wipe(parts) return end
 
-    while #queue > 0 and tokens >= 1 do
-        local e = queue[1]
-        local msg
-        if e.gen then
-            local kind, payload, more = e.gen()
-            if kind then msg = kind .. SEP .. payload end
-            if not kind or not more then table.remove(queue, 1) end
-        else
-            msg = e.msg
-            table.remove(queue, 1)
-        end
-        if msg then
-            if #msg > MAXLEN then
-                local parts = self:_split(msg)
-                for i = #parts, 1, -1 do table.insert(queue, 1, { msg = parts[i] }) end
-            else
-                local res = self:_rawSend(msg)
-                if res == "throttle" then
-                    table.insert(queue, 1, { msg = msg })
-                    tokens = 0
-                    break
-                elseif res then
-                    tokens = tokens - 1
-                end
+    while tokens >= 1 and (#queue > 0 or #parts > 0) do
+        local msg, part, key = nextMessage()
+        if msg and #msg > MAXLEN then
+            self:_split(msg, key)
+        elseif msg then
+            local res = self.TrySend(ns.PREFIX, msg)
+            if res == "throttle" then
+                table.insert(part and parts or queue, 1, part or { msg = msg })
+                tokens = 0
+                break
+            elseif res then
+                tokens = tokens - 1
+            elseif part then
+                -- a part that can't go out: the rest of its message is useless
+                for i = #parts, 1, -1 do if parts[i].id == part.id then table.remove(parts, i) end end
             end
         end
     end
 end
 
-function Comms:_rawSend(msg)
+-- One addon message straight out: true when sent, "throttle" when the
+-- server asked to slow down, false when it failed (or there's no guild).
+-- The laser uses it too, so its throttles show in the same stats.
+function Comms.TrySend(prefix, msg)
     local channel = ns.DataChannel()
     if not channel then return false end
-    local ok, res = pcall(C_ChatInfo.SendAddonMessage, ns.PREFIX, msg, channel)
-    if not ok then
-        ns.Debug("send error:", res)
-        return false
-    end
-    local E = Enum and Enum.SendAddonMessageResult
-    if res == nil or res == true or (E and res == E.Success) then
-        self.stats.sent = self.stats.sent + 1
-        return true
-    end
-    if E and res == E.AddonMessageThrottle then
-        self.stats.throttled = self.stats.throttled + 1
-        return "throttle"
-    end
-    ns.Debug("send result:", tostring(res))
-    return false
+    local res = ns.TrySend(prefix, msg, channel)
+    if res == true then Comms.stats.sent = Comms.stats.sent + 1
+    elseif res == "throttle" then Comms.stats.throttled = Comms.stats.throttled + 1
+    else ns.Debug("send failed:", prefix) end
+    return res
 end
 
 -- ---------------------------------------------------------------------
@@ -162,35 +175,22 @@ function Comms:Receive(text, sender)
     local kind, rest = text:match("^([^%^]+)%^(.*)$")
     if not kind then return end
     if kind == "#" then
-        local hdr, chunk = rest:match("^([^%^]+)%^(.*)$")
-        if not hdr then return end
-        local id, i, n = hdr:match("^(%x+),(%d+),(%d+)$")
-        i, n = tonumber(i), tonumber(n)
-        if not id or not n or n > 400 or i < 1 or i > n then return end
-        local now = GetTime()
-        for k, p in pairs(partial) do
-            if now - p.t > 30 then partial[k] = nil end
-        end
-        local key = sender .. "/" .. id
-        local p = partial[key]
-        if not p or p.n ~= n then
-            p = { n = n, got = 0, parts = {}, t = now }
-            partial[key] = p
-        end
-        if not p.parts[i] then
-            p.parts[i] = chunk
-            p.got = p.got + 1
-        end
-        if p.got == n then
-            partial[key] = nil
-            return self:Receive(table.concat(p.parts), sender)
-        end
+        local id, i, n, chunk = rest:match("^(%x+),(%d+),(%d+)%^(.*)$")
+        if not id then return end
+        local whole = ns.Reassemble(partial, sender .. "/" .. id, i, n, chunk, MAX_PARTS)
+        if whole then return self:Receive(whole, sender) end
         return
     end
     self.stats.recv = self.stats.recv + 1
     local fn = handlers[kind]
-    if fn then
-        local ok, err = pcall(fn, rest, sender)
-        if not ok then geterrorhandler()(err) end
+    if fn then ns.Try(fn, rest, sender) end
+end
+
+-- Is a long message from this sender still arriving?
+function Comms:Receiving(sender)
+    local now, prefix = GetTime(), sender .. "/"
+    for key, box in pairs(partial) do
+        if key:sub(1, #prefix) == prefix and now - box.at < 60 then return true end
     end
+    return false
 end

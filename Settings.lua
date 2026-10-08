@@ -18,7 +18,7 @@ local S = {}
 ns.Settings = S
 
 local NAV_W = 200
-local W, H = 880, 570              -- the standard module size (ns.Nav.STD_W / STD_H)
+local W, H = ns.Nav.STD_W, ns.Nav.STD_H     -- the standard module size
 local PAGE_W = W - NAV_W - 40
 local ROW_H = 30
 
@@ -98,38 +98,10 @@ Pager.__index = Pager
 -- parent: the window; x, y: top-left of the page area; pageW: page width;
 -- viewH: visible height
 function S.Pager(parent, x, y, pageW, viewH)
-    local pg = setmetatable({ pageW = pageW, viewH = viewH, built = {}, offset = 0 }, Pager)
-    local view = CreateFrame("Frame", nil, parent)
-    view:SetPoint("TOPLEFT", x, y)
-    view:SetSize(pageW, viewH)
-    if view.SetClipsChildren then view:SetClipsChildren(true) end
-    view:EnableMouseWheel(true)
-    view:SetScript("OnMouseWheel", function(_, delta) pg:ScrollBy(-delta * 40) end)
-    pg.view = view
-    local track = CreateFrame("Frame", nil, parent)
-    track:SetPoint("TOPLEFT", view, "TOPRIGHT", 8, 0)
-    track:SetSize(8, viewH)
-    track.bg = track:CreateTexture(nil, "BACKGROUND")
-    track.bg:SetAllPoints()
-    track.bg:SetColorTexture(1, 1, 1, 0.06)
-    local thumb = CreateFrame("Button", nil, track)
-    thumb:SetWidth(8)
-    thumb.tex = thumb:CreateTexture(nil, "ARTWORK")
-    thumb.tex:SetAllPoints()
-    thumb.tex:SetColorTexture(C.accent[1], C.accent[2], C.accent[3], 0.7)
-    thumb:RegisterForDrag("LeftButton")
-    thumb:SetScript("OnDragStart", function()
-        local _, cy = GetCursorPosition()
-        pg.dragFrom, pg.dragOffset = cy / (UIParent:GetEffectiveScale() or 1), pg.offset or 0
-        thumb:SetScript("OnUpdate", function()
-            local _, ny = GetCursorPosition()
-            ny = ny / (UIParent:GetEffectiveScale() or 1)
-            local span = (track:GetHeight() or 1) - (thumb:GetHeight() or 1)
-            if span > 0 then pg:ScrollTo(pg.dragOffset + (pg.dragFrom - ny) / span * pg:MaxScroll()) end
-        end)
-    end)
-    thumb:SetScript("OnDragStop", function() thumb:SetScript("OnUpdate", nil) end)
-    pg.track, pg.thumb = track, thumb
+    local pg = setmetatable({ pageW = pageW, viewH = viewH, built = {} }, Pager)
+    pg.scroll = UI.ScrollArea(parent, pageW, viewH, 40)
+    pg.scroll.view:SetPoint("TOPLEFT", x, y)
+    pg.view = pg.scroll.view
     return pg
 end
 
@@ -221,39 +193,15 @@ function Pager:Show(p)
     if not self.built[p.key] then self.built[p.key] = self:Build(p) end
     self.current = p.key
     for k, c in pairs(self.built) do c:SetShown(k == p.key) end
-    self.offset = 0
+    local c = self:Content()
+    self.scroll:SetContent(c, c.height)
     self:Refresh()
 end
 
 function Pager:Content() return self.built[self.current or ""] end
-
-function Pager:MaxScroll()
-    local c = self:Content()
-    return math.max(0, ((c and c.height) or 0) - self.viewH)
-end
-
-function Pager:ScrollTo(v)
-    self.offset = math.max(0, math.min(self:MaxScroll(), v or 0))
-    local c = self:Content()
-    if c then c:ClearAllPoints(); c:SetPoint("TOPLEFT", 0, self.offset) end
-    self:LayoutScrollbar()
-end
-
-function Pager:ScrollBy(d) self:ScrollTo((self.offset or 0) + d) end
-
--- a visible scroll bar whenever the page is taller than its area
-function Pager:LayoutScrollbar()
-    local max = self:MaxScroll()
-    local show = max > 0
-    self.track:SetShown(show)
-    if not show then return end
-    local c = self:Content()
-    local viewH = self.viewH
-    local thumbH = math.max(30, viewH * viewH / c.height)
-    self.thumb:SetHeight(thumbH)
-    self.thumb:ClearAllPoints()
-    self.thumb:SetPoint("TOP", self.track, "TOP", 0, -((viewH - thumbH) * (self.offset or 0) / max))
-end
+function Pager:MaxScroll() return self.scroll:MaxScroll() end
+function Pager:ScrollTo(v) self.scroll:ScrollTo(v) end
+function Pager:ScrollBy(d) self.scroll:ScrollBy(d) end
 
 -- redraw the shown page's buttons from the saved settings
 function Pager:Refresh()
@@ -273,7 +221,7 @@ function Pager:Refresh()
     end
     local mod = c.mod
     if type(mod) == "table" and mod.RefreshPage then mod:RefreshPage() end
-    self:ScrollTo(self.offset or 0)
+    self:ScrollTo(self.scroll.offset)
 end
 
 -- ---------------------------------------------------------------------

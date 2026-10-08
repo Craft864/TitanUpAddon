@@ -19,13 +19,16 @@ local function norm(s)
     return (tostring(s or ""):lower():gsub("[^%w]", ""))
 end
 
--- EJ_SelectTier changes what the Encounter Journal window shows, so put
--- the player's tier back afterwards.
+-- EJ_SelectTier / EJ_SelectInstance change what the Encounter Journal
+-- window shows, so put the player's tier (and instance, when fn returns
+-- true because it selected one) back afterwards.
 local function withTiers(fn)
     local prev = EJ_GetCurrentTier and EJ_GetCurrentTier()
-    local ok, err = pcall(fn)
-    if not ok then ns.Debug("journal read failed:", err) end
+    local prevInst = EncounterJournal and EncounterJournal.instanceID
+    local ok, res = pcall(fn)
+    if not ok then ns.Debug("journal read failed:", res) end
     if prev then pcall(EJ_SelectTier, prev) end
+    if res == true and prevInst then pcall(EJ_SelectInstance, prevInst) end
 end
 
 function Content:Init()
@@ -137,7 +140,7 @@ function Content:Encounters(instID)
     if not instID then return {} end
     if self._enc[instID] then return self._enc[instID] end
     local list = {}
-    local ok, err = pcall(function()
+    withTiers(function()
         local function read()
             local j = 1
             while true do
@@ -148,12 +151,13 @@ function Content:Encounters(instID)
             end
         end
         read()
-        if #list == 0 then
+        local selected = #list == 0
+        if selected then
             EJ_SelectInstance(instID)
             read()
         end
         local mainMap = select(7, EJ_GetInstanceInfo(instID))
-        if not mainMap or mainMap == 0 then return end
+        if not mainMap or mainMap == 0 then return selected end
         local pinned = {}
         for _, mapID in ipairs(floorsOf(mainMap)) do
             local pins = C_EncounterJournal and C_EncounterJournal.GetEncountersOnMap
@@ -172,9 +176,10 @@ function Content:Encounters(instID)
                 e.map = mainMap
             end
         end
+        return selected
     end)
-    if not ok then ns.Debug("encounter read failed:", err) end
-    self._enc[instID] = list
+    -- the journal may not be ready yet (just after login): try again next time
+    if #list > 0 then self._enc[instID] = list end
     return list
 end
 

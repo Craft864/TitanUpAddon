@@ -35,10 +35,12 @@ function V:Init()
             if WF.games[id] then WF:Watch(id); V:ShowGame(id) end
         end
     end
+    -- one way in, so a click runs once (the game's own event, else a hook)
     if EventRegistry and EventRegistry.RegisterCallback then
         EventRegistry:RegisterCallback("SetItemRef", function(_, link) onLink(link) end, V)
+    elseif SetItemRef then
+        hooksecurefunc("SetItemRef", function(link) onLink(link) end)
     end
-    if SetItemRef then hooksecurefunc("SetItemRef", function(link) onLink(link) end) end
 end
 
 function V:Create()
@@ -190,18 +192,12 @@ function V:ThemeMenu()
     UI.Menu(self.themeBtn, items)
 end
 
--- Show rows 1..roundCount; "+ Add round" sits under the last one.
+-- "+ Add round" sits under the last round (LayoutLobby shows rows 1..roundCount).
 function V:LayoutRounds()
-    for i, row in ipairs(self.setupRows) do row:SetShown(self.mode == "host" and i <= self.roundCount) end
     self.addRound:ClearAllPoints()
     self.addRound:SetPoint("TOPLEFT", 38, -64 - self.roundCount * 30 - 2)
-    self.addRound:SetShown(self.roundCount < WF.MAX_ROUNDS)
     self:LayoutLobby()
 end
-
--- Resize a window while keeping its top-center (the tab) where it is.
-local resizeKeepCorner = UI.ResizeKeepTab
-V.ResizeKeepCorner = resizeKeepCorner
 
 -- The setup screen grows with its content: rounds, the buttons, and as
 -- many open-game rows as there are games.
@@ -249,7 +245,7 @@ function V:LayoutLobby()
     self.noGames:SetPoint("TOPLEFT", 20, listTop - 6)
     local listH = math.max(1, shown) * 32
     local height = 6 - listTop + listH + 12
-    if not self.gameId then resizeKeepCorner(self.frame, LOBBY_W, math.max(LOBBY_H, height)) end
+    if not self.gameId then UI.ResizeKeepCorner(self.frame, LOBBY_W, math.max(LOBBY_H, height)) end
 end
 
 function V:AddRound()
@@ -472,7 +468,7 @@ function V:ShowGame(id)
     self.lobby:Hide()
     self.game:Show()
     self.backBtn:Show()
-    V.ResizeKeepCorner(self.frame, W, H)          -- the game screen keeps its full size
+    UI.ResizeKeepCorner(self.frame, W, H)          -- the game screen keeps its full size
     if not self.frame:IsShown() then self.frame:Show() end
     self:RefreshGame()
 end
@@ -487,7 +483,7 @@ function V:StatusText(g)
     local who = colored(g.seats[g.turn])
     local m, a = g.msg, g.arg or ""
     if g.state == "lobby" then return ("Waiting for players (%d/%d)..."):format(#g.seats, WF.SEATS) end
-    if g.state == "cancelled" then return "The game was closed." end
+    if g.state == "cancelled" then return g.msg == "lost" and "Lost touch with the host - the game has ended." or "The game was closed." end
     if m == "solved" then
         local seat, win = a:match("^(%d+):(%d+)$")
         local text = ("%s solved it and banks %s!"):format(colored(g.seats[tonumber(seat) or 0]), money(tonumber(win)))
@@ -725,38 +721,16 @@ function V:OnChange(what, g, extra)
     if self:IsShown() then self:Refresh() end
 end
 
-function V:CreateToast()
-    local t = CreateFrame("Frame", "TitanUpWheelToast", UIParent, "BackdropTemplate")
-    UI.Skin(t, C.bg, C.accent)
-    t:SetSize(380, 74)
-    t:SetPoint("TOP", 0, -220)
-    t:SetFrameStrata("DIALOG")
-    t:Hide()
-    ns.Dock:Add(t)
-    local icon = t:CreateTexture(nil, "ARTWORK")
-    icon:SetTexture(ns.MEDIA .. "WheelIcon")
-    icon:SetSize(40, 40)
-    icon:SetPoint("LEFT", 12, 0)
-    t.text = UI.Text(t, "GameFontHighlight", nil, nil, "TOPLEFT", icon, "TOPRIGHT", 10, 2)
-    t.join = UI.Button(t, 100, 22, "Take a seat", nil, function() t:Hide(); if t.g then WF:Join(t.g.id); V:ShowGame(t.g.id) end end)
-    t.join:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 10, -6)
-    t.watch = UI.Button(t, 70, 22, "Watch", nil, function() t:Hide(); if t.g then WF:Watch(t.g.id); V:ShowGame(t.g.id) end end)
-    t.watch:SetPoint("LEFT", t.join, "RIGHT", 6, 0)
-    t.close = UI.Button(t, 70, 22, "Dismiss", nil, function() t:Hide() end)
-    t.close:SetPoint("LEFT", t.watch, "RIGHT", 6, 0)
-    self.toast = t
-end
-
 function V:Toast(g)
-    if not self.toast then self:CreateToast() end
-    local t = self.toast
-    t.g = g
-    t.text:SetText(("%s is hosting Wheel of Fortune!"):format(colored(g.host)))
-    t:Show()
-    if PlaySound and SOUNDKIT and SOUNDKIT.TELL_MESSAGE then PlaySound(SOUNDKIT.TELL_MESSAGE) end
-    local token = {}
-    t.token = token
-    C_Timer.After(25, function() if t.token == token then t:Hide() end end)
+    if not self.toast then
+        self.toast = UI.Toast("TitanUpWheelToast", ns.MEDIA .. "WheelIcon", {
+            { key = "join", text = "Take a seat", w = 100, click = function(t) if t.g then WF:Join(t.g.id); V:ShowGame(t.g.id) end end },
+            { key = "watch", text = "Watch", click = function(t) if t.g then WF:Watch(t.g.id); V:ShowGame(t.g.id) end end },
+            { key = "close", text = "Dismiss" },
+        }, { y = -220, iconSize = 40 })
+    end
+    self.toast.g = g
+    self.toast:Pop(("%s is hosting Wheel of Fortune!"):format(colored(g.host)), 25)
     ns.Print(("%s is hosting Wheel of Fortune  |H%s%s|h|cff4fc3f7[Open game]|r|h"):format(colored(g.host), self.LINK, g.id))
 end
 
