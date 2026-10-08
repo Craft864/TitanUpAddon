@@ -1,4 +1,4 @@
-# Titan Up v0.31.0
+# Titan Up v0.31.1
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -113,6 +113,10 @@ See the comments at the top of `Rooms.lua`. Short version: put a .blp or .tga in
 ## Planned
 
 - Match by ID instead of English names: defensive spell IDs, and potion / flask / food item IDs (Raid Check, Pull Report), so non-English clients work too.
+
+## Changes in 0.31.1
+
+- **Wider rail** (`Nav.RAIL_W` 150 -> 190): long module names were cut off on the rail ("Macro Works...", "Keystone Rou...", "Wheel of Fort..."). Rail labels now get about 122 pixels instead of 82, so every name shows in full. The window's saved top-left spot is unchanged; the rail and title bar hang 40 pixels further left (the window is still kept on screen by its clamp insets). The narrow (icons only) rail is unchanged.
 
 ## Changes in 0.31.0
 

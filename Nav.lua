@@ -73,7 +73,7 @@ end
 -- Sizes. Most modules use the standard size; TitanBoard keeps its own
 -- larger size (with the rail narrowed to icons so it still fits a screen).
 Nav.TITLE_H = 30
-Nav.RAIL_W, Nav.RAIL_MIN = 150, 40
+Nav.RAIL_W, Nav.RAIL_MIN = 190, 40         -- 190: "Macro Workstation" and other long names fit (0.31.1)
 Nav.STD_W, Nav.STD_H = 880, 570
 
 -- A module's window: the standard frame (UI.Window), the faded logo

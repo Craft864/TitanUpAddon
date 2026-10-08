@@ -17,6 +17,9 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.31.1", {
+        "The side rail is a little wider, so long names like Macro Workstation, Keystone Roulette and Wheel of Fortune show in full.",
+    } },
     { "0.31.0", {
         "Macro Share is now the Macro Workstation, and it opens on a new Builder tab: pick an ability, tick where it should land (whoever you're hovering, your focus, the ground under your mouse, yourself or your target), add extras like \"hold Alt to cast on me\" or stop casting first, and see the macro and what it does in plain English. Save it to your macros in one click or send it from the Share tab.",
         "Your interrupt is always the first pick, already set to hit your focus first.",
