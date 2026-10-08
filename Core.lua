@@ -4,7 +4,7 @@
 -- permissions and slash commands; every module hangs off the shared `ns`.
 local ADDON, ns = ...
 
-ns.VERSION = "0.32.0"
+ns.VERSION = "0.33.0"
 ns.PREFIX = "TitanBoard"     -- board sync channel (unchanged, so it stays compatible)
 ns.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 ns.U = 4095            -- board coordinates run 0..4095 on both axes
@@ -882,6 +882,8 @@ SlashCmdList.TITANUP = function(msg)
         else ns.DeathRollUI:Toggle() end
     elseif cmd == "settings" or cmd == "options" or cmd == "config" then
         ns.Settings:Toggle()
+    elseif cmd == "set" or cmd == "search" then
+        if arg == "" then ns.Settings:Open() else ns.Search:OpenWith(arg) end
     elseif cmd == "new" or cmd == "whatsnew" then
         ns.Updates:ShowWhatsNew()
     elseif cmd == "versions" or cmd == "version" then
@@ -916,6 +918,7 @@ SlashCmdList.TITANUP = function(msg)
         ns.Print("/tu wheel - Wheel of Fortune   |   /tu wheel sim - practice with bots")
         ns.Print("/tu minimap - show/hide the minimap button")
         ns.Print("/tu settings - every module's options on one page")
+        ns.Print("/tu set <words> - search the settings (or type in the box at the top of any Titan Up window)")
         ns.Print("/tu versions - which Titan Up version everyone in your group runs")
         ns.Print("/tu new - what's new in this version")
         ns.Print("/tu mem - how much memory Titan Up is using, broken down by saved data and open windows")

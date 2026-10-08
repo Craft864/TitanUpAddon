@@ -649,8 +649,13 @@ function SS:BuildPage(parent)
     pg:SetAllPoints()
     self.page = pg
     local y = -8
-    local function label(text) local t = UI.Text(pg, "GameFontHighlight", C.text) t:SetPoint("TOPLEFT", 18, y - 5) t:SetText(text) end
-    label("Opens in")
+    local function label(text, tip)
+        local t = UI.Text(pg, "GameFontHighlight", C.text)
+        t:SetPoint("TOPLEFT", 18, y - 5)
+        t:SetText(text)
+        ns.Search.Tag(SS, text, tip, t, y, 440)
+    end
+    label("Opens in", "Which tab the split dialog starts on")
     self.pageMode = UI.Button(pg, 170, 24, "", "Which tab the dialog starts on", function()
         local i = 1
         for k, m in ipairs(SS.MODES) do if m[1] == db().mode then i = k end end
@@ -659,11 +664,11 @@ function SS:BuildPage(parent)
     end)
     self.pageMode:SetPoint("TOPRIGHT", -18, y)
     y = y - 32
-    label("Remember the last amount")
+    label("Remember the last amount", "The split dialog starts with the amount you used last time")
     self.pageRemember = UI.Button(pg, 170, 24, "", nil, function() db().remember = not db().remember; SS:RefreshPage() end)
     self.pageRemember:SetPoint("TOPRIGHT", -18, y)
     y = y - 32
-    label("Presets (the dropdown)")
+    label("Presets (the dropdown)", "The quick amounts in the split dialog's dropdown")
     self.presetBoxes = {}
     for i = 4, 1, -1 do
         local b = UI.EditBox(pg, 38, 24, { center = true, numeric = true, max = 4, keys = false })

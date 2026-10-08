@@ -394,8 +394,9 @@ function DA:BuildPage(parent)
         local t = UI.Text(pg, "GameFontHighlight", C.text, text, "TOPLEFT", 18, yy - 5)
         return t
     end
+    local function tag(text, tip, t) ns.Search.Tag(DA, text, tip, t, y, 440) end
     local function cycleRow(text, getLabel, onClick, tip)
-        label(text, y)
+        tag(text, tip, label(text, y))
         local b = UI.Button(pg, 170, 24, "", tip, function() onClick(); DA:RefreshPage() end)
         b:SetPoint("TOPRIGHT", RIGHT, y)
         b.kind, b.getLabel = "cycle", getLabel
@@ -408,7 +409,7 @@ function DA:BuildPage(parent)
         return b
     end
     local function soundRow(text, key)
-        label(text, y)
+        tag(text, "Death alert sound: choose and preview it", label(text, y))
         local play = UI.Button(pg, 24, 24, ">", "Preview", function() DA.Play(d()[key]) end)
         play:SetPoint("TOPRIGHT", RIGHT, y)
         local b = UI.Button(pg, 170, 24, "", "Choose a sound", nil)

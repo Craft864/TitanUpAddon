@@ -1,4 +1,4 @@
-# Titan Up v0.32.0
+# Titan Up v0.33.0
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -17,7 +17,7 @@ The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up o
   - **Wheel of Fortune**: a host runs a puzzle game for three players (or practise with bots).
   - **Wowdle**: the daily guild word game, with guild standings.
 
-**Getting around:** `/tu` (or the minimap button, or Blizzard's addon menu) opens the Titan Up window on **Home**: what happened last pull, tonight's Raid Check, loot to trade, and your games at a glance. The **rail** down the left side lists every module by section (Raid, UI Tweaks, Games) with **Settings** at the bottom; click one and it replaces what's showing, in the same spot. The **<** button narrows the rail to icons. A cog in the title bar opens that module's settings, and Settings has a "Back" button to where you were. Pop-ups (Pull Report summary, Raid Check alert, game invites, what's new) stack in one place on screen and can be dragged together. `/tb` still opens TitanBoard directly, `/tu roll` Death Roll, `/tu settings` Settings, `/tu help` lists everything, and `/tu mem` shows how much memory Titan Up is using.
+**Getting around:** `/tu` (or the minimap button, or Blizzard's addon menu) opens the Titan Up window on **Home**: what happened last pull, tonight's Raid Check, loot to trade, and your games at a glance. The **rail** down the left side lists every module by section (Raid, UI Tweaks, Games) with **Settings** at the bottom; click one and it replaces what's showing, in the same spot. The **<** button narrows the rail to icons. A cog in the title bar opens that module's settings, and Settings has a "Back" button to where you were. The **search box** in the middle of the title bar finds any setting: type a few letters, pick a result, and Titan Up opens the page it's on and flashes it (`/tu set <words>` does the same from chat). Pop-ups (Pull Report summary, Raid Check alert, game invites, what's new) stack in one place on screen and can be dragged together. `/tb` still opens TitanBoard directly, `/tu roll` Death Roll, `/tu settings` Settings, `/tu help` lists everything, and `/tu mem` shows how much memory Titan Up is using.
 
 ## Installing / upgrading from TitanBoard
 
@@ -113,6 +113,18 @@ See the comments at the top of `Rooms.lua`. Short version: put a .blp or .tga in
 ## Planned
 
 - Match by ID instead of English names, so non-English clients work too: potion / flask / food / healthstone item IDs (Raid Check, Pull Report) and the cheat-death auras (Pull Report). The defensives themselves already match by spell ID (checked against 12.1.5 in 0.29.2).
+
+## Changes in 0.33.0
+
+- **Settings search** (`Search.lua`, new; loaded after `Settings.lua`):
+  - A search box (200 px) centered in every Titan Up title bar (`Nav:CreateHeader` calls `ns.Search:Attach(h)`); the module title now stops before the box instead of before the tabs. Hidden with the title bar (TitanBoard mini / viewer mode).
+  - Typing drops one shared result list (`TitanUpSearchResults`, FULLSCREEN_DIALOG strata, up to 10 rows) under the box: each row is the setting's name (matched letters in the accent colour) and where it lives ("Settings > Loot", "UI Tweaks > Death alerts", "Combat Timer"); hovering shows its tooltip. Up / Down / Tab move the selection, Enter or a click opens it, Esc clears. The list closes with its window.
+  - Matching: every word must appear in the name, tooltip or place (case-insensitive, colour codes and leading spaces stripped). Names holding every word come first (those starting with the first word ahead), then names starting with the first word, then tooltip matches; ties keep the settings' own order.
+  - Opening a result opens its window / page (`S:Open`, `TweaksUI:Open`, `Nav:Switch("timer")`), scrolls the pager so the row is in view, and flashes a 1.6 s accent outline around it (fades from 0.9 s).
+  - The index is built the first time someone types and kept; nothing is kept by hand. Sources: the Settings pages' toggle / cycle / button rows (`S:Pages`), each `TW.LIST` tweak (name + description), and rows the hand-built pages tag as they build with `ns.Search.Tag(mod, label, tip, region, y, w)` (Death alerts, Stack splitter, Battle rez tracker, Combat Timer). The tweak pages are prebuilt hidden (`Pager:Prebuild`) on the first search so their rows exist; `Pager:Build` now records each row's offset (`r.y`) and the tweak host's (`content.hostY`).
+  - `/tu set <words>` (or `/tu search`) opens Settings with the search typed in; `/tu set` alone opens Settings. Listed in `/tu help`.
+  - Saves nothing; no option needed (it's only a box in the Titan Up window).
+- Tests: `testSearch0330.lua` (48 checks).
 
 ## Changes in 0.32.0
 

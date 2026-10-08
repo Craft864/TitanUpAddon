@@ -394,7 +394,9 @@ function Nav:CreateHeader(frame, key, opts)
         table.insert(h.tabs, 1, b)
         right = b
     end
-    h.title:SetPoint("RIGHT", right, "LEFT", -12, 0)
+    -- the settings search box, in the middle; the title stops before it
+    local box = ns.Search and ns.Search:Attach(h)
+    h.title:SetPoint("RIGHT", box or right, "LEFT", -12, 0)
     h.title:SetJustifyH("LEFT")         -- reads on from the section: "Raid Tools  >  REPORTS"
 
     -- rail
