@@ -1,4 +1,4 @@
-# Titan Up v0.29.0
+# Titan Up v0.29.1
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -112,6 +112,14 @@ See the comments at the top of `Rooms.lua`. Short version: put a .blp or .tga in
 ## Planned
 
 - Match by ID instead of English names: defensive spell IDs, and potion / flask / food item IDs (Raid Check, Pull Report), so non-English clients work too.
+
+## Changes in 0.29.1
+
+Fixes from the first in-game look at the 0.29.0 layout:
+- Home: the cards and module tiles ran past the window's right edge (3 x 284 and 6 x 136 didn't fit between the margins). Now 3 x 272 cards with 16px gaps and 6 x 134 tiles, both filling the 848px between 16px margins.
+- Title bar: tabs (Reports: Tonight / This week) are right-aligned just left of the cog (or the X), instead of chained after the title, where they ran into the cog. The title is left-justified after the section name ("Raid Tools  >  REPORTS") rather than centred in the bar.
+- Macro Share: the macro text box collapsed to one line (a multi-line EditBox with one anchor sizes itself to its text). It is now pinned at both corners so it keeps its full height.
+- Death Roll: the standings note is shorter so it isn't cut off in the narrower right-hand column.
 
 ## Changes in 0.29.0
 

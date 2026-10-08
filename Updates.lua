@@ -17,6 +17,12 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.29.1", {
+        "Home: the cards and module tiles fit inside the window (they ran past the right edge).",
+        "Reports: the Tonight / This week buttons no longer run into the settings cog, and every window's title now reads on from its section (\"Raid Tools > REPORTS\").",
+        "Macro Share: the macro text box is full height again.",
+        "Death Roll: the standings note isn't cut off any more.",
+    } },
     { "0.29.0", {
         "New layout: Titan Up is now one window with a list of modules down the left side. Home is at the top and opens first (/tu, the minimap button or the key binding): last pull, Raid Check, loot to trade, your games. Click any module on the left and it opens in the same spot. The \"<\" button shrinks the list to icons.",
         "Pull Report and Raid Scorecard are now one \"Reports\" entry with Tonight / This week tabs.",
