@@ -1,4 +1,4 @@
-# Titan Up v0.30.0
+# Titan Up v0.30.1
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -113,6 +113,10 @@ See the comments at the top of `Rooms.lua`. Short version: put a .blp or .tga in
 ## Planned
 
 - Match by ID instead of English names: defensive spell IDs, and potion / flask / food item IDs (Raid Check, Pull Report), so non-English clients work too.
+
+## Changes in 0.30.1
+
+- **Bonus roll docked in the Loot Rolls window** (`Tweaks/BonusRollGuard.lua`, `BG:Dock` / `BG:Place` / `BG:Undock`). While the roll window is shown and a bonus roll is up, Blizzard's real `BonusRollFrame` is anchored into a "Bonus roll" strip: a separate `LOW`-strata frame hung off the window's bottom edge and skinned to match, so Blizzard's frame always draws above it. Only its position changes (`ClearAllPoints` / `SetPoint`). It is never reparented, never given scripts, and keeps its strata, so its Roll and Pass buttons stay Blizzard's own (the bonus roll API is protected). Its original points are saved and restored when the window hides or the bonus roll ends. Blizzard's re-layouts are followed through `hooksecurefunc("GroupLootContainer_Update")` and `GroupLootContainer_AddFrame`. It never docks in combat; it docks on `PLAYER_REGEN_ENABLED` instead. Docking follows the roll window, not the protection tweak; with protection on, the covers and confirm panels follow the buttons as before. With the roll window closed or off, nothing changes.
 
 ## Changes in 0.30.0
 
