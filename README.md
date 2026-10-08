@@ -1,4 +1,4 @@
-# Titan Up v0.31.1
+# Titan Up v0.32.0
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -113,6 +113,70 @@ See the comments at the top of `Rooms.lua`. Short version: put a .blp or .tga in
 ## Planned
 
 - Match by ID instead of English names: defensive spell IDs, and potion / flask / food item IDs (Raid Check, Pull Report), so non-English clients work too.
+
+## Changes in 0.32.0
+
+Fixes everything in the full code review of 0.30.1 (`reviews/titanup-code-review-0.30.1.md` in the project files; details per area in `reviews/details/`). PR Craft864/TitanUpAddon#7.
+
+- **Core messaging** (`Core.lua`):
+  - `ns.Send` holds every queue while `C_ChatInfo.InChatMessagingLockdown()` is true and sends when the encounter ends, instead of losing queued messages. The refill is 1 message/s per prefix (the server allowance; was 2), burst 10, at most 200 waiting per prefix.
+  - `ns.TrySend` (true / "throttle" / false) is shared by the core queue and TitanBoard.
+  - `ns.SendFields` sends nil fields as empty (`ns.Join`).
+  - `ns.Listen` is one `CHAT_MSG_ADDON` dispatcher; a scope function returning nil ignores the message.
+  - Event handlers run through `ns.Try` (xpcall with the failing handler's stack where the client allows).
+- **New shared helpers:** `ns.Chunks` / `ns.Reassemble` (split messages; the clock restarts on every part, part numbers are validated), `ns.CleanField` / `ns.Truncate` (UTF-8-safe), `ns.Debounce`, `ns.Now`, `UI.ScrollArea` (Settings and the pop-up panels), `UI.Toast` (Death Roll, Wheel, Macro Share), `UI.ClassRGB`. `UI.Prompt` honours `max`.
+- **Roster cache:** `ns.InMyGroup`, `ns.UnitForName`, `ns.ClassOf` (cached per name), `ns.LeaderName` and `ns.CanDraw` no longer rescan the group per call. The cache is rebuilt after `GROUP_ROSTER_UPDATE` / `PARTY_LEADER_CHANGED`, a size change, or 2 s.
+- **Version check** (`Updates.lua`):
+  - Players outside your group answer only askers older than 0.28.0, and answers to checks close together are merged.
+  - "Check again" waits for the running check. No check runs during a boss fight; without a guild, rows say so.
+  - The update reminder needs two guildmates reporting the newer version and waits until you're out of combat and out of a raid.
+- **TitanBoard:**
+  - Split messages over ~9 KB now arrive.
+  - A followed leader's plan is never saved over your own (`plan.remote`; the first edit as owner saves a copy named "Name (Leader)").
+  - `Board:CancelGesture()` on mini/hide finishes the stroke and stops the laser. Live strokes from others are pruned after 10 s.
+  - Snapshots go out at most once per 15 s and queue behind live messages.
+  - Raidstrats import is guarded end to end and uses `C_EncodingUtil.DecodeBase64` / `DeserializeJSON` (the Lua decoders moved into the test harness mock).
+  - **Only the group leader** sends or is obeyed for the view (`V`), context (`C`) and follow (`F`) messages. Assistants and granted players still draw.
+  - Laser at 1 msg/s. "NO GUILD" pill when nothing can sync. UTF-8-safe labels. EJ cache fix. Save on logout. Paste and decompress size caps.
+  - Performance: canvas-only redraws on pan/zoom (0 roster reads per frame in a 40-man raid, was ~1,400), cached map art and laser colours, cached op serialization, incremental pen segments, an eraser that hit-tests only when the mouse moves.
+  - The window build and layout moved to `Board/BoardFrame.lua`. `Model.Serialize` must stay byte-identical (comment added).
+- **Death Roll:**
+  - State messages are accepted only for known rooms, from the recorded host/opponent.
+  - A roll counts only once this client has seen its `/roll` line (the `K` echo can no longer pick a roll; Ryan chose this over trusting reports). N/S/G are validated.
+  - Ledger records can only be changed by their winner or loser. Debt and trade credit count confirmed games only. Dates and amounts are validated. Unconfirmed records are dropped after 7 days.
+  - The digest window matches the archive window. `H` has a 4th field (`from`), and a re-share to the same asker waits 30 min.
+  - States over 255 bytes go out as the new kind `U^id^part^n^chunk`.
+  - Rolling rooms expire after 30 min idle or 120 s with the opponent offline.
+  - `DR.Fmt` formats negatives correctly.
+  - The chat filter matches connected-realm names.
+- **Wheel of Fortune / Keys / Macro Share / Wowdle:**
+  - Wheel: players' games end if the host goes silent, and reloaders rejoin. The prize is dropped from an over-long state message.
+  - Keys: the teleport button hides with its pop-up (or says where it goes in combat). Vote length is 5-60 s and votes expire. Teleport lookups are cached. Party chat goes through `ns.GroupChannel()`.
+  - Macro Share: received text is shown with `|` escaped, script macros are tagged, only character macros are created or updated, and it doesn't report "Shared" during lockdown.
+  - Wowdle: refreshes are debounced and the standings scroll.
+- **Raid tools and tweaks:**
+  - Pull Report:
+    - The wipe-window crash is fixed (shadowed `short`).
+    - Feign Death is filtered via `UnitIsDead` (shared `PR.GroupDeath`, also used by Death Alerts).
+    - Health strips are no longer saved.
+    - Stale pulls close at login. The outbox is a list. Overkill and cooldown reads are secret-safe. Spec reads try `C_SpecializationInfo` first.
+  - Loot:
+    - A drop seen again within 12 h reuses its record (no duplicates across 00:00 UTC; ids unchanged).
+    - BoP Need/Greed is marked rolled only after the bind confirmation (`CONFIRM_LOOT_ROLL` + `ConfirmLootRoll` hook).
+    - Drops older than 7 days keep only the winner's roll and yours (`LT:SlimOld`, in batches after login).
+    - Newest copy wins for picks. The roll ticker runs only while rolls are open.
+  - Battle rez: shown for the whole raid encounter / key, in or out of combat.
+  - Death Alerts don't reset on your own death mid-encounter.
+  - Raid Check:
+    - `Q` is only answered from the leader or an assist, and malformed ids are ignored.
+    - One bag pass per snapshot.
+    - The `/pull` scan is throttled.
+  - Scorecard sync: requests are merged, one reply a minute, held through fights, and bounds-checked parts.
+  - Stack Splitter steps aside in combat. Bonus roll docking never moves anything in combat and restores Blizzard's current anchors. Hidden windows don't redraw on every report.
+  - `TW.MoveControls` is shared by the Timer, Battle rez and Death Alerts pages.
+- **Shell:** removed `Nav:AddCog`, `Hub.LootToTrade` and `ns.skippedEvents`. `Nav:Place` skips a window with restricted anchoring in combat. `/tb rate` is clamped to 0.2-5. A one-time chat note appears if your guild rank can't talk in guild chat.
+- **Compatibility:** no wire format changed incompatibly (new: Death Roll `U`, a trailing field on the ledger `H`; receivers are stricter). No saved keys were renamed.
+- **Tests:** `testCoreFixes.lua` (33 checks), `testBoardFixes.lua` (70), `testGamesFixes.lua` (95), `testRaidFixes.lua` (123). `testVersions0280` waits 0.5 s for the merged answer; `testRefactor0260` waits 150 s for 150 ledger records at 1 msg/s.
 
 ## Changes in 0.31.1
 

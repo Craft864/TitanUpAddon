@@ -17,6 +17,21 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.32.0", {
+        "A big clean-up and bug-fix release from a full review of the addon.",
+        "Pull Report: the window no longer breaks after a wipe, and a hunter's Feign Death no longer counts as a death.",
+        "TitanBoard: bigger plans now reach the whole raid, and watching the leader's board never overwrites your own saved plan. A line you were drawing when combat starts is finished instead of left half-drawn, and your laser stops when the board closes.",
+        "TitanBoard: only the raid leader moves the board view and switches the boss for everyone. Assistants can still draw.",
+        "TitanBoard is much lighter while panning, zooming and pointing, especially in a full raid.",
+        "Messages sent during a boss fight (loot tags, reports, macros) now go out right after the fight instead of being lost.",
+        "Battle rez tracker: it stays up while you're dead.",
+        "Loot: drops no longer show twice when you open the Loot window late in the evening, and a Need or Greed on a bind-on-pickup item only counts once you confirm the bind question. Older loot history takes less space.",
+        "Death Roll: rolls and results can't be faked by other players, games that run long catch up properly after combat or a /reload, and the guild ledger stops re-sending itself so often. A game whose opponent goes offline ends by itself.",
+        "Wheel of Fortune: if the host leaves or reloads, players' games end instead of freezing, and a player who reloads can rejoin.",
+        "Keystone Roulette: the Teleport button no longer stays on screen after you close it in combat, and a vote can't lock the window.",
+        "Macro Share: shared macros show their exact text, ones that run scripts are marked, and saving one never overwrites an account-wide macro.",
+        "Version check: only your group answers, and the \"newer version\" reminder waits until you're out of combat and out of the raid.",
+    } },
     { "0.31.1", {
         "The side rail is a little wider, so long names like Macro Workstation, Keystone Roulette and Wheel of Fortune show in full.",
     } },
