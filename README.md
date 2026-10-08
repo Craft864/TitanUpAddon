@@ -1,4 +1,4 @@
-# Titan Up v0.29.2
+# Titan Up v0.30.0
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -78,6 +78,7 @@ Notes:
 `/tu loot` (or Loot on the rail).
 
 - **Raid drops (group loot):** recorded automatically when a roll finishes, from WoW's own loot history - item, item level, boss, raid and difficulty, the winner with their roll (Need / Need off-spec / Transmog / Greed), and everyone else's rolls (hover a drop).
+- **Raid bonus rolls:** recorded from the "receives bonus loot" chat line, under the boss just killed, marked "bonus roll" (yours and everyone else's in the raid).
 - **Mythic+ and dungeons (personal loot):** there are no rolls - the game assigns items - so it records who received what, including the end-of-run chest.
 - **Trades:** when a tracked item changes hands in a trade, the hop is added to its history and shared with the group, so everyone's copy shows the same chain. Needs Titan Up on at least one side of the trade (trades between two people without it can't be seen).
 - **Equipped:** when the current owner equips the item, tracking ends (it's soulbound for good). Needs Titan Up on the owner's side.
@@ -112,6 +113,13 @@ See the comments at the top of `Rooms.lua`. Short version: put a .blp or .tga in
 ## Planned
 
 - Match by ID instead of English names: defensive spell IDs, and potion / flask / food item IDs (Raid Check, Pull Report), so non-English clients work too.
+
+## Changes in 0.30.0
+
+- **New UI Tweak: Bonus roll protection** (`Tweaks/BonusRollGuard.lua`, `TitanUpDB.tweaks.bonusGuard`, off by default). `AcceptSpellConfirmationPrompt` / `DeclineSpellConfirmationPrompt` have been protected since 10.0.7, so only Blizzard's own buttons can spend or pass a bonus roll. Titan Up therefore never rolls itself and never modifies `BonusRollFrame` (no `SetScript`, no taint). It covers `BonusRollFrame.PromptFrame.RollButton` / `PassButton` with its own buttons, the same approach as Release protection. Clicking a cover opens a panel above the frame: green "Spend a bonus roll?" (loot spec, from `GetLootSpecialization` or the current spec, and coins left, from the prompt's currency through `C_CurrencyInfo.GetCurrencyInfo`) with Cancel, or red "Give up this bonus roll?" with a big "Keep my roll". That cover lifts and the real button glows; clicking the real button is the confirm. After 15 seconds with no click the covers come back. Triggered by `SPELL_CONFIRMATION_PROMPT` with the bonus-roll confirm type and `BonusRollFrame` OnShow (`HookScript`). Cleared by `BONUS_ROLL_STARTED`, `BONUS_ROLL_RESULT`, `SPELL_CONFIRMATION_TIMEOUT` and the frame's OnHide. If the frame's layout is unknown it does nothing. It never checks for other addons.
+- **Loot: raid bonus rolls in the drops list.** Bonus-roll loot isn't in `C_LootHistory` (there's no group roll), so `CHAT_MSG_LOOT` in raid instances now matches `LOOT_ITEM_BONUS_ROLL` / `LOOT_ITEM_BONUS_ROLL_SELF` (with English fallbacks). The drop is recorded as `kind = "raid", bonus = true`, under the boss from the last `ENCOUNTER_END` (within 10 minutes), with id `B-date-encounterID-winner-itemID`. The Loot window shows "bonus roll" in place of a Need/Greed roll. Plain raid loot messages are still ignored (the loot history covers them).
+- **Combat Timer: chat line choices.** New `timer.chatWhere` (`raid`, `mplus`, `dungeon`, `world`; default raid only) and `timer.chatMin` (0 / 10 / 30 / 60 / 120 seconds; default 30). The "Combat lasted" line prints only when `chatSummary` is on, the fight's kind is picked, and the fight lasted at least the minimum. The kind is decided at the start: a boss encounter in a raid instance is `raid`; a party instance is `mplus` with an active key (or difficulty 8), otherwise `dungeon`; anything else is `world`. Timing, the display and the history are unchanged. The settings page has two new rows, which grey out while the summary is off. Existing installs pick up the new defaults, so dungeon and open-world lines stop until those kinds are turned back on.
+- **Loot roll window:** each item stores the roll's full length (`total`, from `START_LOOT_ROLL`'s `rollTime`), and the time bar runs down over that length instead of the last 60 seconds. The preview's rolls now finish at 45 seconds, matching its countdown (they finished at 20).
 
 ## Changes in 0.29.2
 

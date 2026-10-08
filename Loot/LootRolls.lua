@@ -110,6 +110,7 @@ function LR:OnStart(rollID, rollTime)
         canTransmog = canTransmog and not bad(canTransmog), canDE = canDE and not bad(canDE),
         reasonNeed = ns.Safe.Num(reasonNeed), reasonGreed = ns.Safe.Num(reasonGreed),
         expires = GetTime() + (ns.Safe.Num(rollTime) or 60000) / 1000,
+        total = math.max(1, (ns.Safe.Num(rollTime) or 60000) / 1000),      -- the roll's full length (the time bar)
         tags = "", note = "", picks = {}, rolls = {},
     }
     self.items[#self.items + 1] = e
@@ -335,6 +336,7 @@ local SAMPLE_PICKS = {
     { { "Kev-Medivh", "", 4, "" }, { "Selune-Medivh", "S", 2, "" } },
     { { "Mossy-Medivh", "2", 1, "my 2pc" }, { "Selune-Medivh", "B4", 1, "" } },
 }
+local PREVIEW_SECONDS = 45
 local SAMPLE_WINS = { { "Mossy-Medivh", 0, 91 }, { "Brakk-Medivh", 0, 77 }, { "Selune-Medivh", 3, 64 }, { "Selune-Medivh", 0, 88 } }
 
 function LR:Preview()
@@ -344,13 +346,13 @@ function LR:Preview()
     for i, s in ipairs(SAMPLE) do
         local e = { rollID = -i, sim = true, t = time(), name = s[1], link = "|cffa335ee[" .. s[1] .. "]|r", icon = s[2], ilvl = s[3],
                     bop = s[4], item = -i, canNeed = true, canGreed = true, canTransmog = i ~= 4,
-                    expires = GetTime() + 45, tags = "", note = "", picks = {}, rolls = {} }
+                    expires = GetTime() + PREVIEW_SECONDS, total = PREVIEW_SECONDS, tags = "", note = "", picks = {}, rolls = {} }
         for _, p in ipairs(SAMPLE_PICKS[i]) do e.picks[p[1]] = { tags = p[2], roll = p[3], note = p[4] } end
         self.items[#self.items + 1] = e
     end
     self.V:Open()
-    ns.Print("Roll window preview: sample items and raiders - nothing is rolled or sent. The rolls finish in 20 seconds.")
-    C_Timer.After(20, function()
+    ns.Print("Roll window preview: sample items and raiders - nothing is rolled or sent. The rolls finish in " .. PREVIEW_SECONDS .. " seconds.")
+    C_Timer.After(PREVIEW_SECONDS, function()
         if self.previewId ~= id then return end
         for i, e in ipairs(self.items) do
             if e.sim then
@@ -584,7 +586,7 @@ function V:Refresh()
             if open then
                 row.result:SetText("")
                 row.bar:SetShown(left > 0)
-                row.bar:SetWidth(math.max(1, (LIST_W - 8) * math.min(1, left / 60)))
+                row.bar:SetWidth(math.max(1, (LIST_W - 8) * math.min(1, left / (e.total or 60))))
                 if left > 0 then row.info:SetText(row.info:GetText() .. (row.info:GetText() ~= "" and "  -  " or "") .. UI.Clock(left) .. " left") end
             else
                 row.result:SetText(done or "")

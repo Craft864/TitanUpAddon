@@ -17,6 +17,7 @@ local ROW_H = 38
 local colored = UI.Named
 
 local function rollText(r)
+    if r.bonus then return "bonus roll" end
     if r.kind ~= "raid" then return "received" end
     local name = LT.ROLL_NAMES[r.wstate] or "won"
     return r.wroll and (name .. " " .. r.wroll) or name
@@ -136,7 +137,9 @@ function V:Tooltip(row)
     if r.link then GameTooltip:SetHyperlink(r.link) end
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine((r.boss or r.inst or "") .. (r.diff and ("  (" .. r.diff .. ")") or "") .. "  -  " .. date("%a %b %d %H:%M", r.t or 0), 0.8, 0.82, 0.86)
-    if r.kind == "raid" then
+    if r.bonus then
+        GameTooltip:AddLine("Bonus roll - " .. ns.Short(r.winner) .. " won it with their own bonus roll (no group roll).", 0.8, 0.82, 0.86, true)
+    elseif r.kind == "raid" then
         GameTooltip:AddLine("Rolls:", 1, 0.85, 0.3)
         local rolls = {}
         for _, x in ipairs(r.rolls or {}) do rolls[#rolls + 1] = x end
@@ -150,7 +153,7 @@ function V:Tooltip(row)
         GameTooltip:AddLine("Personal loot - " .. ns.Short(r.winner) .. " received it (no roll).", 0.8, 0.82, 0.86, true)
     end
     GameTooltip:AddLine("History:", 1, 0.85, 0.3)
-    GameTooltip:AddLine(date("%H:%M", r.t or 0) .. "  " .. ns.Short(r.winner) .. (r.kind == "raid" and " won it" or " received it"), 0.9, 0.9, 0.9)
+    GameTooltip:AddLine(date("%H:%M", r.t or 0) .. "  " .. ns.Short(r.winner) .. (r.bonus and " won it (bonus roll)" or r.kind == "raid" and " won it" or " received it"), 0.9, 0.9, 0.9)
     for _, s in ipairs(r.chain or {}) do
         GameTooltip:AddLine(date("%H:%M", s.t or 0) .. "  traded " .. ns.Short(s.f) .. " > " .. ns.Short(s.to), 0.9, 0.9, 0.9)
     end

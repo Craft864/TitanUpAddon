@@ -5,6 +5,9 @@
 --     and the winner. Recorded as soon as a roll finishes.
 --   * Dungeons / Mythic+ (personal loot): nobody rolls - the game picks who
 --     gets items. Recorded from the encounter loot event and loot messages.
+--   * Raid bonus rolls: not in the loot history (no group roll), so they're
+--     recorded from the "receives bonus loot" chat line, under the boss just
+--     killed, marked as a bonus roll.
 --   * Trades: when a tracked item changes hands in a trade, the hop is added
 --     to its history and shared with the group, so everyone's copy shows the
 --     same chain (needs Titan Up on at least one side of the trade).
@@ -75,6 +78,11 @@ function LT:Init()
         LT:OnPersonalLoot(link, player, class, encounterID)
     end)
     ns.On("CHAT_MSG_LOOT", function(msg) LT:OnLootMessage(msg) end)
+    -- the boss a bonus roll belongs to (the prompt follows the kill)
+    ns.On("ENCOUNTER_END", function(encounterID, name)
+        if bad(encounterID) then return end
+        LT.lastBoss = { id = encounterID, name = not bad(name) and name or nil, at = now() }
+    end)
     ns.On("CHALLENGE_MODE_START", function() LT.keyRun = true end)
     ns.On("PLAYER_ENTERING_WORLD", function()
         local inInstance = IsInInstance()
@@ -188,6 +196,24 @@ function LT:OnPersonalLoot(link, player, class, encounterID)
     })
 end
 
+-- Raid bonus roll: someone's bonus roll paid out (no group roll)
+function LT:OnBonusLoot(link, player)
+    if bad(player) or not self:Wanted(link) then return end
+    local inst, kind, _, diffName = instanceInfo()
+    if kind ~= "raid" then return end
+    local who = ns.NormalizeSender(player)
+    local itemID = LT.ItemID(link)
+    local boss = self.lastBoss and now() - self.lastBoss.at < 600 and self.lastBoss or nil
+    local id = table.concat({ "B", day(), boss and boss.id or 0, who, itemID }, "-")
+    local ok, _, class = pcall(UnitClass, who == ns.NormalizeSender(ns.me) and "player" or player)   -- raid members by name (nil if not in the group)
+    if not ok then class = nil end
+    self:Add(id, {
+        t = now(), kind = "raid", bonus = true, inst = inst, diff = diffName,
+        encID = boss and boss.id, boss = boss and boss.name, link = link, item = itemID, ilvl = LT.ItemLevel(link),
+        winner = who, class = (not bad(class)) and class or nil, rolls = {},
+    })
+end
+
 -- "Brakk receives loot: [Item]." - catches the end-of-run Mythic+ chest
 local lootPatterns
 local function buildPatterns()
@@ -200,13 +226,30 @@ local function buildPatterns()
     end
     pat(LOOT_ITEM_SELF, true); pat(LOOT_ITEM_PUSHED_SELF, true)
     pat(LOOT_ITEM, false); pat(LOOT_ITEM_PUSHED, false)
+    -- "Brakk receives bonus loot: [Item]." (raids)
+    LT.bonusPatterns = {}
+    local plain = lootPatterns
+    lootPatterns = LT.bonusPatterns
+    pat(LOOT_ITEM_BONUS_ROLL_SELF or "You receive bonus loot: %s.", true)
+    pat(LOOT_ITEM_BONUS_ROLL or "%s receives bonus loot: %s.", false)
+    lootPatterns = plain
 end
 
 function LT:OnLootMessage(msg)
     if bad(msg) then return end
     local inInstance, kind = IsInInstance()
-    if not inInstance or kind ~= "party" then return end
     if not lootPatterns then buildPatterns() end
+    if inInstance and kind == "raid" then
+        for _, p in ipairs(LT.bonusPatterns) do
+            local a, b = msg:match(p[1])
+            if a then
+                if p[2] then self:OnBonusLoot(a, ns.me) else self:OnBonusLoot(b, a) end
+                return
+            end
+        end
+        return
+    end
+    if not inInstance or kind ~= "party" then return end
     for _, p in ipairs(lootPatterns) do
         local a, b = msg:match(p[1])
         if a then
