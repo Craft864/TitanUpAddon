@@ -4,7 +4,9 @@
 --     times boss encounters (pull to kill/wipe - trash doesn't start it and
 --     dying mid-fight doesn't stop it); everywhere else, any combat.
 --   * Optional: only show inside dungeons and raids; a chat line with the
---     fight's length afterwards (on by default).
+--     fight's length afterwards (on by default) - only for the kinds of
+--     fight picked (raid bosses by default) and only if the fight lasted
+--     the minimum length (30s by default). The timer itself runs as before.
 --   * Font, size, color, outline, tenths of a second.
 --   * After combat it keeps the final time for 5s / 15s / 60s / always.
 --   * "Move" unlocks it to drag; the settings window shows a live preview.
@@ -28,6 +30,10 @@ T.COLORS = {
     { 0.40, 0.88, 0.55 }, { 1.00, 0.35, 0.35 }, { 0.80, 0.55, 1.00 },
 }
 T.LINGER = { { 5, "5 seconds" }, { 15, "15 seconds" }, { 60, "1 minute" }, { -1, "Always" } }
+-- the chat line: which fights, and the shortest one worth a line
+T.WHERE = { { "raid", "Raid boss", "Raid boss fights" }, { "mplus", "Mythic+", "Mythic+ runs (any fight in the key)" },
+            { "dungeon", "Dungeon", "Other dungeons (any fight)" }, { "world", "Other", "Everywhere else (open world, delves, ...)" } }
+T.CHAT_MIN = { { 0, "Any length" }, { 10, "10 seconds" }, { 30, "30 seconds" }, { 60, "1 minute" }, { 120, "2 minutes" } }
 
 local function db() return ns.udb.timer end
 
@@ -88,10 +94,32 @@ function T.Format(sec, tenths)
     return ("%d:%02d"):format(m, math.floor(s))
 end
 
+-- what kind of fight this is, for the chat line
+function T.Where(by)
+    if by == "boss" and T.InRaidInstance() then return "raid" end
+    local inInstance, kind = IsInInstance()
+    if inInstance and kind == "party" then
+        local active = C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive()
+        local _, _, diffID = GetInstanceInfo()
+        if active or diffID == 8 or (ns.Loot and ns.Loot.keyRun) then return "mplus" end
+        return "dungeon"
+    end
+    return "world"
+end
+
+-- the "Combat lasted" line: on, this kind of fight picked, and long enough
+function T:WantsChat(where, dur)
+    local d = db()
+    if not d.chatSummary or self.testing then return false end
+    if not (d.chatWhere or {})[where or "world"] then return false end
+    return (dur or 0) >= math.max(1, d.chatMin or 0)
+end
+
 function T:Start(label, by)
     if self.startAt then return end
     self.startAt = GetTime()
     self.startedBy = by or "combat"
+    self.where = T.Where(self.startedBy)
     self.label = label
     self.hideAt = nil
     self:EnsureDisplay()
@@ -119,7 +147,7 @@ function T:Stop()
         db().history = hist
     end
     self.endedWithKill, self.endedKnown = nil, nil
-    if db().chatSummary and not self.testing and self.last >= 1 then
+    if self:WantsChat(self.where, self.last) then
         ns.Print(("Combat lasted |cffffd94d%s|r%s"):format(self.Format(self.last, db().tenths), self.label and (" (" .. self.label .. ")") or ""))
     end
     self:Render()
@@ -349,7 +377,29 @@ function V:Create()
     end)
     self.lingerBtn:SetPoint("TOPRIGHT", RIGHT, y)
     y = y - 34
-    self.chatBtn = toggleRow("Chat summary after combat", "chatSummary", "Print \"Combat lasted 3:42\" in your chat after each timed fight")
+    self.chatBtn = toggleRow("Chat summary after combat", "chatSummary", "Print \"Combat lasted 3:42\" in your chat (only you see it) after a timed fight - pick which fights below")
+    row(p, y - 5, "Summary for")
+    self.whereBtns = {}
+    for i = #T.WHERE, 1, -1 do
+        local w = T.WHERE[i]
+        local b = UI.Button(p, 66, 24, w[2], w[3], function()
+            d().chatWhere = d().chatWhere or {}
+            d().chatWhere[w[1]] = not d().chatWhere[w[1]]
+            V:Refresh()
+        end)
+        b:SetPoint("TOPRIGHT", RIGHT - (#T.WHERE - i) * 70, y)
+        self.whereBtns[w[1]] = b
+    end
+    y = y - 34
+    row(p, y - 5, "Minimum fight length")
+    self.chatMinBtn = UI.Button(p, 160, 24, "", "Shorter fights get no chat line (the timer still runs and records them)", function()
+        local i = 1
+        for k, m in ipairs(T.CHAT_MIN) do if m[1] == d().chatMin then i = k end end
+        d().chatMin = T.CHAT_MIN[(i % #T.CHAT_MIN) + 1][1]
+        V:Refresh()
+    end)
+    self.chatMinBtn:SetPoint("TOPRIGHT", RIGHT, y)
+    y = y - 34
     self.instanceBtn = toggleRow("Only in dungeons & raids", "instanceOnly", "Don't run the timer in the open world")
 
     -- small reset in the bottom-right corner
@@ -411,6 +461,13 @@ function V:Refresh()
     onOff(self.outlineBtn, d.outline)
     onOff(self.tenthsBtn, d.tenths)
     onOff(self.chatBtn, d.chatSummary)
+    for key, b in pairs(self.whereBtns) do
+        local on = (d.chatWhere or {})[key] and true or false
+        UI.SetActive(b, on)
+        UI.SetDisabled(b, not d.chatSummary)
+    end
+    for _, m in ipairs(T.CHAT_MIN) do if m[1] == d.chatMin then self.chatMinBtn.label:SetText(m[2]) end end
+    UI.SetDisabled(self.chatMinBtn, not d.chatSummary)
     onOff(self.instanceBtn, d.instanceOnly)
     for _, l in ipairs(T.LINGER) do if l[1] == d.linger then self.lingerBtn.label:SetText(l[2]) end end
     UI.SetActive(self.anchorBtn, T.unlocked)

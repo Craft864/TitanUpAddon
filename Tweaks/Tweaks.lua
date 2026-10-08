@@ -40,6 +40,10 @@ TW.LIST = {
       get = function() return ns.udb.brez.enabled end,
       set = function(on) ns.udb.brez.enabled = on; ns.BattleRez:Check() end,
       page = function() return ns.BattleRez end, title = "BATTLE REZ TRACKER" },
+    { key = "bonusGuard", name = "Bonus roll protection",
+      desc = "Blizzard's bonus roll Roll and Pass buttons ask first - a green \"Spend a bonus roll?\" or a red \"Give up this bonus roll?\" - so a misclick can't waste one.",
+      get = function() return ns.udb.tweaks.bonusGuard end,
+      set = function(on) ns.udb.tweaks.bonusGuard = on; ns.BonusRollGuard:Check() end },
 }
 
 function TW:Init()

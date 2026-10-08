@@ -17,6 +17,12 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.30.0", {
+        "New UI Tweak, Bonus roll protection (off until you turn it on): clicking Roll on the bonus roll window shows a green \"Spend a bonus roll?\" with your loot spec and coins, and clicking Pass shows a red \"Give up this bonus roll?\" with a big Keep my roll button. You confirm by clicking the glowing real button.",
+        "Loot: raid bonus-roll wins (yours and everyone's) now show in the drops list, marked \"bonus roll\".",
+        "Combat Timer: pick which fights get the \"Combat lasted\" chat line (Raid boss, Mythic+, Dungeon, Other) and a minimum fight length. The default is raid bosses of 30 seconds or more. The timer itself still times every fight.",
+        "Loot roll window: each item's time bar now runs down over the whole roll, and the preview runs its full 45 seconds.",
+    } },
     { "0.29.2", {
         "Raid Check: the weapon oil / sharpening stone column works again (a 12.1 game change made it show missing for everyone).",
         "Pull Report: the defensive check is up to date for Midnight. Monks now get credit for Fortifying Brew, Evokers are no longer flagged for Renewing Blaze, Paladins' Lay on Hands and Blessing of Protection count, and healers' saves you can cast on yourself (Pain Suppression, Guardian Spirit, Ironbark, Life Cocoon) count too.",

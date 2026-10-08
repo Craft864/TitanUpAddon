@@ -4,7 +4,7 @@
 -- permissions and slash commands; every module hangs off the shared `ns`.
 local ADDON, ns = ...
 
-ns.VERSION = "0.29.2"
+ns.VERSION = "0.30.0"
 ns.PREFIX = "TitanBoard"     -- board sync channel (unchanged, so it stays compatible)
 ns.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 ns.U = 4095            -- board coordinates run 0..4095 on both axes
@@ -636,14 +636,15 @@ local SUITE_DEFAULTS = {
     loot = { drops = {}, minQuality = 4, rollWindow = false },
     raidcheck = { potMin = 5, hpotMin = 5, durMin = 20, pullCheck = true },
     raidHistory = { weeks = {} },
-    tweaks = { releaseGuard = false },
+    tweaks = { releaseGuard = false, bonusGuard = false },
     deathAlerts = { enabled = false, where = "instances", tankHealOnly = false, collapse = true, chat = false, size = "medium",
                     duration = 4, channel = "Master", roleSounds = true, selfSoundOn = true, sound = "WoW: Raid Warning",
                     tankSound = "WoW: Alarm Clock", healerSound = "WoW: Boss Emote", selfSound = "WoW: Quest Failed",
                     pos = { "TOP", "TOP", 0, -220 } },
     splitter = { enabled = false, mode = "take", presets = { 1, 5, 10, 20 }, remember = true },
     brez = { enabled = false, size = "medium", pos = { "CENTER", "CENTER", -260, 120 } },
-    timer = { enabled = true, chatSummary = true, instanceOnly = false, font = "friz", size = 30, color = 1, outline = true,
+    timer = { enabled = true, chatSummary = true, chatWhere = { raid = true, mplus = false, dungeon = false, world = false }, chatMin = 30,
+              instanceOnly = false, font = "friz", size = 30, color = 1, outline = true,
               tenths = false, linger = -1, pos = { "TOP", "TOP", 0, -140 } },
     pullReport = { popup = "never", personal = false },      -- pop-ups off until someone turns them on
     keys = { min = 0, max = 0, excluded = {}, weight = "equal", history = {} },
@@ -668,7 +669,7 @@ local function startModules()
     for _, name in ipairs({ "Updates", "Content", "Model", "Comms", "Sync", "Presence",
                             "Board", "Laser", "Invite", "ImportExport",
                             "Hub", "DeathRoll", "DRLedger", "DeathRollUI", "Wheel", "WheelUI", "Loot", "LootUI", "LootRolls",
-                            "RaidCheck", "RaidCheckUI", "PullReport", "PullReportUI", "RaidScorecard", "RaidScorecardUI", "MacroShare", "MacroShareUI", "Timer", "TimerUI", "Tweaks", "TweaksUI", "DeathAlerts", "StackSplitter", "BattleRez", "Keys", "KeysUI", "Wowdle", "WowdleUI" }) do
+                            "RaidCheck", "RaidCheckUI", "PullReport", "PullReportUI", "RaidScorecard", "RaidScorecardUI", "MacroShare", "MacroShareUI", "Timer", "TimerUI", "Tweaks", "TweaksUI", "DeathAlerts", "StackSplitter", "BattleRez", "BonusRollGuard", "Keys", "KeysUI", "Wowdle", "WowdleUI" }) do
         -- each module starts on its own: one failing can't stop the rest
         local m = ns[name]
         if m and m.Init then
