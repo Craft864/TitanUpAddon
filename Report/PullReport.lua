@@ -85,7 +85,7 @@ function PR.ResolveDefensives()
     if PR.IsTank() then return out, skipped, true end
     for _, e in ipairs(D.DEFENSIVES[class] or {}) do
         local use
-        for _, id in ipairs(e.ids) do
+        for _, id in ipairs((not e.requires or known(e.requires)) and e.ids or {}) do
             local over = C_Spell and C_Spell.GetOverrideSpell and C_Spell.GetOverrideSpell(id)
             if over and over ~= id and known(over) then use = over; break end
             if known(id) then use = id; break end
