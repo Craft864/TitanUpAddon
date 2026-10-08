@@ -153,7 +153,16 @@ function RC:Snapshot()
         if a.name:find(self.VANTUS, 1, true) then vantus = 1 end
         if a.name == self.WEEKLY then weekly = 1 end
     end
-    local hasMain = GetWeaponEnchantInfo and GetWeaponEnchantInfo()
+    -- Weapon oil / stone on the main hand. GetWeaponEnchantInfo was removed
+    -- in 12.1.0; C_PaperDollInfo.GetTemporaryEnchantmentInfo returns a table,
+    -- or nothing when there's no temporary enchant. Old call kept as fallback.
+    local hasMain
+    if C_PaperDollInfo and C_PaperDollInfo.GetTemporaryEnchantmentInfo then
+        local ok, info = pcall(C_PaperDollInfo.GetTemporaryEnchantmentInfo, INVSLOT_MAINHAND or 16)
+        hasMain = ok and type(info) == "table"
+    elseif GetWeaponEnchantInfo then
+        hasMain = GetWeaponEnchantInfo()
+    end
     return {
         buffs = table.concat(buffs), flask = flask, food = food, weapon = hasMain and 1 or 0,
         vantus = vantus, weekly = weekly, pots = bagCount(self.POTIONS), hs = bagCount({ "Healthstone" }),

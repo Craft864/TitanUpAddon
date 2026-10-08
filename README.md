@@ -1,4 +1,4 @@
-# Titan Up v0.29.1
+# Titan Up v0.29.2
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -112,6 +112,17 @@ See the comments at the top of `Rooms.lua`. Short version: put a .blp or .tga in
 ## Planned
 
 - Match by ID instead of English names: defensive spell IDs, and potion / flask / food item IDs (Raid Check, Pull Report), so non-English clients work too.
+
+## Changes in 0.29.2
+
+- **Raid Check: weapon oil / sharpening stone column fixed.** `GetWeaponEnchantInfo` was removed in 12.1.0, so the column read "missing" for everyone. It now uses `C_PaperDollInfo.GetTemporaryEnchantmentInfo(INVSLOT_MAINHAND)` (a table, or nothing when there's no temporary enchant), called through `pcall`, with the old function kept as a fallback for clients that still have it. The `weapon` field in the Raid Check message is unchanged (1 or 0), so mixed versions still read each other.
+- **Pull Report: defensive list reviewed for Midnight 12.1.5** (`Report/Defensives.lua`). Every ID was checked against the 12.1.5 talent trees and class spell lists in the game data. Changes:
+  - Fixed: Monk Fortifying Brew is 115203 (243435 no longer exists, so Monks never got credit for it).
+  - Removed (gone or now passive since 12.0): Renewing Blaze (a passive on Obsidian Scales; it read as "ready" on every Evoker death), Netherwalk, Renewal, Dampen Harm, Diffuse Magic, Stone Bulwark Totem, Bitter Immunity, Shield of Vengeance, Eye for an Eye, Riposte (199754), and Greater Invisibility (no damage reduction since 12.0).
+  - Added, major: Paladin Lay on Hands (633) and Blessing of Protection (1022); healer saves cast on yourself: Pain Suppression (33206), Guardian Spirit (47788), Ironbark (102342), Life Cocoon (116849).
+  - Added, minor: Arms Ignore Pain (1277297), Rallying Cry (97462).
+  - Earth Elemental is now minor and only counts with Primordial Bond (1279819). New optional `requires` field on an entry: a talent that must also be known.
+  - Cheat deaths: Evoker Defy Fate is recognised by its lockout debuff "Empty Hourglass" (the old "Defy Fate" name never matched).
 
 ## Changes in 0.29.1
 

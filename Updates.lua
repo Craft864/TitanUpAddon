@@ -17,6 +17,10 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.29.2", {
+        "Raid Check: the weapon oil / sharpening stone column works again (a 12.1 game change made it show missing for everyone).",
+        "Pull Report: the defensive check is up to date for Midnight. Monks now get credit for Fortifying Brew, Evokers are no longer flagged for Renewing Blaze, Paladins' Lay on Hands and Blessing of Protection count, and healers' saves you can cast on yourself (Pain Suppression, Guardian Spirit, Ironbark, Life Cocoon) count too.",
+    } },
     { "0.29.1", {
         "Home: the cards and module tiles fit inside the window (they ran past the right edge).",
         "Reports: the Tonight / This week buttons no longer run into the settings cog, and every window's title now reads on from its section (\"Raid Tools > REPORTS\").",

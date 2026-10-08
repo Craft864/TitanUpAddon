@@ -5,6 +5,8 @@
 -- replacements and spec versions - in one entry, counted once), a name for
 -- the report, and a tier: "major" drives the green light, "minor" the
 -- yellow. Spells a player doesn't know are simply skipped - no errors.
+-- "requires" = a talent that must be known too for the entry to count.
+-- Spell IDs checked against the 12.1.5 game data for 0.29.2.
 -- Tanks are skipped entirely.
 local ADDON, ns = ...
 
@@ -19,18 +21,16 @@ D.DEFENSIVES = {
         { ids = { 49039 }, name = "Lichborne", tier = "minor" },
     },
     DEMONHUNTER = {
-        { ids = { 198589 }, name = "Blur", tier = "major" },
-        { ids = { 196555 }, name = "Netherwalk", tier = "major" },
+        { ids = { 198589 }, name = "Blur", tier = "major" },                  -- Havoc and Devourer
     },
     DRUID = {
         { ids = { 22812 }, name = "Barkskin", tier = "major" },
         { ids = { 61336 }, name = "Survival Instincts", tier = "major" },
-        { ids = { 108238 }, name = "Renewal", tier = "minor" },
+        { ids = { 102342 }, name = "Ironbark", tier = "major" },              -- Restoration, cast on yourself
         { ids = { 22842 }, name = "Frenzied Regeneration", tier = "minor" },
     },
     EVOKER = {
-        { ids = { 363916 }, name = "Obsidian Scales", tier = "major" },
-        { ids = { 374348 }, name = "Renewing Blaze", tier = "major" },
+        { ids = { 363916 }, name = "Obsidian Scales", tier = "major" },       -- Renewing Blaze is a passive on it now
     },
     HUNTER = {
         { ids = { 186265 }, name = "Aspect of the Turtle", tier = "major" },
@@ -39,39 +39,38 @@ D.DEFENSIVES = {
     },
     MAGE = {
         { ids = { 45438, 414658 }, name = "Ice Block / Ice Cold", tier = "major" },   -- Ice Cold replaces Ice Block
-        { ids = { 110959 }, name = "Greater Invisibility", tier = "major" },
         { ids = { 235450, 235313, 11426 }, name = "Barrier", tier = "minor" },        -- Prismatic / Blazing / Ice
         { ids = { 55342 }, name = "Mirror Image", tier = "minor" },
         { ids = { 235219 }, name = "Cold Snap", tier = "minor" },
         { ids = { 342245 }, name = "Alter Time", tier = "minor" },
     },
     MONK = {
-        { ids = { 243435 }, name = "Fortifying Brew", tier = "major" },
+        { ids = { 115203 }, name = "Fortifying Brew", tier = "major" },       -- Diffuse Magic is a passive on it now
         { ids = { 122470 }, name = "Touch of Karma", tier = "major" },
-        { ids = { 122278 }, name = "Dampen Harm", tier = "major" },
-        { ids = { 122783 }, name = "Diffuse Magic", tier = "major" },
+        { ids = { 116849 }, name = "Life Cocoon", tier = "major" },           -- Mistweaver, cast on yourself
     },
     PALADIN = {
         { ids = { 642 }, name = "Divine Shield", tier = "major" },
         { ids = { 498, 403876 }, name = "Divine Protection", tier = "major" },        -- Holy / Ret versions
-        { ids = { 184662 }, name = "Shield of Vengeance", tier = "major" },
-        { ids = { 205191 }, name = "Eye for an Eye", tier = "minor" },
+        { ids = { 1022 }, name = "Blessing of Protection", tier = "major" },
+        { ids = { 633 }, name = "Lay on Hands", tier = "major" },
     },
     PRIEST = {
         { ids = { 47585 }, name = "Dispersion", tier = "major" },
         { ids = { 19236 }, name = "Desperate Prayer", tier = "major" },
+        { ids = { 33206 }, name = "Pain Suppression", tier = "major" },       -- Discipline, cast on yourself
+        { ids = { 47788 }, name = "Guardian Spirit", tier = "major" },        -- Holy, cast on yourself
         { ids = { 586 }, name = "Fade", tier = "minor" },
     },
     ROGUE = {
         { ids = { 31224 }, name = "Cloak of Shadows", tier = "major" },
-        { ids = { 5277, 199754 }, name = "Evasion / Riposte", tier = "major" },       -- Riposte is Outlaw's
+        { ids = { 5277 }, name = "Evasion", tier = "major" },
         { ids = { 1966 }, name = "Feint", tier = "minor" },
         { ids = { 185311 }, name = "Crimson Vial", tier = "minor" },
     },
     SHAMAN = {
         { ids = { 108271 }, name = "Astral Shift", tier = "major" },
-        { ids = { 108270 }, name = "Stone Bulwark Totem", tier = "major" },
-        { ids = { 198103 }, name = "Earth Elemental", tier = "major" },          -- with its talent: +20% max health
+        { ids = { 198103 }, name = "Earth Elemental", tier = "minor", requires = 1279819 },   -- only with Primordial Bond (+max health)
     },
     WARLOCK = {
         { ids = { 104773 }, name = "Unending Resolve", tier = "major" },
@@ -81,9 +80,10 @@ D.DEFENSIVES = {
     WARRIOR = {
         { ids = { 118038 }, name = "Die by the Sword", tier = "major" },
         { ids = { 184364 }, name = "Enraged Regeneration", tier = "major" },
-        { ids = { 383762 }, name = "Bitter Immunity", tier = "major" },
         { ids = { 23920 }, name = "Spell Reflection", tier = "minor" },
         { ids = { 202168 }, name = "Impending Victory", tier = "minor" },
+        { ids = { 1277297 }, name = "Ignore Pain", tier = "minor" },          -- Arms
+        { ids = { 97462 }, name = "Rallying Cry", tier = "minor" },
     },
 }
 
@@ -92,7 +92,7 @@ D.DEFENSIVES = {
 D.CHEAT_DEATHS = {
     ROGUE = { { aura = "Cheated Death", name = "Cheat Death" } },
     MAGE = { { aura = "Cauterized", name = "Cauterize" } },
-    EVOKER = { { aura = "Defy Fate", name = "Defy Fate" } },
+    EVOKER = { { aura = "Empty Hourglass", name = "Defy Fate" } },     -- Defy Fate's lockout debuff
     WARRIOR = { { aura = "Kill or Be Killed", name = "Kill or Be Killed" } },
 }
 
