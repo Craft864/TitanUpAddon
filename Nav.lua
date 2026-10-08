@@ -355,7 +355,7 @@ function Nav:CreateHeader(frame, key, opts)
     h.emblem:SetPoint("LEFT", 11, 0)
     h.brand = UI.Text(bar, "GameFontNormal", C.accent, "TITAN UP", "LEFT", h.emblem, "RIGHT", 6, 0)
     h.crumb = UI.Text(bar, "GameFontHighlightSmall", C.muted, nil)
-    h.title = UI.Text(bar, "GameFontNormal", C.text, nil, "LEFT", h.crumb, "RIGHT", 4, 0)
+    h.title = UI.Text(bar, "GameFontNormal", C.text, nil, "LEFT", h.crumb, "RIGHT", 6, 0)
     local sec = m and self.sectionByKey[m.group]
     local name = (m and m.rail and m.railName) or opts.title or ""
     h.crumb:SetText(sec and (sec.name .. "  >") or "")
@@ -364,7 +364,7 @@ function Nav:CreateHeader(frame, key, opts)
 
     h.x = UI.Button(bar, 24, 20, "X", "Close", close)
     h.x:SetPoint("RIGHT", -5, 0)
-    local edge = h.x
+    local edge = h.x              -- the leftmost of the X / cog: tabs line up to its left
     if opts.cog then
         local cog = UI.IconButton(bar, 20, ns.MEDIA .. "Cog", opts.cog[1], opts.cog[2])
         cog:SetSize(24, 20)
@@ -374,20 +374,25 @@ function Nav:CreateHeader(frame, key, opts)
         sep:SetSize(1, 14)
         sep:SetPoint("RIGHT", h.x, "LEFT", -4, 0)
         h.cog, h.cogSep = cog, sep
+        edge = cog
     end
 
-    -- tabs: the other modules on the same rail entry ([Tonight] [This week])
+    -- tabs: the other modules on the same rail entry ([Tonight] [This week]),
+    -- right-aligned just left of the cog / X; the title stops before them
     h.tabs = {}
     local sibs = m and m.rail and self:Siblings(m) or {}
-    local prev = h.title
-    for _, s in ipairs(#sibs > 1 and sibs or {}) do
+    if #sibs < 2 then sibs = {} end
+    local right = edge
+    for i = #sibs, 1, -1 do
+        local s = sibs[i]
         local b = UI.Button(bar, 78, 20, s.tab or s.name, s.desc, function() Nav:Switch(s.key, key) end)
-        b:SetPoint("LEFT", prev, "RIGHT", prev == h.title and 14 or 4, 0)
+        b:SetPoint("RIGHT", right, "LEFT", right == edge and -12 or -4, 0)
         UI.SetActive(b, s.key == key)
-        h.tabs[#h.tabs + 1] = b
-        prev = b
+        table.insert(h.tabs, 1, b)
+        right = b
     end
-    h.title:SetPoint("RIGHT", edge, "LEFT", -(#h.tabs * 82 + 24), 0)
+    h.title:SetPoint("RIGHT", right, "LEFT", -12, 0)
+    h.title:SetJustifyH("LEFT")         -- reads on from the section: "Raid Tools  >  REPORTS"
 
     -- rail
     local rail = CreateFrame("Frame", nil, chrome, "BackdropTemplate")
@@ -573,8 +578,9 @@ function Hub:Toggle()
     end
 end
 
-local CARD_W, CARD_H, GAP = 284, 116, 14
-local TILE_W, TILE_H, TILE_GAP = 136, 72, 8
+-- (16px margins: 3 cards / 6 tiles fill the 848px between them)
+local CARD_W, CARD_H, GAP = 272, 116, 16
+local TILE_W, TILE_H, TILE_GAP = 134, 72, 8
 
 local function myLootToTrade()
     local d = ns.udb and ns.udb.loot

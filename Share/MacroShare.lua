@@ -244,6 +244,8 @@ function V:Create()
     self.count = UI.Text(f, "GameFontHighlightSmall", C.muted, nil, "TOPRIGHT", f, "TOPLEFT", COL - 8, -86)
     self.bodyBox = editBox(f, COL - 24, 170 + GROW, true)
     self.bodyBox:SetPoint("TOPLEFT", 16, -102)
+    -- a multi-line box shrinks to its text unless both corners are pinned
+    self.bodyBox:SetPoint("BOTTOMRIGHT", f, "TOPLEFT", COL - 8, -102 - (170 + GROW))
     self.bodyBox:SetMaxLetters(MS.BODY_MAX)
     self.bodyBox:SetScript("OnTextChanged", function() V:RefreshCounts() end)
     UI.Text(f, "GameFontHighlightSmall", C.muted, "Send to", "TOPLEFT", 16, -286 - GROW)

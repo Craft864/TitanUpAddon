@@ -290,7 +290,7 @@ end
 
 function V:CreateStandings(p)
     section(p, "GUILD STANDINGS", -6)
-    local note = UI.Text(p, "GameFontHighlightSmall", C.muted, "Synced with your group and guild. Only games confirmed by both players count.", "TOPLEFT", 16, -24)
+    local note = UI.Text(p, "GameFontHighlightSmall", C.muted, "Shared with your group and guild. Only games both players confirmed count.", "TOPLEFT", 16, -24)
     note:SetPoint("RIGHT", -16, 0); note:SetJustifyH("LEFT"); note:SetWordWrap(false)
     local function header(x, text, justify, w)
         local t = UI.Text(p, "GameFontHighlightSmall", C.muted, text, "TOPLEFT", x, -42)
