@@ -17,6 +17,10 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.33.0", {
+        "New: a search box in the middle of the Titan Up title bar. Type a few letters (\"sound\", \"wipe\", \"font\") to find any setting, then click it: Titan Up opens the page it's on and flashes it.",
+        "Arrow keys and Enter work in the list, and Esc clears the box. You can also type /tu set death sound in chat.",
+    } },
     { "0.32.0", {
         "A big clean-up and bug-fix release from a full review of the addon.",
         "Pull Report: the window no longer breaks after a wipe, and a hunter's Feign Death no longer counts as a death.",

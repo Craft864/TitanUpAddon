@@ -119,6 +119,7 @@ function Pager:Build(p)
         r:SetSize(PW - 16, ROW_H - 4)
         r:SetPoint("TOPLEFT", 4, y)
         r.entry = entry
+        r.y = -y                                -- (how far down the page: search scrolls to it)
         if entry.notes then
             r:SetHeight(10)
             UI.Text(r, "GameFontNormalSmall", C.accent, "WHAT'S NEW", "TOPLEFT", 4, -6)
@@ -170,6 +171,7 @@ function Pager:Build(p)
         if mod and mod.BuildPage then
             local host = CreateFrame("Frame", nil, content)
             host:SetPoint("TOPLEFT", 0, y)
+            content.hostY = -y
             host:SetSize(PW, 10)
             mod:BuildPage(host)
             local h = mod.pageHeight or 400
@@ -186,6 +188,15 @@ function Pager:Build(p)
     content.height = -y + 10
     content:SetHeight(content.height)
     return content
+end
+
+-- build page p without showing it (search reads the rows it tags)
+function Pager:Prebuild(p)
+    if not self.built[p.key] then
+        self.built[p.key] = self:Build(p)
+        if self.current ~= p.key then self.built[p.key]:Hide() end
+    end
+    return self.built[p.key]
 end
 
 -- show page p (building it if needed), scrolled to the top

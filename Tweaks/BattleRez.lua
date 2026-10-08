@@ -166,7 +166,7 @@ function BR:BuildPage(parent)
     self.page = pg
     local y = -8
     -- (its description is shown once, at the top of its Settings page)
-    UI.Text(pg, "GameFontHighlight", C.text, "Size", "TOPLEFT", 18, y - 5)
+    ns.Search.Tag(BR, "Size", "How big the battle rez tracker is", UI.Text(pg, "GameFontHighlight", C.text, "Size", "TOPLEFT", 18, y - 5), y, 440)
     self.sizeBtn = UI.Button(pg, 140, 24, "", nil, function()
         local i = 1
         for k, s in ipairs(BR.SIZES) do if s[1] == db().size then i = k end end
@@ -175,7 +175,7 @@ function BR:BuildPage(parent)
     end)
     self.sizeBtn:SetPoint("TOPRIGHT", -18, y)
     y = y - 34
-    UI.Text(pg, "GameFontHighlight", C.text, "Move it", "TOPLEFT", 18, y - 5)
+    ns.Search.Tag(BR, "Move it", "Unlock the battle rez tracker and drag it anywhere, or reset its position", UI.Text(pg, "GameFontHighlight", C.text, "Move it", "TOPLEFT", 18, y - 5), y, 440)
     self.anchorBtn, self.resetBtn = ns.Tweaks.MoveControls(pg, BR, { resetW = 100, after = function() BR:RefreshPage() end,
         tip = "Click to show it and drag it anywhere; click again to lock it in place" })
     self.anchorBtn:SetPoint("TOPRIGHT", -18, y)

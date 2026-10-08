@@ -281,7 +281,11 @@ function T.SetSize(n)
     T:ApplyStyle()
 end
 
-local function row(parent, y, label) return UI.Text(parent, "GameFontHighlight", nil, label, "TOPLEFT", 18, y) end
+local function row(parent, y, label, tip)
+    local t = UI.Text(parent, "GameFontHighlight", nil, label, "TOPLEFT", 18, y)
+    ns.Search.Tag(V, label, tip, t, y, OPT_W - 20)
+    return t
+end
 
 function V:Create()
     local f = ns.Nav:Window(self, "TitanUpTimerSettings", "timer", "COMBAT TIMER", W, H, { mark = { 300, 0.05, -20 },
@@ -310,7 +314,7 @@ function V:Create()
     local RIGHT = -18
     local y = -40
     local function toggleRow(label, key, tip, after)
-        row(p, y - 5, label)
+        row(p, y - 5, label, tip)
         local b = UI.Button(p, 160, 24, "", tip, function()
             d()[key] = not d()[key]
             if after then after() end
@@ -323,7 +327,7 @@ function V:Create()
     self.enabledBtn = toggleRow("Timer", "enabled", "Turn the combat timer on or off", function() T:ApplyStyle(); T:Render() end)
 
     -- Font: dropdown
-    row(p, y - 5, "Font")
+    row(p, y - 5, "Font", "Choose the timer's font")
     self.fontBtn = UI.Button(p, 160, 24, "", "Choose a font", function() V:FontMenu() end)
     self.fontBtn:SetPoint("TOPRIGHT", RIGHT, y)
     self.fontBtn.label:ClearAllPoints()
@@ -332,7 +336,7 @@ function V:Create()
     y = y - 34
 
     -- Size:  [-] [ 30 v ] [+]
-    row(p, y - 5, "Size")
+    row(p, y - 5, "Size", "How big the timer's numbers are")
     local plus = UI.Button(p, 24, 24, "+", "One size bigger", function() T.SetSize(d().size + 1); V:Refresh() end)
     plus:SetPoint("TOPRIGHT", RIGHT, y)
     local list = UI.Button(p, 22, 24, "", "Sizes in steps of 6", function() V:SizeMenu() end)
@@ -353,7 +357,7 @@ function V:Create()
     self.sizeBox, self.sizePlus, self.sizeMinus, self.sizeList = box, plus, minus, list
     y = y - 34
 
-    row(p, y - 5, "Color")
+    row(p, y - 5, "Color", "The timer's color")
     self.swatches = {}
     for i = #T.COLORS, 1, -1 do
         local c = T.COLORS[i]
@@ -368,7 +372,7 @@ function V:Create()
     y = y - 34
     self.outlineBtn = toggleRow("Outline", "outline", nil, function() T:ApplyStyle() end)
     self.tenthsBtn = toggleRow("Tenths of a second", "tenths", nil, function() T:Render() end)
-    row(p, y - 5, "After combat, keep showing")
+    row(p, y - 5, "After combat, keep showing", "How long the timer stays on screen after a fight ends")
     self.lingerBtn = UI.Button(p, 160, 24, "", nil, function()
         local i = 1
         for k, l in ipairs(T.LINGER) do if l[1] == d().linger then i = k end end
@@ -378,7 +382,7 @@ function V:Create()
     self.lingerBtn:SetPoint("TOPRIGHT", RIGHT, y)
     y = y - 34
     self.chatBtn = toggleRow("Chat summary after combat", "chatSummary", "Print \"Combat lasted 3:42\" in your chat (only you see it) after a timed fight - pick which fights below")
-    row(p, y - 5, "Summary for")
+    row(p, y - 5, "Summary for", "Which fights get a chat summary line")
     self.whereBtns = {}
     for i = #T.WHERE, 1, -1 do
         local w = T.WHERE[i]
@@ -391,7 +395,7 @@ function V:Create()
         self.whereBtns[w[1]] = b
     end
     y = y - 34
-    row(p, y - 5, "Minimum fight length")
+    row(p, y - 5, "Minimum fight length", "Shorter fights get no chat line (the timer still runs and records them)")
     self.chatMinBtn = UI.Button(p, 160, 24, "", "Shorter fights get no chat line (the timer still runs and records them)", function()
         local i = 1
         for k, m in ipairs(T.CHAT_MIN) do if m[1] == d().chatMin then i = k end end
