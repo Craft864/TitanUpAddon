@@ -4,7 +4,7 @@
 -- permissions and slash commands; every module hangs off the shared `ns`.
 local ADDON, ns = ...
 
-ns.VERSION = "0.30.1"
+ns.VERSION = "0.31.0"
 ns.PREFIX = "TitanBoard"     -- board sync channel (unchanged, so it stays compatible)
 ns.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 ns.U = 4095            -- board coordinates run 0..4095 on both axes
@@ -669,7 +669,7 @@ local function startModules()
     for _, name in ipairs({ "Updates", "Content", "Model", "Comms", "Sync", "Presence",
                             "Board", "Laser", "Invite", "ImportExport",
                             "Hub", "DeathRoll", "DRLedger", "DeathRollUI", "Wheel", "WheelUI", "Loot", "LootUI", "LootRolls",
-                            "RaidCheck", "RaidCheckUI", "PullReport", "PullReportUI", "RaidScorecard", "RaidScorecardUI", "MacroShare", "MacroShareUI", "Timer", "TimerUI", "Tweaks", "TweaksUI", "DeathAlerts", "StackSplitter", "BattleRez", "BonusRollGuard", "Keys", "KeysUI", "Wowdle", "WowdleUI" }) do
+                            "RaidCheck", "RaidCheckUI", "PullReport", "PullReportUI", "RaidScorecard", "RaidScorecardUI", "MacroShare", "MacroShareUI", "MacroBuilder", "Timer", "TimerUI", "Tweaks", "TweaksUI", "DeathAlerts", "StackSplitter", "BattleRez", "BonusRollGuard", "Keys", "KeysUI", "Wowdle", "WowdleUI" }) do
         -- each module starts on its own: one failing can't stop the rest
         local m = ns[name]
         if m and m.Init then
