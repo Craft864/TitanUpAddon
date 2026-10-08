@@ -246,7 +246,8 @@ function T:ResetPosition() self:EnsureDisplay():ResetPlace() end
 -- ---------------------------------------------------------------------
 local V = {}
 ns.TimerUI = V
-local W, H = 500, 580          -- room for the fight history
+local W, H = 880, 570          -- the standard module size
+local OPT_W = 430              -- the options column (recent fights to its right)
 T.SIZE_MIN, T.SIZE_MAX = 10, 96
 
 function T.SetSize(n)
@@ -273,12 +274,16 @@ function V:Create()
     when:SetPoint("RIGHT", self.anchorBtn, "LEFT", -10, 0)
     when:SetJustifyH("LEFT")
 
+    -- left: the options; right: recent fights
+    local p = CreateFrame("Frame", nil, f)
+    p:SetPoint("TOPLEFT")
+    p:SetSize(OPT_W, H)
     local d = function() return ns.udb.timer end
     local RIGHT = -18
     local y = -40
     local function toggleRow(label, key, tip, after)
-        row(f, y - 5, label)
-        local b = UI.Button(f, 160, 24, "", tip, function()
+        row(p, y - 5, label)
+        local b = UI.Button(p, 160, 24, "", tip, function()
             d()[key] = not d()[key]
             if after then after() end
             V:Refresh()
@@ -290,8 +295,8 @@ function V:Create()
     self.enabledBtn = toggleRow("Timer", "enabled", "Turn the combat timer on or off", function() T:ApplyStyle(); T:Render() end)
 
     -- Font: dropdown
-    row(f, y - 5, "Font")
-    self.fontBtn = UI.Button(f, 160, 24, "", "Choose a font", function() V:FontMenu() end)
+    row(p, y - 5, "Font")
+    self.fontBtn = UI.Button(p, 160, 24, "", "Choose a font", function() V:FontMenu() end)
     self.fontBtn:SetPoint("TOPRIGHT", RIGHT, y)
     self.fontBtn.label:ClearAllPoints()
     self.fontBtn.label:SetPoint("LEFT", 8, 0)
@@ -299,13 +304,13 @@ function V:Create()
     y = y - 34
 
     -- Size:  [-] [ 30 v ] [+]
-    row(f, y - 5, "Size")
-    local plus = UI.Button(f, 24, 24, "+", "One size bigger", function() T.SetSize(d().size + 1); V:Refresh() end)
+    row(p, y - 5, "Size")
+    local plus = UI.Button(p, 24, 24, "+", "One size bigger", function() T.SetSize(d().size + 1); V:Refresh() end)
     plus:SetPoint("TOPRIGHT", RIGHT, y)
-    local list = UI.Button(f, 22, 24, "", "Sizes in steps of 6", function() V:SizeMenu() end)
+    local list = UI.Button(p, 22, 24, "", "Sizes in steps of 6", function() V:SizeMenu() end)
     list:SetPoint("RIGHT", plus, "LEFT", -4, 0)
     UI.Caret(list, "CENTER")
-    local box = UI.EditBox(f, 54, 24, { center = true, numeric = true, max = 3, keys = false })
+    local box = UI.EditBox(p, 54, 24, { center = true, numeric = true, max = 3, keys = false })
     box:SetPoint("RIGHT", list, "LEFT", -2, 0)
     local function commit()
         T.SetSize(box:GetText())
@@ -315,16 +320,16 @@ function V:Create()
     box:SetScript("OnEnterPressed", commit)
     box:SetScript("OnEditFocusLost", function() T.SetSize(box:GetText()); V:Refresh() end)
     box:SetScript("OnEscapePressed", function() box:ClearFocus(); V:Refresh() end)
-    local minus = UI.Button(f, 24, 24, "-", "One size smaller", function() T.SetSize(d().size - 1); V:Refresh() end)
+    local minus = UI.Button(p, 24, 24, "-", "One size smaller", function() T.SetSize(d().size - 1); V:Refresh() end)
     minus:SetPoint("RIGHT", box, "LEFT", -4, 0)
     self.sizeBox, self.sizePlus, self.sizeMinus, self.sizeList = box, plus, minus, list
     y = y - 34
 
-    row(f, y - 5, "Color")
+    row(p, y - 5, "Color")
     self.swatches = {}
     for i = #T.COLORS, 1, -1 do
         local c = T.COLORS[i]
-        local b = UI.Button(f, 22, 22, "", nil, function() d().color = i; T:ApplyStyle(); V:Refresh() end)
+        local b = UI.Button(p, 22, 22, "", nil, function() d().color = i; T:ApplyStyle(); V:Refresh() end)
         b:SetPoint("TOPRIGHT", RIGHT - (#T.COLORS - i) * 26, y - 1)
         local sw = b:CreateTexture(nil, "ARTWORK")
         sw:SetPoint("TOPLEFT", 4, -4)
@@ -335,8 +340,8 @@ function V:Create()
     y = y - 34
     self.outlineBtn = toggleRow("Outline", "outline", nil, function() T:ApplyStyle() end)
     self.tenthsBtn = toggleRow("Tenths of a second", "tenths", nil, function() T:Render() end)
-    row(f, y - 5, "After combat, keep showing")
-    self.lingerBtn = UI.Button(f, 160, 24, "", nil, function()
+    row(p, y - 5, "After combat, keep showing")
+    self.lingerBtn = UI.Button(p, 160, 24, "", nil, function()
         local i = 1
         for k, l in ipairs(T.LINGER) do if l[1] == d().linger then i = k end end
         d().linger = T.LINGER[(i % #T.LINGER) + 1][1]
@@ -352,24 +357,23 @@ function V:Create()
     reset.label:SetFontObject("GameFontHighlightSmall")
     reset:SetPoint("BOTTOMRIGHT", -10, 10)
     self.resetBtn = reset
-    -- recent fights (last 10, newest first)
-    local hh = UI.Text(f, "GameFontNormalSmall", C.accent, "RECENT FIGHTS", "TOPLEFT", 18, y - 8)
-    local line = f:CreateTexture(nil, "ARTWORK")
-    line:SetColorTexture(C.line[1], C.line[2], C.line[3], 1)
-    line:SetHeight(1)
-    line:SetPoint("LEFT", hh, "RIGHT", 8, 0)
-    line:SetPoint("RIGHT", f, "RIGHT", -18, 0)
+    -- recent fights (last 10, newest first), in the right-hand column
+    local sep = f:CreateTexture(nil, "ARTWORK")
+    sep:SetColorTexture(C.line[1], C.line[2], C.line[3], 1)
+    sep:SetPoint("TOPLEFT", OPT_W, -40); sep:SetPoint("BOTTOMLEFT", OPT_W, 40); sep:SetWidth(1)
+    local hx, hy = OPT_W + 20, -40
+    UI.Text(f, "GameFontNormalSmall", C.accent, "RECENT FIGHTS", "TOPLEFT", hx, hy)
     self.historyRows = {}
     for i = 1, 10 do
         local r = {}
-        local ry = y - 28 - (i - 1) * 16
-        r.dur = UI.Text(f, "GameFontHighlightSmall", nil, nil, "TOPLEFT", 18, ry); r.dur:SetWidth(60); r.dur:SetJustifyH("LEFT")
-        r.label = UI.Text(f, "GameFontHighlightSmall", nil, nil, "TOPLEFT", 82, ry); r.label:SetWidth(210); r.label:SetJustifyH("LEFT"); r.label:SetWordWrap(false)
-        r.result = UI.Text(f, "GameFontHighlightSmall", nil, nil, "TOPLEFT", 296, ry); r.result:SetWidth(50); r.result:SetJustifyH("LEFT")
-        r.when = UI.Text(f, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", 350, ry); r.when:SetWidth(130); r.when:SetJustifyH("RIGHT")
+        local ry = hy - 24 - (i - 1) * 20
+        r.dur = UI.Text(f, "GameFontHighlightSmall", nil, nil, "TOPLEFT", hx, ry); r.dur:SetWidth(60); r.dur:SetJustifyH("LEFT")
+        r.label = UI.Text(f, "GameFontHighlightSmall", nil, nil, "TOPLEFT", hx + 64, ry); r.label:SetWidth(160); r.label:SetJustifyH("LEFT"); r.label:SetWordWrap(false)
+        r.result = UI.Text(f, "GameFontHighlightSmall", nil, nil, "TOPLEFT", hx + 228, ry); r.result:SetWidth(50); r.result:SetJustifyH("LEFT")
+        r.when = UI.Text(f, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", hx + 282, ry); r.when:SetWidth(W - hx - 282 - 16); r.when:SetJustifyH("RIGHT")
         self.historyRows[i] = r
     end
-    self.lastText = UI.Text(f, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", 18, y - 28)
+    self.lastText = UI.Text(f, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", hx, hy - 24)
 end
 
 function V:FontMenu()

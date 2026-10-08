@@ -391,10 +391,10 @@ end
 -- ---------------------------------------------------------------------
 local V = {}
 ns.RaidScorecardUI = V
-local COL1, COL2, COL3, H = 740, 300, 320, 470
-local ROWS = 14
-
-local function resize(f, w) UI.ResizeKeepTab(f, w, H) end
+local W, H = 880, 570
+local DRILL_W = 340          -- the pulls behind a number: a panel over the table's right side
+local ROWS, DRILL_ROWS = 17, 14
+local COL_X, COL_STEP, CELL_W = 226, 126, 112
 
 local function weekLabel(wk)
     if not wk then return "All weeks" end
@@ -409,11 +409,11 @@ local STATS = { { "first", "First to die" }, { "top3", "Top 3 dead" }, { "def", 
 local PR_Clock = UI.Clock
 
 function V:Create()
-    local f = ns.Nav:Window(self, "TitanUpRaidScorecard", "raidscore", "RAID SCORECARD", COL1, H)
+    local f = ns.Nav:Window(self, "TitanUpRaidScorecard", "raidscore", "RAID SCORECARD", W, H)
     self.week = RS.CurrentWeekStart()
 
     local c1 = CreateFrame("Frame", nil, f)
-    c1:SetPoint("TOPLEFT"); c1:SetSize(COL1, H)
+    c1:SetPoint("TOPLEFT"); c1:SetSize(W, H)
     self.weekBtn = UI.Button(c1, 150, 22, "", "Which raid week", function() V:WeekMenu() end)
     self.weekBtn:SetPoint("TOPLEFT", 16, -10)
     local sync = UI.Button(c1, 150, 22, "Sync from raid leader", "Get the raid leader's full copy of this week (out of combat)", function() RS:RequestSync(V.week) end)
@@ -437,7 +437,7 @@ function V:Create()
     UI.Text(c1, "GameFontNormalSmall", C.muted, "Pulls", "TOPLEFT", 170, -48)
     local STAT_HEADS = { "First\nto die", "Top 3\ndead", "Died w/\ndefensive", "Died w/\npotion", "Died w/\nhealthstone" }
     for k, text in ipairs(STAT_HEADS) do
-        self.heads[k] = UI.Text(c1, "GameFontNormalSmall", C.muted, text, "TOP", c1, "TOPLEFT", 226 + (k - 1) * 100 + 46, -34)
+        self.heads[k] = UI.Text(c1, "GameFontNormalSmall", C.muted, text, "TOP", c1, "TOPLEFT", COL_X + (k - 1) * COL_STEP + CELL_W / 2, -34)
         self.heads[k]:SetJustifyH("CENTER")
     end
     self.rows = {}
@@ -448,8 +448,8 @@ function V:Create()
         r.pulls = UI.Text(c1, "GameFontHighlight", C.muted, nil, "TOPLEFT", 170, y - 4)
         r.cells = {}
         for k, s in ipairs(STATS) do
-            local b = UI.Button(c1, 92, 22, "", "Click to see which pulls", nil)
-            b:SetPoint("TOPLEFT", 226 + (k - 1) * 100, y)
+            local b = UI.Button(c1, CELL_W, 22, "", "Click to see which pulls", nil)
+            b:SetPoint("TOPLEFT", COL_X + (k - 1) * COL_STEP, y)
             b:SetScript("OnClick", function()
                 if not b.row then return end
                 if V.drill and V.drill.name == b.row.name and V.drill.stat == s[1] then V.drill = nil else V.drill = { name = b.row.name, class = b.row.class, stat = s[1], label = s[2], pulls = b.pulls } end
@@ -468,19 +468,28 @@ function V:Create()
     self.empty:SetJustifyH("RIGHT")
     self.note = UI.Text(c1, "GameFontHighlightSmall", C.muted, "Heroic & Mythic only. Close calls and deaths after the wipe call don't count.", "BOTTOMLEFT", 16, 10)
 
-    -- column 2: the pulls behind a number
-    local c2 = CreateFrame("Frame", nil, f)
-    c2:SetPoint("TOPLEFT", COL1, 0); c2:SetSize(COL2, H)
-    local sep = c2:CreateTexture(nil, "ARTWORK"); sep:SetColorTexture(C.line[1], C.line[2], C.line[3], 1)
-    sep:SetPoint("TOPLEFT", 0, -10); sep:SetPoint("BOTTOMLEFT", 0, 10); sep:SetWidth(1)
+    -- the drill-down panel, over the table's right side: the pulls behind a
+    -- number, then (click one) that pull's death order
+    local panel = CreateFrame("Frame", nil, f, "BackdropTemplate")
+    UI.Skin(panel, C.bg, C.accent)
+    panel:SetWidth(DRILL_W)
+    panel:SetPoint("TOPRIGHT", -10, -40)
+    panel:SetPoint("BOTTOMRIGHT", -10, 34)
+    panel:SetFrameLevel(f:GetFrameLevel() + 10)
+    panel:EnableMouse(true)
+    self.panel = panel
+    local close = UI.Button(panel, 22, 20, "X", "Close", function() V.drill, V.drillPull = nil, nil; V:Refresh() end)
+    close:SetPoint("TOPRIGHT", -6, -6)
+    local c2 = CreateFrame("Frame", nil, panel)
+    c2:SetAllPoints()
     self.c2 = c2
-    self.h2 = UI.Text(c2, "GameFontNormalSmall", C.accent, nil, "TOPLEFT", 14, -14)
-    self.h2:SetWidth(COL2 - 28); self.h2:SetJustifyH("LEFT")
+    self.h2 = UI.Text(c2, "GameFontNormalSmall", C.accent, nil, "TOPLEFT", 14, -12)
+    self.h2:SetWidth(DRILL_W - 60); self.h2:SetJustifyH("LEFT")
     self.pullRows = {}
-    for i = 1, ROWS do
+    for i = 1, DRILL_ROWS do
         local r = CreateFrame("Button", nil, c2, "BackdropTemplate")
-        r:SetSize(COL2 - 28, 24)
-        r:SetPoint("TOPLEFT", 14, -40 - (i - 1) * 26)
+        r:SetSize(DRILL_W - 28, 24)
+        r:SetPoint("TOPLEFT", 14, -36 - (i - 1) * 26)
         UI.Skin(r, C.panel, C.line)
         r.text = UI.Text(r, "GameFontHighlightSmall", C.text, nil, "LEFT", 8, 0)
         r:SetScript("OnClick", function()
@@ -491,14 +500,13 @@ function V:Create()
         self.pullRows[i] = r
     end
 
-    -- column 3: that pull's death order
-    local c3 = CreateFrame("Frame", nil, f)
-    c3:SetPoint("TOPLEFT", COL1 + COL2, 0); c3:SetSize(COL3, H)
-    local sep3 = c3:CreateTexture(nil, "ARTWORK"); sep3:SetColorTexture(C.line[1], C.line[2], C.line[3], 1)
-    sep3:SetPoint("TOPLEFT", 0, -10); sep3:SetPoint("BOTTOMLEFT", 0, 10); sep3:SetWidth(1)
+    local c3 = CreateFrame("Frame", nil, panel)
+    c3:SetAllPoints()
     self.c3 = c3
-    self.detail = UI.Text(c3, "GameFontHighlightSmall", C.text, nil, "TOPLEFT", 14, -14)
-    self.detail:SetWidth(COL3 - 28); self.detail:SetJustifyH("LEFT"); self.detail:SetSpacing(3)
+    local back = UI.Button(c3, 70, 20, "< Pulls", "Back to the list of pulls", function() V.drillPull = nil; V:Refresh() end)
+    back:SetPoint("TOPLEFT", 10, -6)
+    self.detail = UI.Text(c3, "GameFontHighlightSmall", C.text, nil, "TOPLEFT", 14, -36)
+    self.detail:SetWidth(DRILL_W - 28); self.detail:SetJustifyH("LEFT"); self.detail:SetSpacing(3)
 end
 
 function V:WeekMenu()
@@ -571,7 +579,8 @@ function V:Refresh()
     end
     -- drill: the pulls
     local show2 = V.drill ~= nil
-    self.c2:SetShown(show2)
+    self.panel:SetShown(show2)
+    self.c2:SetShown(show2 and V.drillPull == nil)
     if show2 then
         self.h2:SetText(("%s - %s (%d)"):format(classed(V.drill.name, V.drill.class), V.drill.label:lower(), #V.drill.pulls))
         for i, r in ipairs(self.pullRows) do
@@ -602,11 +611,11 @@ function V:Refresh()
         if #all == 0 then lines[#lines + 1] = "|cff8a8f9cNobody died.|r" end
         self.detail:SetText(table.concat(lines, "\n"))
     end
-    resize(self.frame, COL1 + (show2 and COL2 or 0) + (show3 and COL3 or 0))
 end
 
 ns.RegisterModule({
     key = "raidscore", name = "Raid Scorecard", icon = ns.MEDIA .. "RaidScore", group = "tools", order = 6,
     desc = "Over the raid week: who died first, in the first 3, or with a defensive up - click any number for the pulls.",
+    rail = "reports", railName = "Reports", tab = "This week",
     view = V,
 })

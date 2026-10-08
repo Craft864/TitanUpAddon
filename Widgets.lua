@@ -223,15 +223,17 @@ end
 -- ---------------------------------------------------------------------
 -- Shared helpers (one copy for every window)
 -- ---------------------------------------------------------------------
--- Resize a window and keep its nav tab (top-centre) exactly where it is.
+-- Resize a window and keep its top-left corner (and so the rail beside
+-- it) exactly where it is. (The name is from when windows had a tab.)
 function UI.ResizeKeepTab(f, w, h)
-    local cx, top = ns.Nav and ns.Nav.TopCenter(f)
+    local l, t = f:GetLeft(), f:GetTop()
     f:SetSize(w, h)
-    if f:IsShown() and cx and top then
+    if f:IsShown() and type(l) == "number" and type(t) == "number" then
         f:ClearAllPoints()
-        f:SetPoint("TOP", UIParent, "BOTTOMLEFT", cx, top)
+        f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", l, t)
     end
 end
+UI.ResizeKeepCorner = UI.ResizeKeepTab
 
 -- "Name-Realm" -> "Name"
 function UI.Short(name) return name and (name:match("^[^-]+") or name) end

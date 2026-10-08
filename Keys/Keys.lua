@@ -460,7 +460,7 @@ end
 -- ---------------------------------------------------------------------
 local V = {}
 ns.KeysUI = V
-local W, H = 600, 600
+local W, H = 880, 570          -- the standard module size
 local WHEEL = 250
 
 function V:Create()
@@ -520,7 +520,7 @@ function V:Create()
         end)
         hover:SetScript("OnLeave", function() GameTooltip:Hide() end)
         r.name = UI.Text(r, "GameFontHighlight", C.text, nil, "TOPLEFT", r.icon, "TOPRIGHT", 8, -1)
-        r.name:SetWidth(150); r.name:SetJustifyH("LEFT"); r.name:SetWordWrap(false)
+        r.name:SetWidth(300); r.name:SetJustifyH("LEFT"); r.name:SetWordWrap(false)
         r.owner = UI.Text(r, "GameFontHighlightSmall", C.muted, nil, "BOTTOMLEFT", r.icon, "BOTTOMRIGHT", 8, 1)
         r.toggle = UI.Button(r, 52, 22, "", "Leave this dungeon out of spins and votes", function()
             if r.mapID then db().excluded[r.mapID] = not db().excluded[r.mapID] or nil; V:Refresh() end
@@ -595,8 +595,8 @@ function V:Create()
     UI.Text(f, "GameFontNormalSmall", C.accent, "RECENT PICKS", "TOPLEFT", 22, hy)
     self.histRows = {}
     for i = 1, 10 do
-        local t = UI.Text(f, "GameFontHighlightSmall", nil, nil, "TOPLEFT", 22 + ((i - 1) % 2) * 285, hy - 18 - math.floor((i - 1) / 2) * 16)
-        t:SetWidth(280); t:SetJustifyH("LEFT"); t:SetWordWrap(false)
+        local t = UI.Text(f, "GameFontHighlightSmall", nil, nil, "TOPLEFT", 22 + ((i - 1) % 2) * 420, hy - 18 - math.floor((i - 1) / 2) * 16)
+        t:SetWidth(410); t:SetJustifyH("LEFT"); t:SetWordWrap(false)
         self.histRows[i] = t
     end
     f:SetScript("OnUpdate", function(_, elapsed) V:OnUpdate(elapsed) end)

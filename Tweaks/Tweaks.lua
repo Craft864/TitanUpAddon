@@ -19,7 +19,7 @@ local HOLD_SECONDS = 3
 
 local function db() return ns.udb.tweaks end
 
--- get/set: where the switch lives; page: its settings page (shown in Settings)
+-- get/set: where the switch lives; page: its options (shown beside it in UI Tweaks)
 TW.LIST = {
     { key = "releaseGuard", name = "Release protection",
       desc = "In raid instances, the Release Spirit button only works after holding Alt for 3 seconds - no more accidental releases mid-fight.",
@@ -127,45 +127,80 @@ function TW:ReleaseGuardOff()
 end
 
 -- ---------------------------------------------------------------------
--- Settings window (the module's page)
+-- Window: every tweak with its On/Off switch on the left; the selected
+-- tweak's options on the right (the same pages Settings used to show)
 -- ---------------------------------------------------------------------
 local V = {}
 ns.TweaksUI = V
-local W = 460
+local W, H = 880, 570
+local LIST_W = 380
+local PAGE_W = 460                 -- the tweak pages are laid out for this width
+local ROW_H = 92
 
 function V:Create()
-    local rowH = 64
-    self.listH = 50 + #TW.LIST * rowH + 20
-    local f = ns.Nav:Window(self, "TitanUpTweaks", "tweaks", "UI TWEAKS", W, self.listH, { mark = { 260, 0.05, -10 },
-        cog = { "UI Tweaks settings", function() ns.Settings:Open("tweak:" .. TW.LIST[1].key, V.frame) end } })
+    local f = ns.Nav:Window(self, "TitanUpTweaks", "tweaks", "UI TWEAKS", W, H, { mark = { 360, 0.04, -20 } })
 
     -- the list of tweaks
     local list = CreateFrame("Frame", nil, f)
-    list:SetAllPoints()
+    list:SetPoint("TOPLEFT")
+    list:SetSize(LIST_W, H)
     self.list = list
-    self.intro = UI.Text(list, "GameFontHighlightSmall", C.muted, "Small changes to the game's own UI - each is off until you turn it on.", "TOPLEFT", 18, -12)
-    self.intro:SetPoint("RIGHT", -100, 0)              -- clear of the cog and X
+    self.intro = UI.Text(list, "GameFontHighlightSmall", C.muted, "Small changes to the game's own UI - each is off until you turn it on.", "TOPLEFT", 16, -14)
+    self.intro:SetWidth(LIST_W - 28)
     self.intro:SetJustifyH("LEFT")
     self.rows = {}
+    self.cards = {}
     for i, t in ipairs(TW.LIST) do
-        local y = -40 - (i - 1) * rowH
-        local name = UI.Text(list, "GameFontNormal", C.text, t.name, "TOPLEFT", 18, y)
-        local desc = UI.Text(list, "GameFontHighlightSmall", C.muted, t.desc, "TOPLEFT", name, "BOTTOMLEFT", 0, -4)
-        desc:SetWidth(W - 190); desc:SetJustifyH("LEFT")
-        local b = UI.Button(list, 70, 24, "", nil, function()
+        local card = CreateFrame("Button", nil, list, "BackdropTemplate")
+        UI.Skin(card, C.panel, C.line)
+        card:SetSize(LIST_W - 28, ROW_H - 8)
+        card:SetPoint("TOPLEFT", 16, -40 - (i - 1) * ROW_H)
+        card:SetScript("OnClick", function() V:Select(t.key) end)
+        local hl = card:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints()
+        hl:SetColorTexture(1, 1, 1, 0.04)
+        local name = UI.Text(card, "GameFontNormal", C.text, t.name, "TOPLEFT", 12, -10)
+        local desc = UI.Text(card, "GameFontHighlightSmall", C.muted, t.desc, "TOPLEFT", name, "BOTTOMLEFT", 0, -4)
+        desc:SetWidth(LIST_W - 130); desc:SetJustifyH("LEFT")
+        desc:SetHeight(ROW_H - 36); desc:SetJustifyV("TOP")
+        local b = UI.Button(card, 64, 24, "", nil, function()
             t.set(not t.get())
-            ns.SettingsChanged()                  -- updates this list and an open Settings page
+            V:Select(t.key)
+            ns.SettingsChanged()                  -- updates this list and the page beside it
         end)
-        b:SetPoint("TOPRIGHT", -18, y - 2)
+        b:SetPoint("TOPRIGHT", -10, -10)
         self.rows[t.key] = b
-        -- its settings live in the Settings window: the cog goes straight to its page
-        if t.page then
-            local s = UI.IconButton(list, 24, ns.MEDIA .. "Cog", "Open " .. t.name .. " settings", function() ns.Settings:Open("tweak:" .. t.key, V.frame) end)
-            s:SetPoint("RIGHT", b, "LEFT", -8, 0)
-            self.settingsBtns = self.settingsBtns or {}
-            self.settingsBtns[t.key] = s
-        end
+        self.cards[t.key] = card
     end
+
+    -- the selected tweak's options
+    local sep = f:CreateTexture(nil, "ARTWORK")
+    sep:SetColorTexture(C.line[1], C.line[2], C.line[3], 1)
+    sep:SetPoint("TOPLEFT", LIST_W, -12); sep:SetPoint("BOTTOMLEFT", LIST_W, 12); sep:SetWidth(1)
+    self.pageTitle = UI.Text(f, "GameFontNormal", C.text, nil, "TOPLEFT", LIST_W + 18, -14)
+    self.pager = ns.Settings.Pager(f, LIST_W + 10, -40, PAGE_W, H - 52)
+    self:Select(TW.LIST[1].key)
+end
+
+-- show tweak `key`'s options beside the list
+function V:Select(key)
+    local t
+    for _, x in ipairs(TW.LIST) do if x.key == key then t = x end end
+    if not t then return end
+    self.current = key
+    self.pageTitle:SetText(t.name:upper() .. " OPTIONS")
+    for k, card in pairs(self.cards) do
+        local c = (k == key) and C.accent or C.line
+        card:SetBackdropBorderColor(c[1], c[2], c[3], 1)
+    end
+    self.pager:Show({ key = "tweak:" .. key, tweak = t, noToggle = true })
+end
+
+-- (old callers: open a tweak's options)
+function V:Open(key)
+    self:Show()
+    ns.Nav:Activate("tweaks")
+    if key then self:Select(key) end
 end
 
 function V:Refresh()
@@ -176,6 +211,7 @@ function V:Refresh()
         b.label:SetText(on and "|cff66e08cOn|r" or "Off")
         UI.SetActive(b, on)
     end
+    self.pager:Refresh()
 end
 
 ns.RegisterModule({

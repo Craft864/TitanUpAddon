@@ -10,8 +10,8 @@ local LT
 local V = {}
 ns.LootUI = V
 
-local W, H = 900, 570
-local LEFT_W = 250
+local W, H = 880, 570          -- the standard module size
+local LEFT_W = 230
 local ROW_H = 38
 
 local colored = UI.Named
@@ -39,7 +39,7 @@ function V:Init() LT = ns.Loot end
 
 function V:Create()
     local f = ns.Nav:Window(self, "TitanUpLoot", "loot", "LOOT TRACKER", W, H, { y = 20, mark = { 480, 0.04, -40 },
-        cog = { "Loot settings", function() ns.Settings:Open("loot", V.frame) end },
+        cog = { "Loot settings", function() ns.Settings:Open("loot") end },
         onShow = function()
             -- pick up anything the loot history has that we haven't seen
             if C_LootHistory and C_LootHistory.GetAllEncounterInfos then

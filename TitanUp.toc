@@ -2,7 +2,7 @@
 ## Title: Titan Up
 ## Notes: The Titan Up guild toolkit: TitanBoard live raid strategy board, a loot tracker, Death Roll, Wheel of Fortune, and more.
 ## Author: Ryan (Titan Up - Medivh)
-## Version: 0.28.0
+## Version: 0.29.0
 ## SavedVariables: TitanUpDB, TitanBoardDB
 ## IconTexture: Interface\AddOns\TitanUp\Media\TitanUp
 ## X-Category: Raid

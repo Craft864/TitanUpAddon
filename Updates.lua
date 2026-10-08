@@ -17,6 +17,14 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.29.0", {
+        "New layout: Titan Up is now one window with a list of modules down the left side. Home is at the top and opens first (/tu, the minimap button or the key binding): last pull, Raid Check, loot to trade, your games. Click any module on the left and it opens in the same spot. The \"<\" button shrinks the list to icons.",
+        "Pull Report and Raid Scorecard are now one \"Reports\" entry with Tonight / This week tabs.",
+        "UI Tweaks: each tweak's options now show right beside its switch (they're no longer in Settings).",
+        "Every window is the same, wider size and uses the room: the Pull Report shows pulls, deaths and details side by side; Wowdle keeps its keyboard with guild standings always on the right; Death Roll shows standings or spectators beside the game.",
+        "Pop-ups (Pull Report summary, Raid Check alert, game invites, what's new) now stack in one spot. Drag one to move them all; Settings > Titan Up > \"Reset alert position\" puts them back.",
+        "The Pull Report and Raid Check results no longer jump over a window you're using - you get a small \"Open\" notice instead.",
+    } },
     { "0.28.0", {
         "Version check (Settings > Titan Up, or /tu versions): now lists just your group, and the window opens straight away with everyone \"waiting...\" - each name fills in the moment that person answers (green = current, orange = behind). Anyone who hasn't answered after 5 seconds shows \"no Titan Up\"; offline players and people outside the guild are marked too. \"Check again\" re-asks.",
     } },
@@ -258,6 +266,7 @@ function UP:Panel(key, title)
         f.ok:SetPoint("BOTTOM", 0, 12)
         UI.SetActive(f.ok, true)
         self.panels[key] = f
+        ns.Dock:Add(f)              -- stacks with the other pop-ups
     end
     f.title:SetText(title)
     return f
@@ -312,20 +321,16 @@ end
 function TitanUp_OnAddonCompartmentEnter(_, frame)
     GameTooltip:SetOwner(frame or UIParent, "ANCHOR_LEFT")
     GameTooltip:SetText("Titan Up " .. ns.VERSION, 1, 1, 1)
-    GameTooltip:AddLine("Left-click: the hub   Right-click: settings", 0.8, 0.82, 0.86)
+    GameTooltip:AddLine("Left-click: open / close Titan Up   Right-click: settings", 0.8, 0.82, 0.86)
     GameTooltip:Show()
 end
 
 function TitanUp_OnAddonCompartmentLeave() GameTooltip:Hide() end
 
--- key bindings (Bindings.xml): open / close the hub or a module
+-- key bindings (Bindings.xml): open / close the Titan Up window or a module
 function TitanUp_Binding(key)
     if key == "hub" then
-        local H = ns.Hub
-        if H then
-            local home = H:EnsureHome()
-            if home and home:IsShown() then home:Hide() else SlashCmdList.TITANUP("") end
-        end
+        if ns.Hub then ns.Hub:Toggle() end
         return
     end
     local m = ns.Nav and ns.Nav.byKey and ns.Nav.byKey[key]
@@ -334,6 +339,6 @@ function TitanUp_Binding(key)
 end
 
 BINDING_HEADER_TITANUP = "Titan Up"
-BINDING_NAME_TITANUP_HUB = "Open / close the Titan Up hub"
+BINDING_NAME_TITANUP_HUB = "Open / close Titan Up"
 BINDING_NAME_TITANUP_BOARD = "Open / close TitanBoard"
 BINDING_NAME_TITANUP_PULLREPORT = "Open / close the Pull Report"

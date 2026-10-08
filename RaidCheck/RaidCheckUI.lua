@@ -10,7 +10,8 @@ local RC
 local V = {}
 ns.RaidCheckUI = V
 
-local W, H = 640, 470
+local W, H = 880, 570          -- the standard module size
+local COL_W = 410
 
 local colored = UI.Named
 
@@ -24,7 +25,15 @@ local function nameList(list, max)
 end
 
 function V:Init() RC = ns.RaidCheck end
-function V:ShowResults() self:Show(); self:Refresh() end
+-- auto: opened by a ready check / pull rather than by you - if another
+-- module is open in the Titan Up window, offer the results instead
+function V:ShowResults(auto)
+    if auto and not ns.Nav:ShellFree("raidcheck") then
+        ns.Dock:Notice("Raid Check results are in.", "Open", function() V:ShowResults() end)
+        return
+    end
+    self:Show(); self:Refresh()
+end
 
 -- The pull is happening: close the alert and the results window.
 function V:CloseAll()
@@ -37,7 +46,7 @@ end
 
 local function makeRow(parent, y, x)
     local row = CreateFrame("Frame", nil, parent)
-    row:SetSize(290, 24)
+    row:SetSize(COL_W, 24)
     row:SetPoint("TOPLEFT", x, y)
     row:EnableMouse(true)
     local hl = row:CreateTexture(nil, "HIGHLIGHT")
@@ -69,20 +78,20 @@ local function checkIcon(key) return ns.MEDIA .. "Check\\" .. key end
 
 function V:Create()
     local f = ns.Nav:Window(self, "TitanUpRaidCheck", "raidcheck", "RAID CHECK", W, H, { mark = { 400, 0.05, -20 },
-        cog = { "Raid Check settings", function() ns.Settings:Open("raidcheck", V.frame) end } })
+        cog = { "Raid Check settings", function() ns.Settings:Open("raidcheck") end } })
 
     self.info = UI.Text(f, "GameFontHighlight", nil, nil, "TOPLEFT", 16, -14)
     self.info:SetPoint("RIGHT", -40, 0)              -- clear of the X
     self.info:SetJustifyH("LEFT")
 
     UI.Text(f, "GameFontNormalSmall", C.accent, "RAID BUFFS", "TOPLEFT", 16, -42)
-    UI.Text(f, "GameFontNormalSmall", C.accent, "PERSONAL", "TOPLEFT", 330, -42)
+    UI.Text(f, "GameFontNormalSmall", C.accent, "PERSONAL", "TOPLEFT", 30 + COL_W, -42)
     self.buffRows, self.checkRows = {}, {}
     for i = 1, #RC.RAID_BUFFS do self.buffRows[i] = makeRow(f, -62 - (i - 1) * 28, 14) end
-    for i = 1, #RC.CHECKS do self.checkRows[i] = makeRow(f, -62 - (i - 1) * 28, 328) end
+    for i = 1, #RC.CHECKS do self.checkRows[i] = makeRow(f, -62 - (i - 1) * 28, 28 + COL_W) end
     self.noBuffs = UI.Text(f, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", 18, -66)
 
-    self.noReply = UI.Text(f, "GameFontHighlightSmall", C.warn, nil, "TOPLEFT", 16, -336)
+    self.noReply = UI.Text(f, "GameFontHighlightSmall", C.warn, nil, "TOPLEFT", 16, -400)
     self.noReply:SetPoint("RIGHT", -16, 0)
     self.noReply:SetJustifyH("LEFT")
 
@@ -177,6 +186,7 @@ function V:EnsureAlert()
     UI.SetActive(a.cancel, true)
     a:SetScript("OnHide", function() a.doPull = nil end)
     self.alert = a
+    ns.Dock:Add(a)                      -- stacks with the other pop-ups
     return a
 end
 
@@ -199,7 +209,7 @@ function V:ShowPullAlert(result, msg, doPull)
     a:Show()
     if PlaySound and SOUNDKIT and SOUNDKIT.RAID_WARNING then PlaySound(SOUNDKIT.RAID_WARNING) end
     -- the raid leader also gets the full results window
-    if RC:IsLeader() then self:ShowResults() end
+    if RC:IsLeader() then self:ShowResults(true) end
 end
 
 ns.RegisterModule({

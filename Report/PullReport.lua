@@ -254,7 +254,13 @@ function PR:OnEncounterEnd(id, name, diff, size, success)
     end
     self.mine = nil
     self:Archive(pull)
-    if self:ShouldPopup() then C_Timer.After(4, function() if ns.PullReportUI then ns.PullReportUI:ShowPull(pull) end end) end
+    if self:ShouldPopup() then C_Timer.After(4, function()
+        local V = ns.PullReportUI
+        if not V then return end
+        -- don't take over a module someone has open: offer it instead
+        if ns.Nav:ShellFree("pullreport") then V:ShowPull(pull)
+        else ns.Dock:Notice(("Pull %d report is ready."):format(pull.n or 0), "Open", function() V:ShowPull(pull) end) end
+    end) end
 end
 
 -- Pulls shorter than this (that aren't kills) aren't counted.
@@ -785,11 +791,9 @@ end
 -- ---------------------------------------------------------------------
 local V = {}
 ns.PullReportUI = V
-local COL1, COL2, COL3, H = 420, 340, 340, 470
-local ROWS = 15
+local COL1, COL2, COL3, H = 300, 280, 300, 570      -- all three columns always fit the window
+local ROWS, PULL_ROWS = 15, 18
 local GREEN, YELLOW, GREY, ORANGE, BLUE = { 0.40, 0.88, 0.55 }, { 1.0, 0.82, 0.3 }, { 0.32, 0.34, 0.40 }, { 1.0, 0.55, 0.15 }, { 0.45, 0.75, 1.0 }
-
-local function resize(f, w) UI.ResizeKeepTab(f, w, H) end
 
 local function dot(parent, size)
     local t = parent:CreateTexture(nil, "ARTWORK")
@@ -799,8 +803,8 @@ local function dot(parent, size)
 end
 
 function V:Create()
-    local f = ns.Nav:Window(self, "TitanUpPullReport", "pullreport", "PULL REPORT", COL1, H,
-        { cog = { "Pull Report settings", function() ns.Settings:Open("pullreport", V.frame) end } })
+    local f = ns.Nav:Window(self, "TitanUpPullReport", "pullreport", "PULL REPORT", COL1 + COL2 + COL3, H,
+        { cog = { "Pull Report settings", function() ns.Settings:Open("pullreport") end } })
 
     -- column 1: tonight's pulls
     local c1 = CreateFrame("Frame", nil, f)
@@ -820,13 +824,15 @@ function V:Create()
     end)
     export:SetPoint("LEFT", self.scoreBtn, "RIGHT", 6, 0)
     self.pullRows = {}
-    for i = 1, ROWS do
+    for i = 1, PULL_ROWS do
         local r = CreateFrame("Button", nil, c1, "BackdropTemplate")
         r:SetSize(COL1 - 32, 24)
         r:SetPoint("TOPLEFT", 16, -66 - (i - 1) * 26)
         UI.Skin(r, C.panel, C.line)
         r.text = UI.Text(r, "GameFontHighlight", C.text, nil, "LEFT", 8, 0)
         r.right = UI.Text(r, "GameFontHighlightSmall", C.muted, nil, "RIGHT", -8, 0)
+        r.text:SetPoint("RIGHT", r.right, "LEFT", -6, 0)
+        r.text:SetJustifyH("LEFT"); r.text:SetWordWrap(false)
         r:SetScript("OnClick", function()
             V.mode, V.death = nil, nil
             if V.pull == r.pull then V.pull = nil else V.pull = r.pull end          -- click again to close
@@ -896,6 +902,8 @@ function V:Create()
     end
     self.scoreText = UI.Text(c2, "GameFontHighlightSmall", C.text, nil, "TOPLEFT", 14, -40)
     self.scoreText:SetWidth(COL2 - 28); self.scoreText:SetJustifyH("LEFT")
+    self.hint2 = UI.Text(c2, "GameFontHighlightSmall", C.muted, "Pick a pull to see who died, and what they had ready.", "TOPLEFT", 14, -40)
+    self.hint2:SetWidth(COL2 - 28); self.hint2:SetJustifyH("LEFT")
 
     -- column 3: one death in detail
     local c3 = CreateFrame("Frame", nil, f)
@@ -905,6 +913,8 @@ function V:Create()
     self.c3 = c3
     self.detail = UI.Text(c3, "GameFontHighlightSmall", C.text, nil, "TOPLEFT", 14, -14)
     self.detail:SetWidth(COL3 - 28); self.detail:SetJustifyH("LEFT"); self.detail:SetSpacing(3)
+    self.hint3 = UI.Text(c3, "GameFontHighlightSmall", C.muted, "Pick a death for the details: the last hits, and which defensives, potions and healthstones were ready.", "TOPLEFT", 14, -40)
+    self.hint3:SetWidth(COL3 - 28); self.hint3:SetJustifyH("LEFT")
     -- raid leader: mark the death where the wipe was called
     self.wipeBtn = UI.Button(c3, 160, 22, "", "Deaths after this one won't count against anyone (scorecards)", function()
         local p, d = V.pull, V.death
@@ -992,7 +1002,8 @@ function V:Refresh()
     UI.SetActive(self.scoreBtn, V.mode == "score")
     -- deaths / scorecard
     local show2 = V.pull ~= nil or V.mode == "score"
-    self.c2:SetShown(show2)
+    self.hint2:SetShown(not show2)
+    self.h2:SetText(show2 and self.h2:GetText() or "DEATHS")
     for _, r in ipairs(self.deathRows) do r:Hide() end
     self.scoreText:SetText("")
     self.legend:SetShown(V.pull ~= nil)          -- only useful while deaths are listed
@@ -1059,7 +1070,10 @@ function V:Refresh()
     end
     -- details
     local show3 = V.death ~= nil and V.pull ~= nil
-    self.c3:SetShown(show3)
+    self.hint3:SetShown(not show3)
+    self.detail:SetShown(show3)
+    if not self.h3 then self.h3 = UI.Text(self.c3, "GameFontNormalSmall", C.accent, "DETAILS", "TOPLEFT", 14, -14) end
+    self.h3:SetShown(not show3)
     local canMark = show3 and V.death.kind ~= "save" and PR:CanMarkWipe(V.pull)
     self.wipeBtn:SetShown(canMark and true or false)
     if canMark then
@@ -1085,7 +1099,6 @@ function V:Refresh()
         end
         self.detail:SetText(table.concat(lines, "\n"))
     end
-    resize(self.frame, COL1 + (show2 and COL2 or 0) + (show3 and COL3 or 0))
 end
 
 function V:ShowPull(pull)
@@ -1130,6 +1143,7 @@ function PR:EnsureSummary()
     f.stripLabel = UI.Text(f, "GameFontHighlightSmall", C.muted, "-5s                           your health                           death", "TOPLEFT", strip, "BOTTOMLEFT", 0, -2)
     f.noHealth = UI.Text(f, "GameFontHighlightSmall", C.muted)
     self.summary = f
+    ns.Dock:Add(f)                      -- stacks with the other pop-ups
     return f
 end
 
@@ -1189,5 +1203,7 @@ end
 ns.RegisterModule({
     key = "pullreport", name = "Pull Report", icon = ns.MEDIA .. "PullReport", group = "tools", order = 5,
     desc = "Who died each raid pull - and whether they had a defensive, potion or healthstone ready.",
+    rail = "reports", railName = "Reports", tab = "Tonight",
+    railDesc = "Tonight's pulls and deaths, and the scorecard over the raid week.",
     view = V,
 })

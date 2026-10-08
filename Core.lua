@@ -4,7 +4,7 @@
 -- permissions and slash commands; every module hangs off the shared `ns`.
 local ADDON, ns = ...
 
-ns.VERSION = "0.28.0"
+ns.VERSION = "0.29.0"
 ns.PREFIX = "TitanBoard"     -- board sync channel (unchanged, so it stays compatible)
 ns.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 ns.U = 4095            -- board coordinates run 0..4095 on both axes
@@ -423,7 +423,6 @@ function ns.MemoryBreakdown()
         local f = m.frame and m.frame()
         if f then out.windows[#out.windows + 1] = m.name or key end
     end
-    if ns.Settings and ns.Settings.frame then out.windows[#out.windows + 1] = "Settings" end
     if ns.Hub and ns.Hub.frame then out.windows[#out.windows + 1] = "Hub" end
     table.sort(out.windows)
     return out
@@ -631,6 +630,8 @@ end
 -- Suite-wide settings (TitanBoardDB above keeps the board's plans).
 local SUITE_DEFAULTS = {
     minimap = { angle = 200, hidden = false },
+    nav = { railMin = false },              -- the Titan Up window: pos (top-left, once dragged), rail narrowed to icons
+    dock = {},                              -- the alert stack: pos once dragged
     deathroll = { announce = true, games = {} },
     loot = { drops = {}, minQuality = 4, rollWindow = false },
     raidcheck = { potMin = 5, hpotMin = 5, durMin = 20, pullCheck = true },
@@ -796,12 +797,12 @@ SlashCmdList.TITANUP = function(msg)
         ns.Hub:UpdateMinimapButton()
         ns.Print("Minimap button " .. (ns.udb.minimap.hidden and "hidden" or "shown") .. ".")
     else
-        ns.Print("/tu - Titan Up hub")
+        ns.Print("/tu - open / close Titan Up (Home and every module on the left-hand rail)")
         ns.Print("/tb - TitanBoard (/tb help for its commands)")
         ns.Print("/tu raidcheck - raid readiness (also runs on ready check and /pull)")
         ns.Print("/tu timer - Combat Timer   |   /tu timer test - run it 10 seconds   |   /tu timer debug - explain what it's doing")
         ns.Print("/tu loot - loot tracker   |   /tu rolls - the loot roll window (if turned on in Loot settings)")
-        ns.Print("/tu games - all the games")
+        ns.Print("/tu games - Home (the games are on the rail)")
         ns.Print("/tu roll - Death Roll   |   /tu roll sim - practice   |   /tu roll debug - roll-reading problems")
         ns.Print("/tu wheel - Wheel of Fortune   |   /tu wheel sim - practice with bots")
         ns.Print("/tu minimap - show/hide the minimap button")

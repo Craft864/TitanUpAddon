@@ -1383,7 +1383,9 @@ function Board:Init()
     ns.On("PLAYER_REGEN_ENABLED", function()
         if Board._autoMini then
             Board._autoMini = nil
-            Board:SetMini(false)
+            -- back to the full board, unless you opened something else in the
+            -- Titan Up window during the fight (then it stays mini until you ask)
+            if ns.Nav:ShellFree("board") then Board:SetMini(false) end
         end
     end)
     ns.On("ZONE_CHANGED_NEW_AREA", function()
@@ -1410,7 +1412,7 @@ end
 function Board:Create()
     -- Standard Titan Up title bar: the tab above with the module icons, the X;
     -- board-only controls line up to the left of the X.
-    local f, header = ns.Nav:Window(self, "TitanBoardFrame", "board", "TITANBOARD", FW, FH, { point = { "CENTER" }, mark = false,
+    local f, header = ns.Nav:Window(self, "TitanBoardFrame", "board", "TITANBOARD", FW, FH, { railMin = true, mark = false,
         onShow = function() Board:_onShow() end, onClose = function() Board:Hide() end, canDrag = function() return not Board.fullscreen end })
     f:SetScript("OnHide", function() Board:_onHide() end)
 
@@ -1847,4 +1849,8 @@ ns.RegisterModule({
     key = "board", name = "TitanBoard", icon = ns.MEDIA .. "icon", group = "tools", order = 1,
     desc = "Live raid strategy board - draw on boss rooms with the raid.",
     view = Board,
+    -- picked from the rail or Home while it's in the mini view: open the full board
+    onSwitch = function()
+        if Board.mini then Board._autoMini = nil; Board:SetMini(false) end
+    end,
 })
