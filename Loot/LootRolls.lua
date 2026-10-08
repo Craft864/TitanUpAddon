@@ -410,10 +410,12 @@ function V:Create()
     f:SetScript("OnShow", function()
         if V.ticker then V.ticker:Cancel() end
         V.ticker = C_Timer.NewTicker(0.5, function() V:Refresh() end)
+        if ns.BonusRollGuard then ns.BonusRollGuard:Dock() end      -- a bonus roll showing moves in
     end)
     f:SetScript("OnHide", function()
         if V.ticker then V.ticker:Cancel(); V.ticker = nil end
         LR:HandBack()
+        if ns.BonusRollGuard then ns.BonusRollGuard:Undock() end
     end)
 
     -- left: the items

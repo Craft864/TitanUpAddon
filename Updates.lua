@@ -17,6 +17,9 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.30.1", {
+        "Bonus rolls now sit inside the Loot Rolls window: while it's open, the bonus roll moves into a \"Bonus roll\" strip along its bottom, and goes back to its usual spot when you close the window. With Bonus roll protection on, Roll and Pass still ask first.",
+    } },
     { "0.30.0", {
         "New UI Tweak, Bonus roll protection (off until you turn it on): clicking Roll on the bonus roll window shows a green \"Spend a bonus roll?\" with your loot spec and coins, and clicking Pass shows a red \"Give up this bonus roll?\" with a big Keep my roll button. You confirm by clicking the glowing real button.",
         "Loot: raid bonus-roll wins (yours and everyone's) now show in the drops list, marked \"bonus roll\".",

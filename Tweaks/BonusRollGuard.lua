@@ -12,6 +12,12 @@
 --     (no taint), same as Release protection.
 --   * Nothing clicked within 15 seconds: the covers come back.
 --   * The roll result goes to the Loot list ("Bonus roll") - see Loot.lua.
+--
+-- Docked in the Loot Rolls window (0.30.1): while that window is open (out
+-- of combat), Blizzard's real bonus roll frame is moved into a "Bonus roll"
+-- strip along the window's bottom - only its position changes (no reparent,
+-- no scripts). Closing the window puts it back where Blizzard had it. With
+-- protection on, the covers and confirm panels work the same there.
 local ADDON, ns = ...
 
 local UI = ns.UI
@@ -36,6 +42,7 @@ function BG:Init()
     ns.On("SPELL_CONFIRMATION_TIMEOUT", function() BG:Check() end)
     ns.On("BONUS_ROLL_STARTED", function() BG:Off() end)
     ns.On("BONUS_ROLL_RESULT", function() BG:Off() end)
+    ns.On("PLAYER_REGEN_ENABLED", function() BG:Dock() end)
     self:Watch()
 end
 
@@ -43,8 +50,15 @@ end
 function BG:Watch()
     if self.watching or not (BonusRollFrame and BonusRollFrame.HookScript) then return end
     self.watching = true
-    BonusRollFrame:HookScript("OnShow", function() BG:Check() end)
-    BonusRollFrame:HookScript("OnHide", function() BG:Off() end)
+    BonusRollFrame:HookScript("OnShow", function() BG:Dock(); BG:Check() end)
+    BonusRollFrame:HookScript("OnHide", function() BG:Off(); BG:Undock() end)
+    -- Blizzard lays the frame out again when its loot container changes:
+    -- put it back in the strip afterwards
+    if hooksecurefunc then
+        for _, fn in ipairs({ "GroupLootContainer_Update", "GroupLootContainer_AddFrame" }) do
+            if _G[fn] then hooksecurefunc(fn, function() if BG.docked then BG:Place() end end) end
+        end
+    end
 end
 
 -- Blizzard's Roll and Pass buttons (nil if the frame's layout is unknown)
@@ -178,8 +192,8 @@ function BG:Ask(kind)
 end
 
 function BG:Check()
-    if not self:Enabled() then return self:Off() end
     self:Watch()
+    if not self:Enabled() then return self:Off() end
     if BonusRollFrame and BonusRollFrame:IsShown() and BG.Buttons() then
         if not self.armed or (self.armedUntil and GetTime() >= self.armedUntil) then self:Cover() end
     else
@@ -194,4 +208,73 @@ function BG:Off()
     self.covers.pass:Hide()
     self.glow:Hide()
     self.panel:Hide()
+end
+
+-- ---------------------------------------------------------------------
+-- Docked in the Loot Rolls window
+-- ---------------------------------------------------------------------
+BG.STRIP_H = 72
+
+-- the strip: its own frame under the window, skinned to look like part of
+-- it, on a low layer so Blizzard's frame always draws on top
+function BG:Strip()
+    local win = ns.LootRolls and ns.LootRolls.V.frame
+    if not win then return nil end
+    local st = self.strip
+    if not st then
+        st = CreateFrame("Frame", nil, win, "BackdropTemplate")
+        UI.Skin(st, C.bg, C.accent)
+        st:SetFrameStrata("LOW")
+        st:SetPoint("TOPLEFT", win, "BOTTOMLEFT", 0, 1)
+        st:SetPoint("TOPRIGHT", win, "BOTTOMRIGHT", 0, 1)
+        st:SetHeight(BG.STRIP_H)
+        UI.Text(st, "GameFontNormalSmall", C.accent, "BONUS ROLL", "TOPLEFT", 14, -12)
+        st.hint = UI.Text(st, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", 14, -30)
+        st.hint:SetWidth(220); st.hint:SetJustifyH("LEFT")
+        st.slot = CreateFrame("Frame", nil, st)
+        st.slot:SetPoint("TOPLEFT", 250, -6)
+        st.slot:SetPoint("BOTTOMRIGHT", -14, 6)
+        st:Hide()
+        self.strip = st
+    end
+    return st
+end
+
+-- Move Blizzard's frame into the strip: the Loot Rolls window is open, a
+-- bonus roll is showing, and we're out of combat.
+function BG:Dock()
+    local f = BonusRollFrame
+    local win = ns.LootRolls and ns.LootRolls.V.frame
+    if not (f and f:IsShown() and win and win:IsShown()) then return self:Undock() end
+    if self.docked then return self:Place() end
+    if InCombatLockdown and InCombatLockdown() then return end        -- after combat (PLAYER_REGEN_ENABLED)
+    local st = self:Strip()
+    if not st then return end
+    -- remember where Blizzard put it, to put it back
+    self.home = {}
+    for i = 1, (f.GetNumPoints and f:GetNumPoints() or 0) do self.home[i] = { f:GetPoint(i) } end
+    self.docked = true
+    st.hint:SetText(self:Enabled() and "Roll or pass here - Titan Up asks first." or "Roll or pass here.")
+    st:Show()
+    self:Place()
+end
+
+function BG:Place()
+    local f, st = BonusRollFrame, self.strip
+    if not (f and st and self.docked) then return end
+    f:ClearAllPoints()
+    f:SetPoint("LEFT", st.slot, "LEFT", 0, 0)
+end
+
+-- back where Blizzard had it
+function BG:Undock()
+    if self.strip then self.strip:Hide() end
+    if not self.docked then return end
+    self.docked = nil
+    local f = BonusRollFrame
+    if f and self.home and #self.home > 0 then
+        f:ClearAllPoints()
+        for _, pt in ipairs(self.home) do f:SetPoint(unpack(pt)) end
+    end
+    self.home = nil
 end
