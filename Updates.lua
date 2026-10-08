@@ -17,6 +17,16 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.31.1", {
+        "The side rail is a little wider, so long names like Macro Workstation, Keystone Roulette and Wheel of Fortune show in full.",
+    } },
+    { "0.31.0", {
+        "Macro Share is now the Macro Workstation, and it opens on a new Builder tab: pick an ability, tick where it should land (whoever you're hovering, your focus, the ground under your mouse, yourself or your target), add extras like \"hold Alt to cast on me\" or stop casting first, and see the macro and what it does in plain English. Save it to your macros in one click or send it from the Share tab.",
+        "Your interrupt is always the first pick, already set to hit your focus first.",
+        "Add one or both trinkets to any ability (before or after it), or make a trinket-only macro. Drag in a potion or Healthstone to make one for that too.",
+        "Pick another class from the menu to build a macro for them and send it their way.",
+        "Anyone can now send a macro to one guildmate in their group (they need this version). Sending to the whole raid, a role or a class is still for the raid leader and assistants.",
+    } },
     { "0.30.1", {
         "Bonus rolls now sit inside the Loot Rolls window: while it's open, the bonus roll moves into a \"Bonus roll\" strip along its bottom, and goes back to its usual spot when you close the window. With Bonus roll protection on, Roll and Pass still ask first.",
     } },

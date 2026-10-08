@@ -1,4 +1,4 @@
-# Titan Up v0.30.1
+# Titan Up v0.31.1
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -8,7 +8,7 @@ The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up o
   - **Loot**: every raid drop and roll, Mythic+ loot, and who it was traded to until it's equipped; optional roll window with BIS / Sidegrade / set tags shared with the raid.
   - **Combat Timer**: a combat timer you can style and move.
   - **Raid Check**: raid buffs and personal readiness on every ready check and typed /pull (Heroic and Mythic raids).
-  - **Macro Share**: the leader or an assist sends macros to the raid, a role, a class or one person.
+  - **Macro Workstation**: the **Builder** helps anyone make a macro step by step (pick an ability, choose where it lands, add trinkets, then save it or share it), and **Share** lets the leader or an assist send macros to the raid, a role or a class, and anyone send one to a person in their group.
 - **UI tweaks**
   - **UI Tweaks**: Release protection, Death alerts, Stack splitter and Battle rez tracker, each with its options beside its switch.
   - **Keystone Roulette**: a wheel or a vote over the group's keys, then teleport.
@@ -113,6 +113,25 @@ See the comments at the top of `Rooms.lua`. Short version: put a .blp or .tga in
 ## Planned
 
 - Match by ID instead of English names: defensive spell IDs, and potion / flask / food item IDs (Raid Check, Pull Report), so non-English clients work too.
+
+## Changes in 0.31.1
+
+- **Wider rail** (`Nav.RAIL_W` 150 -> 190): long module names were cut off on the rail ("Macro Works...", "Keystone Rou...", "Wheel of Fort..."). Rail labels now get about 122 pixels instead of 82, so every name shows in full. The window's saved top-left spot is unchanged; the rail and title bar hang 40 pixels further left (the window is still kept on screen by its clamp insets). The narrow (icons only) rail is unchanged.
+
+## Changes in 0.31.0
+
+- **Macro Workstation** (Raid Tools): Macro Share is now one rail entry, "Macro Workstation", with two title-bar tabs: **Builder** (new, `Share/MacroBuilder.lua`, module key `macrobuilder`, opened first) and **Share** (the old window, key `macroshare`, unchanged prefix and saved data). Both use the shared-rail mechanism Reports uses (`rail = "macros"`).
+- **Builder** (`ns.MacroBuilder`, `ns.MacroBuilderUI`):
+  - Pick an ability: your spellbook (`C_SpellBook` skill lines, active, non-passive, non-off-spec spells, so talents you've taken are included), a search box, and 12 per page. A class menu shows any class's hand-picked list instead (`MB.SPELLS`, talents included, e.g. Shaman Wind Rush Totem and Poison Cleansing Totem), for building a macro to send to someone.
+  - Your class's interrupt is pinned above the list ("YOUR INTERRUPT"): the first one you know from `MB.INTERRUPTS` (Muzzle for Survival, Solar Beam for Balance, Silence for Shadow; Spell Lock notes it needs the Felhunter). It defaults to focus, then mouseover, then target, with /stopcasting.
+  - Where it lands: whoever I'm hovering, my focus, the ground under my mouse, myself, my target, tried top to bottom. Only the options that fit the ability can be ticked: enemy (`harm,nodead`), helpful (`help,nodead`), battle rez (`help,dead`), ground (`@cursor`), self (none). Spells not in our lists use `C_Spell.IsSpellHarmful` / `IsSpellHelpful`, else every option is offered (`exists`).
+  - Extras: hold Alt / Shift / Ctrl to cast it on myself / focus / target / mouseover (`[mod:x,@unit]` first), stop casting first, `#showtooltip`.
+  - Trinkets: both trinket slots are shown (passive ones disabled via `C_Item.GetItemSpell`). Click one or both to add `/use 13` / `/use 14` before or after the ability (a before/after button), or click the chosen ability again to make a trinket-only macro, which can be aimed too. With a trinket first, `#showtooltip` names the ability so the button shows it. Slots, not names, so the macro survives a trinket swap.
+  - Drag in a spell (it becomes the ability), a trinket you're wearing (adds its slot), or any usable bag item such as a potion or Healthstone (`/use <name>`).
+  - Live preview with a 255-character count, and a numbered plain-English "What it does". **Save to my macros** creates or updates a character macro of that name and puts it on the cursor (`MS:PickUp`; disabled in combat or over 255; the icon is the question mark so `#showtooltip` drives it). **Send to Share tab** fills in the Share form.
+  - The builder saves nothing; it starts from scratch each session.
+- **Share to one person**: anyone in a party or raid with a guild can send a macro to one guildmate in their group (the target menu then lists people only). These go out as a new message kind `D^id^part^n^chunk` on `TitanUpMS`; recipients accept a `D` only when it's addressed to them by name and the sender is in their group, and older versions ignore it (so the recipient needs 0.31.0). Raid leaders and assistants still send `M` messages, including to one person, so older versions keep receiving those. `MS.CanSend(target)` takes the target now.
+- Tests: `testMacroBuilder0310.lua` (68 checks). The before/after comparison differs only by the new window, the rail and Home name ("Macro Workstation"), and a one-second shift of every timestamp (one more window opened in the scenario).
 
 ## Changes in 0.30.1
 

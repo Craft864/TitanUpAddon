@@ -1,12 +1,15 @@
 -- Titan Up - Share/MacroShare.lua
--- Macro Share (Raid Tools): the raid leader or an assistant sends a macro to
--- the raid - everyone, a role, a class, or one person. Recipients get a
+-- Macro Workstation > Share (Raid Tools): the raid leader or an assistant
+-- sends a macro to the raid - everyone, a role, a class, or one person -
+-- and anyone in a party or raid can send one to a single guildmate in it
+-- (0.31.0; the Builder tab hands its macros here). Recipients get a
 -- toast, and the macro is listed in the Macro Share window with who sent
 -- it and its full text. Dragging its icon onto a bar creates it as a
 -- character macro (or updates one with the same name) and puts it on the
 -- cursor in one go.
---   * Only in a raid, only from its leader / assistants - checked on the
---     sender's side AND again by every recipient.
+--   * To the raid, a role or a class: only in a raid, only from its leader
+--     / assistants - checked on the sender's side AND again by every
+--     recipient. To one person: anyone in the same party or raid.
 --   * Over the guild channel, to raid members running Titan Up.
 --   * WoW doesn't let addons create macros in combat: the icon says
 --     "after combat" until the fight ends.
@@ -64,9 +67,16 @@ function MS.IsLeadOrAssist(unit)
     return (ns.Safe.Bool(UnitIsGroupLeader(unit)) or ns.Safe.Bool(UnitIsGroupAssistant and UnitIsGroupAssistant(unit))) and true or false
 end
 
-function MS.CanSend()
-    if not IsInRaid() then return false, "Macro Share works only in a raid." end
-    if not MS.IsLeadOrAssist("player") then return false, "Only the raid leader or assistants can share macros." end
+-- the raid leader or an assistant of the raid you're in
+function MS.Leads() return IsInRaid() and MS.IsLeadOrAssist("player") end
+
+function MS.CanSend(target)
+    if (target or ""):match("^name:") and not MS.Leads() then
+        if not (IsInGroup and IsInGroup()) then return false, "Join a party or raid to send a macro to someone in it." end
+    else
+        if not IsInRaid() then return false, "Macro Share works only in a raid - or pick one person in your party." end
+        if not MS.IsLeadOrAssist("player") then return false, "Only the raid leader or assistants can share macros with the raid - pick one person instead." end
+    end
     if not ns.DataChannel() then return false, "Macro Share needs a guild." end
     return true
 end
@@ -99,8 +109,10 @@ end
 function MS.CleanName(s) return (tostring(s or ""):gsub("[%c|\t]", ""):gsub("^%s+", ""):gsub("%s+$", "")):sub(1, MS.NAME_MAX) end
 function MS.CleanBody(s) return (tostring(s or ""):gsub("\r", ""):gsub("[\t%z]", " ")):sub(1, MS.BODY_MAX) end
 
+-- "M": from a raid leader / assistant (what every version understands);
+-- "D": from anyone, to one person (0.31.0 - older versions ignore it)
 function MS:Send(name, icon, body, target)
-    local ok, why = MS.CanSend()
+    local ok, why = MS.CanSend(target)
     if not ok then ns.Print(why) return false end
     name, body = MS.CleanName(name), MS.CleanBody(body)
     if name == "" then ns.Print("Give the macro a name.") return false end
@@ -109,8 +121,9 @@ function MS:Send(name, icon, body, target)
     local id = ("%d%d"):format((GetServerTime and GetServerTime() or time()) % 100000, self.seq)
     local payload = table.concat({ target, name, tostring(MS.CleanIcon(icon)), body }, "\t")
     local n = math.ceil(#payload / CHUNK)
+    local kind = MS.Leads() and "M" or "D"
     for i = 1, n do
-        ns.Send(PREFIX, ("M^%s^%d^%d^%s"):format(id, i, n, payload:sub((i - 1) * CHUNK + 1, i * CHUNK)), ns.DataChannel())
+        ns.Send(PREFIX, ("%s^%s^%d^%d^%s"):format(kind, id, i, n, payload:sub((i - 1) * CHUNK + 1, i * CHUNK)), ns.DataChannel())
     end
     ns.Print(("Shared \"%s\" with %s."):format(name, MS.TargetText(target)))
     return true
@@ -121,11 +134,11 @@ end
 -- ---------------------------------------------------------------------
 MS.inbox = {}
 function MS:OnMessage(msg, sender)
-    local id, part, n, chunk = msg:match("^M%^(%d+)%^(%d+)%^(%d+)%^(.*)$")
+    local kind, id, part, n, chunk = msg:match("^([MD])%^(%d+)%^(%d+)%^(%d+)%^(.*)$")
     if not id then return end
     part, n = tonumber(part), tonumber(n)
     if not (part and n and n >= 1 and n <= 4 and part >= 1 and part <= n) then return end
-    local key = sender .. ":" .. id
+    local key = sender .. ":" .. (kind == "D" and "D" or "") .. id
     for k, b in pairs(self.inbox) do if GetTime() - b.at > 60 then self.inbox[k] = nil end end   -- never finished
     local box = self.inbox[key] or { parts = {}, got = 0, at = GetTime() }
     self.inbox[key] = box
@@ -134,8 +147,13 @@ function MS:OnMessage(msg, sender)
     self.inbox[key] = nil
     local target, name, icon, body = table.concat(box.parts):match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t(.*)$")
     if not target then return end
-    -- re-checked here: a raid, and the sender leads or assists it
-    if not IsInRaid() or not MS.IsLeadOrAssist(unitFor(sender)) then return end
+    if kind == "M" then
+        -- re-checked here: a raid, and the sender leads or assists it
+        if not IsInRaid() or not MS.IsLeadOrAssist(unitFor(sender)) then return end
+    else
+        -- from anyone in your group, but only ever to you by name
+        if target ~= "name:" .. ns.me or not ns.InMyGroup(sender) then return end
+    end
     if not MS.ForMe(target) then return end
     name, body = MS.CleanName(name), MS.CleanBody(body)
     if name == "" or body == "" then return end
@@ -226,7 +244,8 @@ end
 
 function V:Create()
     local f = ns.Nav:Window(self, "TitanUpMacroShare", "macroshare", "MACRO SHARE", W, H)
-    self.target, self.icon = "all", MS.ICONS[1]
+    self.target = MS.Leads() and "all" or nil
+    self.target, self.icon = self.target or "all", MS.ICONS[1]
 
     -- left: share a macro
     UI.Text(f, "GameFontNormalSmall", C.accent, "SHARE A MACRO", "TOPLEFT", 16, -14)
@@ -252,7 +271,7 @@ function V:Create()
     self.targetBtn = UI.Button(f, COL - 24, 24, "", "Who gets it", function() V:TargetMenu() end)
     self.targetBtn:SetPoint("TOPLEFT", 16, -302 - GROW)
     self.sendBtn = UI.Button(f, 140, 30, "Send", nil, function()
-        if MS:Send(V.nameBox:GetText(), V.icon, V.bodyBox:GetText(), V.target) then V.bodyBox:ClearFocus(); V.nameBox:ClearFocus() end
+        if V.target and MS:Send(V.nameBox:GetText(), V.icon, V.bodyBox:GetText(), V.target) then V.bodyBox:ClearFocus(); V.nameBox:ClearFocus() end
     end)
     self.sendBtn:SetPoint("TOPLEFT", 16, -344 - GROW)
     UI.SetActive(self.sendBtn, true)
@@ -315,7 +334,7 @@ function V:Create()
     end
     self.empty = UI.Text(f, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", COL + 18, -40)
     self.empty:SetWidth(W - COL - 36); self.empty:SetJustifyH("LEFT")
-    self.empty:SetText("Macros your raid leader or assistants share show up here until you log out.")
+    self.empty:SetText("Macros shared with you - by your raid leader, an assistant or someone in your group - show up here until you log out.")
 end
 
 -- A macro on the cursor (from the macro book or an action bar)? Fill the
@@ -354,10 +373,12 @@ function V:IconMenu()
 end
 
 function V:TargetMenu()
-    local items = {
+    -- the raid, roles and classes for its leader / assistants; one person for anyone
+    local lead = MS.Leads()
+    local items = lead and {
         { text = "The whole raid", target = "all" },
         { text = "Tanks", target = "role:TANK" }, { text = "Healers", target = "role:HEALER" }, { text = "DPS", target = "role:DAMAGER" },
-    }
+    } or {}
     local classes, people = {}, {}
     for _, u in ipairs(ns.GroupUnits()) do
         if UnitExists(u) then
@@ -369,6 +390,7 @@ function V:TargetMenu()
     local cls = {}
     for cl in pairs(classes) do cls[#cls + 1] = cl end
     table.sort(cls)
+    if not lead then cls = {} end
     for _, cl in ipairs(cls) do items[#items + 1] = { text = MS.TargetText("class:" .. cl):gsub("^%l", string.upper), target = "class:" .. cl } end
     table.sort(people, function(a, b) return a[1] < b[1] end)
     for _, p in ipairs(people) do items[#items + 1] = { text = UI.ClassName(p[1], p[2]), target = "name:" .. p[1] } end
@@ -390,8 +412,9 @@ function V:Refresh()
     if not self.frame then return end
     self:RefreshCounts()
     self:RefreshDrop()
-    self.targetBtn.label:SetText(("Send to: %s  v"):format(MS.TargetText(V.target)))
-    local ok, why = MS.CanSend()
+    if V.target == nil and MS.Leads() then V.target = "all" end
+    self.targetBtn.label:SetText(("Send to: %s  v"):format(V.target and MS.TargetText(V.target) or "pick someone"))
+    local ok, why = MS.CanSend(V.target)
     UI.SetDisabled(self.sendBtn, not ok)
     self.why:SetText(ok and "" or why)
     local combat = InCombatLockdown()
@@ -412,7 +435,8 @@ function V:Refresh()
 end
 
 ns.RegisterModule({
-    key = "macroshare", name = "Macro Share", icon = ns.MEDIA .. "MacroShare", group = "tools", order = 7,
-    desc = "Raid leader & assists: send a macro to the raid, a role, a class or one person - they drag it onto their bars.",
+    key = "macroshare", name = "Macro Share", icon = ns.MEDIA .. "MacroShare", group = "tools", order = 7.5,
+    desc = "Send a macro to one person in your group - or, as raid leader or assistant, to the raid, a role or a class. They drag it onto their bars.",
+    rail = "macros", railName = "Macro Workstation", tab = "Share",
     view = V,
 })
