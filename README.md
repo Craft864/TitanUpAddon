@@ -1,4 +1,4 @@
-# Titan Up v0.34.0
+# Titan Up v0.35.0
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -106,9 +106,11 @@ The host's addon is the referee: it spins, checks letters and only ever sends th
 
 `/tu chess` (or Chess on the rail).
 
-**Starting:** **Challenge a guildmate** and type their name (your target's name is filled in). They don't need to be online: the challenge waits for them. Colours are picked at random. You can have up to 20 games going at once.
+**Starting:** **Challenge a guildmate** and pick them from the list of guildmates who have Titan Up's Chess (online first, then by when they were last seen; class colours), or type a name if they aren't listed yet (your target is picked or filled in). They don't need to be online: the challenge waits for them. Colours are picked at random. You can have up to 20 games going at once.
 
-**Playing:** click one of your pieces and the squares it can reach are marked (a dot, or a ring around a piece you can take); click one to move. A pawn reaching the last rank asks what to promote to. Your pieces are always at the bottom. **Offer a draw** (it stands until the next move), **Accept the draw**, and **Resign** (click twice) are on the right with the move list. A finished game stays in your list until you **Remove** it (the newest 20 are kept).
+**Timer (optional, off by default):** pick one in the challenge window. **Days per move** (1, 3 or 7 days): if your opponent hasn't moved in time, a **Claim the win on time** button appears. **Live clock** (5, 10 or 30 minutes each): a normal chess clock that only runs while you're both online, and pauses while either of you is offline. It also waits while a move slides across the board, so the animation never costs either of you time. Run out and you lose on time.
+
+**Playing:** click one of your pieces and the squares it can reach are marked (a dot, or a ring around a piece you can take); click one to move. A pawn reaching the last rank asks what to promote to. Each move slides across the board so you can see what just happened, and if your opponent moves while you're in another Titan Up window, the Chess entry on the rail blinks. Pieces each side has taken show next to their names (with who's ahead on material), and the move list shows which piece each capture took. Your pieces are always at the bottom. **Offer a draw** (it stands until the next move), **Accept the draw**, and **Resign** (click twice) are on the right with the move list. A finished game stays in your list until you **Remove** it (the newest 20 are kept).
 
 **Rules:** the full rules, checked on both players' computers: castling, en passant, promotion, check and checkmate, stalemate. Threefold repetition, the 50-move rule and positions where nobody can mate are automatic draws. An illegal move is never accepted.
 
@@ -130,6 +132,14 @@ See the comments at the top of `Rooms.lua`. Short version: put a .blp or .tga in
 ## Planned
 
 - Match by ID instead of English names, so non-English clients work too: potion / flask / food / healthstone item IDs (Raid Check, Pull Report) and the cheat-death auras (Pull Report). The defensives themselves already match by spell ID (checked against 12.1.5 in 0.29.2).
+
+## Changes in 0.35.0
+
+- **Chess: move slide.** Each new move (yours or your opponent's) slides the piece from its old square to the new one over 0.3 s (ease out; one `slider` texture over the board, the landing square stays empty until it lands). An opponent's move while the window is closed blinks the Chess rail button 3 times as well as the chat line.
+- **Chess: captured pieces.** `R.Step` records what each ply took in `game.taken[n]` (en passant included); `R.Material`. The player rows show the captured pieces (grouped with counts) and a +N material lead; each capture in the move list ends with a small icon of the piece taken.
+- **Chess: challenge list.** The challenge window is now a list of guildmates heard running Chess (`TitanUpDB.chess.known`, name -> last heard, any `TitanUpCH` message; dropped after 30 days or when they leave the guild), online first with class colours and "seen X ago", plus the old name box for anyone not listed.
+- **Chess: timers** (Ryan chose "Both"; off by default). `game.tc`: `d1` / `d3` / `d7` (days per move) or `l5` / `l10` / `l30` (live clock, minutes each). Timed games add fields to the end of the messages: `C id w b tc`, `A id startAt`, `M id n uci at clock`, `E id T n` (claim on time; checked against your own copy, 1 h grace), `E id F n` (your own clock ran out), and `S ... tc times start clocks`. Untimed games send exactly what 0.34.0 sent. Days per move counts from the last move's time (a time from the future is taken as now). The live clock only ticks while the opponent is online (heard in the last 2 minutes, or online in the guild roster, refreshed every 15 s while a live game runs); a reported clock can't be higher than what you measured plus 5 s; each client flags its own player when their clock runs out. After every move both clients hold the next clock for the 0.3 s slide (`CH.SLIDE`, `CH:PauseForSlide`; also with the window closed, so both sides measure the same). Couriers carry the timer fields.
+- Tests: `testChess0350.lua`.
 
 ## Changes in 0.34.0
 

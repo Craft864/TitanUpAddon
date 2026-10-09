@@ -389,18 +389,35 @@ function R.Insufficient(b)
     return false
 end
 
+-- Piece values for the material count (+3 beside a name).
+R.VALUE = { p = 1, n = 3, b = 3, r = 5, q = 9, k = 0 }
+
+-- White's material minus Black's on a board.
+function R.Material(b)
+    local d = 0
+    for i = 0, 63 do
+        local p = b[i]
+        if p then
+            local v = R.VALUE[p:lower()]
+            d = d + ((p == p:upper()) and v or -v)
+        end
+    end
+    return d
+end
+
 -- ---------------------------------------------------------------------
 -- A whole game from its move list
 -- ---------------------------------------------------------------------
 -- A game grows one move at a time (R.Step), so a new move costs one
 -- position, not a replay of the whole game.
 -- game = { pos = current position, legal = its legal moves, san = { ... },
+--          taken = { [ply] = piece captured on that move, or false },
 --          moves = { move tables }, uci = { ... }, last = last move,
 --          over = reason|nil, winner = "w"|"b"|nil, seen = repetition counts }
 -- reason: "mate", "stalemate", "repetition", "fifty", "material".
 function R.Begin()
     local st = R.New()
-    return { pos = st, legal = R.Legal(st), san = {}, moves = {}, uci = {}, seen = { [R.Key(st)] = 1 } }
+    return { pos = st, legal = R.Legal(st), san = {}, moves = {}, uci = {}, taken = {}, seen = { [R.Key(st)] = 1 } }
 end
 
 -- Add one move (UCI); false when it's illegal or the game is already over.
@@ -410,11 +427,15 @@ function R.Step(g, uci)
     local m = R.Find(st, uci, g.legal)
     if not m then return false end
     local san = R.SAN(st, m, g.legal, true)
+    -- the piece taken (en passant: the pawn beside, not the empty square)
+    local taken = st.b[m.to]
+    if m.ep then taken = (st.side == "w") and "p" or "P" end
     local n = R.Apply(st, m)
     local legal = R.Legal(n)
     if R.InCheck(n) then san = san .. ((#legal == 0) and "#" or "+") end
     local i = #g.moves + 1
     g.moves[i], g.uci[i], g.san[i] = m, uci, san
+    g.taken[i] = taken or false
     g.pos, g.legal, g.last = n, legal, m
     local k = R.Key(n)
     g.seen[k] = (g.seen[k] or 0) + 1

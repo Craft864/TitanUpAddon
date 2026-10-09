@@ -2,7 +2,9 @@
 -- The Chess window: your games on the left, the board in the middle (your
 -- pieces always at the bottom), the moves and buttons on the right.
 -- Click a piece, then the square to move it to; the squares it can reach
--- are marked. Nothing is built until the window is first opened.
+-- are marked. A move slides across the board; the pieces each side has
+-- taken show beside their names, and the move list marks every capture.
+-- Nothing is built until the window is first opened.
 local ADDON, ns = ...
 
 local UI = ns.UI
@@ -35,6 +37,47 @@ local function col(c, s) return "|cff" .. c .. s .. "|r" end
 local function texFor(p)
     if not p then return nil end
     return PIECES .. ((p == p:upper()) and "w" or "b") .. p:upper()
+end
+
+-- A piece as an inline icon in text.
+local function icon(p, size)
+    return ("|T%s:%d:%d|t"):format(texFor(p), size or 14, size or 14)
+end
+
+local ORDER = { "q", "r", "b", "n", "p" }
+
+-- The pieces `color` has taken, grouped ("queen, 2 pawns" as icons), and
+-- their lead in material ("+3").
+function V.Captures(game, color)
+    local got = {}
+    for i, p in ipairs(game.taken or {}) do
+        local mover = (i % 2 == 1) and "w" or "b"
+        if p and mover == color then got[p:lower()] = (got[p:lower()] or 0) + 1 end
+    end
+    local parts = {}
+    local enemy = color == "w" and "b" or "w"
+    for _, k in ipairs(ORDER) do
+        local n = got[k]
+        if n then
+            local p = enemy == "w" and k:upper() or k
+            parts[#parts + 1] = icon(p, 15) .. (n > 1 and col(MUTED, tostring(n)) or "")
+        end
+    end
+    local d = R.Material(game.pos.b) * (color == "w" and 1 or -1)
+    return table.concat(parts, ""), d > 0 and d or nil
+end
+
+-- 4:05 / 0:09 ; 2d 4h / 5h 12m / 12m
+local function clockText(secs)
+    secs = math.max(0, math.floor(secs))
+    return ("%d:%02d"):format(math.floor(secs / 60), secs % 60)
+end
+local function daysText(secs)
+    if secs <= 0 then return "out of time" end
+    local d, h, m = math.floor(secs / 86400), math.floor(secs % 86400 / 3600), math.floor(secs % 3600 / 60)
+    if d > 0 then return ("%dd %dh left"):format(d, h) end
+    if h > 0 then return ("%dh %dm left"):format(h, m) end
+    return ("%dm left"):format(math.max(1, m))
 end
 
 -- ---------------------------------------------------------------------
@@ -146,6 +189,12 @@ function V:Create()
     x:SetPoint("TOPRIGHT", -6, -6)
     self.promo = promo
 
+    -- the piece that slides across the board when a move is made
+    local slider = board:CreateTexture(nil, "OVERLAY", nil, 7)
+    slider:SetSize(SQ - 6, SQ - 6)
+    slider:Hide()
+    self.slider = slider
+
     -- right side: what's happening, the moves, the buttons
     self.status = UI.Text(f, "GameFontHighlight", C.text, nil, "TOPLEFT", SIDE_X, -16)
     self.status:SetWidth(SIDE_W)
@@ -214,7 +263,76 @@ end
 function V:OnChange(g, what)
     if what == "new" and g and g.by == ns.me then self.sel = g.id end
     if g and g.id == self.sel and what ~= "offer" then self.pick, self.promoMove = nil, nil; self.follow = true end
-    if self:IsShown() then self:Refresh() end
+    if not self:IsShown() then return end
+    -- a new move in the game on screen slides into place
+    if g and g.id == self.sel and (what == "move" or what == "state") then
+        local n = #CH.SplitMoves(g.moves)
+        if self.slidN and self.slidN[g.id] and n > self.slidN[g.id] then self:StartSlide(g) end
+    end
+    self:Refresh()
+end
+
+-- ---------------------------------------------------------------------
+-- The move slide
+-- ---------------------------------------------------------------------
+V.SLIDE = CH.SLIDE               -- seconds (the live clock waits for it)
+
+-- top-left of a square on the board, from your side
+function V:SquareOffset(sq)
+    local file, rank = sq % 8, math.floor(sq / 8)
+    local x, y
+    if self.flip then x, y = 7 - file, rank else x, y = file, 7 - rank end
+    return 2 + x * SQ, -2 - y * SQ
+end
+
+function V:StartSlide(g)
+    local game = CH:Live(g)
+    local m = game.last
+    if not m then return end
+    self.slide = { from = m.from, to = m.to, tex = texFor(game.pos.b[m.to]), t0 = GetTime() }
+    self.slider:SetTexture(self.slide.tex)
+    self.board:SetScript("OnUpdate", function() V:Animate() end)
+    self:Animate()
+end
+
+function V:Animate()
+    local sl = self.slide
+    if not sl then return end
+    local t = (GetTime() - sl.t0) / self.SLIDE
+    if t >= 1 then
+        self.slide = nil
+        self.slider:Hide()
+        self.board:SetScript("OnUpdate", nil)
+        self:RefreshBoard(self.game)
+        return
+    end
+    t = 1 - (1 - t) * (1 - t)                -- ease out
+    local x1, y1 = self:SquareOffset(sl.from)
+    local x2, y2 = self:SquareOffset(sl.to)
+    self.slider:ClearAllPoints()
+    self.slider:SetPoint("TOPLEFT", self.board, "TOPLEFT", x1 + (x2 - x1) * t + 3, y1 + (y2 - y1) * t - 3)
+    self.slider:Show()
+end
+
+-- Your opponent moved while you're elsewhere in Titan Up: the Chess entry
+-- on the rail blinks a few times.
+function V:FlashRail()
+    local Nav = ns.Nav
+    for _, h in pairs(Nav.headers or {}) do
+        for _, b in ipairs(h.railButtons or {}) do
+            local isChess = false
+            for _, k in ipairs(b.item and b.item.keys or {}) do if k == "chess" then isChess = true end end
+            if isChess and h.key ~= "chess" then
+                local n = 0
+                local ticker
+                ticker = C_Timer.NewTicker(0.3, function()
+                    n = n + 1
+                    UI.SetActive(b, n % 2 == 1)
+                    if n >= 6 then ticker:Cancel(); Nav:RefreshChrome(h) end
+                end)
+            end
+        end
+    end
 end
 
 -- board square on screen -> square index, from your side of the board
@@ -256,7 +374,10 @@ function V:Refresh()
     end
     local g = self.sel and CH:Get(self.sel)
     if g and not CH:IsPlayer(g) then g = nil end
+    if self.game ~= g then self.slide = nil; self.slider:Hide(); self.board:SetScript("OnUpdate", nil) end
     self.game = g
+    self.slidN = self.slidN or {}
+    if g then self.slidN[g.id] = #CH.SplitMoves(g.moves) end
     self:RefreshBoard(g)
     self:RefreshSide(g)
     self:RefreshMoves()
@@ -291,7 +412,7 @@ function V:RefreshBoard(g)
         if tint then s.tint:SetColorTexture(tint[1], tint[2], tint[3], tint[4]); s.tint:Show() else s.tint:Hide() end
         local p = pos.b[sq]
         local tex = texFor(p)
-        if tex then s.piece:SetTexture(tex); s.piece:Show() else s.piece:Hide() end
+        if tex and not (self.slide and self.slide.to == sq) then s.piece:SetTexture(tex); s.piece:Show() else s.piece:Hide() end
         if targets[sq] then
             if p then
                 s.dot:SetTexture(ns.MEDIA .. "Shapes\\ring80")
@@ -322,19 +443,59 @@ function V:RefreshBoard(g)
             b.icon:SetTexture(PIECES .. (white and "w" or "b") .. b.kind:upper())
         end
     end
-    -- the players
-    if g then
-        local me, opp = ns.me, CH:Opponent(g)
-        local mineW = CH:ColorOf(g) == "w"
-        local online = CH:IsOnline(opp)
-        self.topName:SetText(UI.Named(opp) .. col(MUTED, mineW and "  Black" or "  White"))
-        local turn = g.status == "active" and select(2, CH:ToMove(g))
-        local seen = online == true and col(GOOD, "online") or (online == false and col(MUTED, "offline") or "")
-        self.topInfo:SetText((turn == opp) and (col(ACCENT, "to move") .. "  " .. seen) or seen)
-        self.botName:SetText(UI.Named(me) .. col(MUTED, mineW and "  White" or "  Black"))
-        self.botInfo:SetText(turn == me and col(ACCENT, "your move") or "")
-    else
+    self:RefreshPlayers(g)
+end
+
+-- Names, what each has taken, colours, clocks and whose move it is.
+function V:RefreshPlayers(g)
+    if not g then
         self.topName:SetText(""); self.topInfo:SetText(""); self.botName:SetText(""); self.botInfo:SetText("")
+        return
+    end
+    local game = CH:Live(g)
+    local me, opp = ns.me, CH:Opponent(g)
+    local mine = CH:ColorOf(g)
+    local theirs = mine == "w" and "b" or "w"
+    local turn = g.status == "active" and CH:ToMove(g)
+    local kind = CH:Timer(g)
+    local online = CH:IsOnline(opp)
+    local function strip(name, color)
+        local taken, lead = V.Captures(game, color)
+        return UI.Named(name) .. "  " .. taken .. (lead and col(MUTED, " +" .. lead) or "")
+    end
+    local function info(color, isMe)
+        local bits = { col(MUTED, color == "w" and "White" or "Black") }
+        if kind == "live" then
+            local left = CH:ClockLeft(g, color)
+            local running = turn == color and online == true
+            bits[#bits + 1] = col(left < 60 and BAD or (running and ACCENT or MUTED), clockText(left))
+        elseif kind == "days" and turn == color then
+            local left = CH:DaysLeft(g)
+            bits[#bits + 1] = col(left < 6 * 3600 and WARN or MUTED, daysText(left))
+        end
+        if turn == color then bits[#bits + 1] = col(ACCENT, isMe and "your move" or "to move") end
+        if not isMe then
+            bits[#bits + 1] = online == true and col(GOOD, "online") or (online == false and col(MUTED, "offline") or nil)
+        end
+        return table.concat(bits, "  ")
+    end
+    self.topName:SetText(strip(opp, theirs))
+    self.topInfo:SetText(info(theirs, false))
+    self.botName:SetText(strip(me, mine))
+    self.botInfo:SetText(info(mine, true))
+end
+
+-- Once a second (from the game's own ticker): clocks, and the claim button
+-- appearing when your opponent runs out of time.
+function V:Tick()
+    local g = self.game
+    if not (self:IsShown() and g and CH:Timer(g)) then return end
+    self:RefreshPlayers(g)
+    local can = CH:CanClaimTime(g)
+    local key = g.id .. (can and "+" or "-") .. g.status
+    if key ~= self.lastTick then
+        self.lastTick = key
+        self:RefreshSide(g)
     end
 end
 
@@ -365,6 +526,7 @@ function V:RefreshSide(g)
             else
                 status = ("%s challenged you!"):format(opp)
                 note = ("You'd play %s."):format(CH:ColorOf(g) == "w" and "White and move first" or "Black")
+                if g.tc then note = note .. "\nTimer: " .. CH.TIMER_LABEL[g.tc] .. "." end
                 a = { "Accept", nil, true, "accept" }
                 b = { "Decline", nil, false, "decline" }
             end
@@ -394,6 +556,11 @@ function V:RefreshSide(g)
                 a = { "Offer a draw", "Offer a draw - it stands until the next move", false, "offerDraw" }
             end
             b = self.confirm == g.id and { "Click again to resign", nil, true, "resign" } or { "Resign", nil, false, "resign" }
+            if g.tc then note = note .. "\n" .. col(MUTED, "Timer: " .. CH.TIMER_LABEL[g.tc] .. (CH:Timer(g) == "live" and " (pauses while either of you is offline)" or "") .. ".") end
+            if CH:CanClaimTime(g) then
+                status = ("%s is out of time."):format(opp)
+                a = { "Claim the win on time", nil, true, "claim" }
+            end
             -- moves a courier brought that your opponent hasn't confirmed yet
             local by
             for _, name in pairs(g.via or {}) do by = name end
@@ -412,15 +579,18 @@ function V:RefreshMoves()
     if not self.frame then return end
     local g = self.game
     local san = g and CH:Live(g).san or {}
+    local taken = g and CH:Live(g).taken or {}
     local lines = math.ceil(#san / 2)
     if self.follow then self.moveOffset = lines - MOVE_ROWS end
     self.moveOffset = math.max(0, math.min(lines - MOVE_ROWS, self.moveOffset or 0))
     for i, r in ipairs(self.moveRows) do
         local line = i + self.moveOffset
         local w, b = san[line * 2 - 1], san[line * 2]
+        -- each capture shows the piece it took
+        local tw, tb = taken[line * 2 - 1], taken[line * 2]
         r.n:SetText(w and (line .. ".") or "")
-        r.w:SetText(w or "")
-        r.b:SetText(b or "")
+        r.w:SetText(w and (w .. (tw and (" " .. icon(tw, 13)) or "")) or "")
+        r.b:SetText(b and (b .. (tb and (" " .. icon(tb, 13)) or "")) or "")
     end
 end
 
@@ -475,6 +645,7 @@ function V:Action(which)
     elseif act == "remove" then CH:Remove(id); self.sel = nil
     elseif act == "offerDraw" then CH:OfferDraw(id)
     elseif act == "acceptDraw" then CH:AcceptDraw(id)
+    elseif act == "claim" then CH:ClaimTime(id)
     elseif act == "resign" then
         if self.confirm == id then
             self.confirm = nil
@@ -487,28 +658,128 @@ function V:Action(which)
     self:Refresh()
 end
 
-function V:AskChallenge()
-    local target = UnitExists("target") and UnitIsPlayer and UnitIsPlayer("target") and not UnitIsUnit("target", "player") and ns.FullName("target")
-    UI.Prompt({
-        title = "Challenge a guildmate to chess",
-        help = "Their name (add -Realm if they're on another realm). They don't need to be online: the challenge waits for them.",
-        text = target or "",
-        accept = "Challenge",
-        max = 64,
-        select = true,
-        onAccept = function(text)
-            local ok, res = CH:Challenge(text)
-            if ok then
-                V.sel = res.id
-                V.follow = true
-                V:Refresh()
-            else
-                ns.Print(res)
-            end
-        end,
-    })
+-- ---------------------------------------------------------------------
+-- Challenge window: pick a guildmate who has Chess (or type a name), and a timer
+-- ---------------------------------------------------------------------
+local DLG_ROWS = 9
+
+function V:BuildChallenge()
+    local d = UI.Window("TitanUpChessChallenge", 340, 446, { strata = "DIALOG", border = C.accent, drag = true, y = 60 })
+    UI.Text(d, "GameFontNormal", C.accent, "CHALLENGE A GUILDMATE", "TOPLEFT", 14, -12)
+    local close = UI.Button(d, 22, 20, "X", "Close", function() d:Hide() end)
+    close:SetPoint("TOPRIGHT", -8, -8)
+    local help = UI.Text(d, "GameFontHighlightSmall", C.muted, "Guildmates with Titan Up Chess. They don't need to be online: the challenge waits for them.", "TOPLEFT", 14, -34)
+    help:SetWidth(312); help:SetJustifyH("LEFT")
+
+    local list = CreateFrame("Frame", nil, d, "BackdropTemplate")
+    UI.Skin(list, C.canvas, C.line)
+    list:SetPoint("TOPLEFT", 12, -66)
+    list:SetSize(316, DLG_ROWS * 26 + 6)
+    list:EnableMouseWheel(true)
+    list:SetScript("OnMouseWheel", function(_, delta) d.offset = (d.offset or 0) - delta; V:RefreshChallenge() end)
+    d.rows = {}
+    for i = 1, DLG_ROWS do
+        local r = UI.Row(list, 24, 0.08, { C.accentDim[1], C.accentDim[2], C.accentDim[3], 0.8 }, "GameFontHighlight", true)
+        r:SetPoint("TOPLEFT", 3, -3 - (i - 1) * 26)
+        r:SetWidth(310)
+        r.text:SetPoint("LEFT", 8, 0)
+        r.text:SetWidth(170)
+        r.seen = UI.Text(r, "GameFontHighlightSmall", C.muted, nil, "RIGHT", -8, 0)
+        r:SetScript("OnClick", function(b) d.pick = b.name; d.box:SetText(""); d.box:ClearFocus(); V:RefreshChallenge() end)
+        d.rows[i] = r
+    end
+    d.empty = UI.Text(list, "GameFontHighlightSmall", C.muted,
+        "Nobody yet. Guildmates show up here once they've logged in with Titan Up 0.34.0 or newer. You can type a name below.", "TOPLEFT", 10, -10)
+    d.empty:SetWidth(296); d.empty:SetJustifyH("LEFT")
+
+    UI.Text(d, "GameFontHighlightSmall", C.muted, "Or type a name:", "TOPLEFT", 14, -(66 + DLG_ROWS * 26 + 18))
+    local box = UI.EditBox(d, 200, 24, { inset = 6, max = 64 })
+    box:SetPoint("TOPLEFT", 126, -(66 + DLG_ROWS * 26 + 12))
+    box:SetScript("OnTextChanged", function(_, user) if user then d.pick = nil; V:RefreshChallenge() end end)
+    box:SetScript("OnEnterPressed", function() V:SendChallenge() end)
+    d.box = box
+
+    UI.Text(d, "GameFontHighlightSmall", C.muted, "Timer:", "TOPLEFT", 14, -(66 + DLG_ROWS * 26 + 50))
+    local timer = UI.Button(d, 200, 24, "", "Optional. Days per move works when you're not online together; a live clock only runs while you're both online.", function(b)
+        local items = {}
+        for _, t in ipairs(CH.TIMERS) do
+            items[#items + 1] = { text = t[2], checked = (d.tc or "") == t[1], onClick = function() d.tc = t[1]; V:RefreshChallenge() end }
+        end
+        UI.Menu(b, items)
+    end)
+    timer:SetPoint("TOPLEFT", 126, -(66 + DLG_ROWS * 26 + 44))
+    d.timer = timer
+
+    d.go = UI.Button(d, 140, 26, "Challenge", nil, function() V:SendChallenge() end)
+    d.go:SetPoint("BOTTOMRIGHT", -12, 12)
+    UI.SetActive(d.go, true)
+    local cancel = UI.Button(d, 90, 26, "Cancel", nil, function() d:Hide() end)
+    cancel:SetPoint("RIGHT", d.go, "LEFT", -8, 0)
+    d.err = UI.Text(d, "GameFontHighlightSmall", C.bad, nil, "BOTTOMLEFT", 14, 46)
+    d.err:SetWidth(312); d.err:SetJustifyH("LEFT")
+    ns.Dock:Add(d)
+    self.dlg = d
+    return d
 end
 
+local function ago(at)
+    local s = ns.Now() - (at or 0)
+    if s < 3600 then return "seen just now" end
+    if s < 86400 then return ("seen %dh ago"):format(math.floor(s / 3600)) end
+    local days = math.floor(s / 86400)
+    return days == 1 and "seen yesterday" or ("seen %d days ago"):format(days)
+end
+
+function V:RefreshChallenge()
+    local d = self.dlg
+    if not d then return end
+    local people = CH:KnownPlayers()
+    d.people = people
+    d.offset = math.max(0, math.min(#people - DLG_ROWS, d.offset or 0))
+    d.empty:SetShown(#people == 0)
+    for i, r in ipairs(d.rows) do
+        local p = people[i + d.offset]
+        r:SetShown(p ~= nil)
+        if p then
+            r.name = p.name
+            local cc = p.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[p.class]
+            r.text:SetText(ns.Short(p.name))
+            if cc then r.text:SetTextColor(cc.r, cc.g, cc.b) else r.text:SetTextColor(C.text[1], C.text[2], C.text[3]) end
+            r.seen:SetText(p.online and col(GOOD, "online") or ago(p.at))
+            r.hl:SetShown(d.pick == p.name)
+        end
+    end
+    d.timer.label:SetText((CH.TIMER_LABEL[d.tc or ""] or "No timer") .. "  v")
+    local who = d.pick or (d.box:GetText() ~= "" and d.box:GetText())
+    UI.SetDisabled(d.go, not who)
+    d.go.label:SetText(who and ("Challenge " .. ns.Short(who)) or "Challenge")
+end
+
+function V:AskChallenge()
+    local d = self.dlg or self:BuildChallenge()
+    d.pick, d.tc, d.offset = nil, "", 0
+    d.err:SetText("")
+    d.box:SetText("")
+    -- your target is picked (or typed) for you
+    local target = UnitExists("target") and UnitIsPlayer and UnitIsPlayer("target") and not UnitIsUnit("target", "player") and ns.FullName("target")
+    if target then
+        if (ns.udb.chess.known or {})[target] then d.pick = target else d.box:SetText(target) end
+    end
+    d:Show()
+    self:RefreshChallenge()
+end
+
+function V:SendChallenge()
+    local d = self.dlg
+    local who = d.pick or d.box:GetText()
+    if not who or who == "" then return end
+    local ok, res = CH:Challenge(who, d.tc)
+    if not ok then d.err:SetText(res) return end
+    d:Hide()
+    self.sel = res.id
+    self.follow = true
+    if self:IsShown() then self:Refresh() end
+end
 
 ns.RegisterModule({
     key = "chess", name = "Chess", icon = ns.MEDIA .. "Chess", group = "games", order = 4,
