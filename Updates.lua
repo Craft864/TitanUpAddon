@@ -21,7 +21,7 @@ UP.NOTES = {
         "Chess: every move now slides across the board, and the Chess entry blinks when your opponent moves while you're looking at another Titan Up window.",
         "Chess: the pieces each side has taken show next to their names, and the move list shows which piece each capture took.",
         "Chess: Challenge a guildmate now lists guildmates who have Chess, so you just click a name. You can still type one.",
-        "Chess: optional timers when you challenge someone (off unless you pick one): days per move, or a live clock that only runs while you're both online.",
+        "Chess: optional timers when you challenge someone (off unless you pick one): days per move, or a live clock that only runs while you're both online (and never while a move is sliding).",
     } },
     { "0.34.0", {
         "New game: Chess! Open Titan Up and pick Chess under Games (or type /tu chess), then challenge any guildmate by name.",

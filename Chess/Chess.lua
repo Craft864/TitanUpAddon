@@ -481,6 +481,7 @@ function CH:Move(id, uci)
             self:ClockLeft(g, mine)
             g.clk[mine] = math.max(0, (g.clk[mine] or 0) - (g.run or 0))
             g.run = 0
+            self:PauseForSlide(g)
             clock = math.floor(g.clk[mine])
         end
     end
@@ -644,6 +645,7 @@ function CH:TimeMove(g, n, at, clock)
         g.clk = g.clk or {}
         g.clk[color] = math.max(0, math.min(claimed, measured + 5))
         g.run = 0
+        self:PauseForSlide(g)
     end
 end
 
@@ -984,6 +986,14 @@ end
 -- ---------------------------------------------------------------------
 -- Start
 -- ---------------------------------------------------------------------
+-- A move's slide (ChessUI) takes this long; the next clock starts after it,
+-- on both players' computers, whether or not the window is open (Ryan).
+CH.SLIDE = 0.3
+function CH:PauseForSlide(g)
+    self.slidePause = self.slidePause or {}
+    self.slidePause[g.id] = GetTime() + self.SLIDE
+end
+
 -- Once a second: live clocks tick while both players are online, your own
 -- clock running out ends the game, and the window's clocks update.
 function CH:Tick()
@@ -995,8 +1005,9 @@ function CH:Tick()
         if g.status == "active" and self:IsPlayer(g) and self:Timer(g) == "live" then
             liveGames = true
             local opp = self:Opponent(g)
-            if self:IsOnline(opp) == true then
-                g.run = (g.run or 0) + dt
+            local from = math.max(now - dt, self.slidePause and self.slidePause[g.id] or 0)
+            if self:IsOnline(opp) == true and now > from then
+                g.run = (g.run or 0) + (now - from)
                 if self:NeedsMe(g) and self:ClockLeft(g, self:ColorOf(g)) <= 0 then
                     local mine = self:ColorOf(g)
                     g.clk[mine], g.run = 0, 0

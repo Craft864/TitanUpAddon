@@ -275,7 +275,7 @@ end
 -- ---------------------------------------------------------------------
 -- The move slide
 -- ---------------------------------------------------------------------
-V.SLIDE = 0.3                   -- seconds
+V.SLIDE = CH.SLIDE               -- seconds (the live clock waits for it)
 
 -- top-left of a square on the board, from your side
 function V:SquareOffset(sq)
