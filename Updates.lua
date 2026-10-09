@@ -17,6 +17,12 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.35.0", {
+        "Chess: every move now slides across the board, and the Chess entry blinks when your opponent moves while you're looking at another Titan Up window.",
+        "Chess: the pieces each side has taken show next to their names, and the move list shows which piece each capture took.",
+        "Chess: Challenge a guildmate now lists guildmates who have Chess, so you just click a name. You can still type one.",
+        "Chess: optional timers when you challenge someone (off unless you pick one): days per move, or a live clock that only runs while you're both online.",
+    } },
     { "0.34.0", {
         "New game: Chess! Open Titan Up and pick Chess under Games (or type /tu chess), then challenge any guildmate by name.",
         "Games are saved until someone wins, resigns or agrees a draw, and you can have several going at once.",

@@ -20,16 +20,28 @@
 --     opponent's moves are only replaced by your opponent, so when the two
 --     of you next meet (or one's game reaches the other), a made-up move
 --     is rolled back and the courier who delivered it is named.
+--   * Timers (0.35.0, chosen with the challenge, none by default):
+--     days per move - your opponent can claim the win once your time for a
+--     move has run out (moves carry the time they were made, so this works
+--     through couriers); live clock - minutes each, ticking only while both
+--     players are online (it pauses when either logs off). Your own client
+--     ends the game when your own clock runs out; a mover's reported clock
+--     is never believed above what the opponent measured (plus 5 s).
 --
 -- Messages ("TitanUpCH", fields joined by ^; ids start with the challenger's
 -- name, like Death Roll rooms):
---   C id white black          challenge (sender = the challenger, one of the two)
---   A id                      accept (from the challenged player)
+--   C id white black timer    challenge (sender = the challenger, one of the two)
+--                             timer (0.35.0): "" none, d1/d3/d7 days per move, l5/l10/l30 live minutes each
+--   A id at                   accept (from the challenged player; at = server time, 0.35.0)
 --   D id                      decline (challenged) / cancel (challenger) an open challenge
---   M id n move               move number n (1 = White's first), UCI ("e2e4", "e7e8q")
---   E id kind n               kind: R resign, O offer a draw, Y accept the draw (n = moves so far)
+--   M id n move at clock      move number n (1 = White's first), UCI ("e2e4", "e7e8q");
+--                             at = server time of the move, clock = the mover's seconds left (live clock) (0.35.0)
+--   E id kind n               kind: R resign, O offer a draw, Y accept the draw, T claim a win on time,
+--                             F out of time (the sender lost) (n = moves so far)
 --   H entries                 "here are my games": id:n:hash:state,... (state i/a/o)
---   S id white black by state result reason moves   a whole game (moves comma-separated)
+--   S id white black by state result reason moves timer times start clocks
+--                             a whole game (moves comma-separated; 0.35.0 adds the timer, each move's
+--                             time, when the game started and the live clocks "white:black")
 --   U key part n chunk        an S too long for one message, in parts
 local ADDON, ns = ...
 
@@ -49,6 +61,19 @@ local RANK = { invited = 1, active = 2, over = 3 }
 local STATE_CODE = { invited = "i", active = "a", over = "o" }
 local CODE_STATE = { i = "invited", a = "active", o = "over" }
 local RULE_END = { mate = true, stalemate = true, repetition = true, fifty = true, material = true }
+local OTHER_END = { resign = true, agreed = true, declined = true, cancelled = true, time = true }
+
+-- Timers offered with a challenge (code, label). "" = none (the default).
+CH.TIMERS = {
+    { "", "No timer" },
+    { "d1", "1 day per move" }, { "d3", "3 days per move" }, { "d7", "7 days per move" },
+    { "l5", "Live clock: 5 min each" }, { "l10", "Live clock: 10 min each" }, { "l30", "Live clock: 30 min each" },
+}
+local TIMER_OK = {}
+for _, t in ipairs(CH.TIMERS) do TIMER_OK[t[1]] = t[2] end
+CH.TIMER_LABEL = TIMER_OK
+CH.CLAIM_GRACE = 3600           -- days per move: a claim is accepted up to an hour early (clock differences)
+CH.KNOWN_DAYS = 30              -- guildmates with Chess are remembered this long
 
 CH.live = {}                    -- id -> the rules game (positions), built when needed
 CH.pending = {}                 -- id -> a courier's queued delivery
@@ -148,21 +173,90 @@ end
 function CH:Get(id) return db().games[id] end
 
 -- ---------------------------------------------------------------------
+-- Timers
+-- ---------------------------------------------------------------------
+-- "days", n | "live", minutes | nil
+function CH:Timer(g)
+    local kind, n = (g.tc or ""):match("^([dl])(%d+)$")
+    if not kind then return nil end
+    return kind == "d" and "days" or "live", tonumber(n)
+end
+
+local function clampTime(v, lo)
+    v = tonumber(v)
+    local now = ns.Now()
+    if not v or v ~= v or v > now + 60 then v = now end
+    if lo and v < lo then v = lo end
+    return math.floor(v)
+end
+
+-- When the side to move's time started: the last move, or the start of the game.
+function CH:TurnStart(g)
+    local n = count(g.moves)
+    return (n > 0 and g.at and g.at[n]) or g.startAt or g.updated or ns.Now()
+end
+
+-- Days per move: seconds the side to move has left (negative = out of time).
+function CH:DaysLeft(g)
+    local kind, days = self:Timer(g)
+    if kind ~= "days" then return nil end
+    return self:TurnStart(g) + days * DAY - ns.Now()
+end
+
+-- Live clock: seconds `color` has left.
+function CH:ClockLeft(g, color)
+    local kind, mins = self:Timer(g)
+    if kind ~= "live" then return nil end
+    g.clk = g.clk or { w = mins * 60, b = mins * 60 }
+    local left = g.clk[color] or mins * 60
+    if g.status == "active" and self:ToMove(g) == color then left = left - (g.run or 0) end
+    return left
+end
+
+-- The opponent is out of time and you can claim the win.
+function CH:CanClaimTime(g)
+    if g.status ~= "active" or self:NeedsMe(g) then return false end
+    local kind = self:Timer(g)
+    if kind == "days" then return self:DaysLeft(g) < 0 end
+    if kind == "live" then return self:ClockLeft(g, self:ToMove(g)) <= -10 end
+    return false
+end
+
+-- Guildmates heard running Titan Up 0.34.0+ (any chess message), newest first.
+function CH:KnownPlayers()
+    local out = {}
+    local r = self:Roster()
+    for name, at in pairs(db().known or {}) do
+        if name ~= ns.me and (not r.loaded or r.inGuild[name]) then
+            out[#out + 1] = { name = name, at = at, online = self:IsOnline(name) == true, class = r.class[name] }
+        end
+    end
+    table.sort(out, function(a, b)
+        if a.online ~= b.online then return a.online end
+        if a.at ~= b.at then return a.at > b.at end
+        return a.name < b.name
+    end)
+    return out
+end
+
+-- ---------------------------------------------------------------------
 -- Guild roster: names and who's online
 -- ---------------------------------------------------------------------
 function CH:Roster()
     local now = GetTime()
     if self.roster and now - self.roster.at < 10 then return self.roster end
-    local r = { at = now, online = {}, list = {} }
+    local r = { at = now, online = {}, list = {}, class = {}, inGuild = {} }
     if GetNumGuildMembers and GetGuildRosterInfo then
         local ok, total = pcall(GetNumGuildMembers)
         if ok and type(total) == "number" and not ns.IsSecret(total) then
             for i = 1, total do
-                local ok2, name, _, _, _, _, _, _, _, online = pcall(GetGuildRosterInfo, i)
+                local ok2, name, _, _, _, _, _, _, _, online, _, class = pcall(GetGuildRosterInfo, i)
                 if ok2 and type(name) == "string" and not ns.IsSecret(name) then
                     name = ns.NormalizeSender(name)
                     if name then
                         r.list[#r.list + 1] = name
+                        r.inGuild[name] = true
+                        if type(class) == "string" and not ns.IsSecret(class) then r.class[name] = class end
                         if online and not ns.IsSecret(online) then r.online[name] = true end
                     end
                 end
@@ -235,6 +329,10 @@ function CH:Prune()
     end
     table.sort(over, function(a, b) return (a.updated or 0) > (b.updated or 0) end)
     for i = self.KEEP_OVER + 1, #over do db().games[over[i].id] = nil end
+    db().known = db().known or {}
+    for name, at in pairs(db().known) do
+        if now - (tonumber(at) or 0) > self.KNOWN_DAYS * DAY then db().known[name] = nil end
+    end
     local carry, list = db().carry, {}
     for id, c in pairs(carry) do
         local age = now - (c.updated or 0)
@@ -258,13 +356,24 @@ end
 -- ---------------------------------------------------------------------
 function CH:Send(...) return ns.SendFields(PREFIX, ...) end
 
+-- The timer fields of an S: timer, move times, start, clocks.
+function CH:TimerFields(g)
+    if not self:Timer(g) then return "" end
+    local times = {}
+    for i = 1, count(g.moves) do times[i] = tostring((g.at and g.at[i]) or 0) end
+    local clk = ""
+    if g.clk then clk = ("%d:%d"):format(math.floor(g.clk.w or 0), math.floor(g.clk.b or 0)) end
+    return g.tc, table.concat(times, ","), tostring(g.startAt or 0), clk
+end
+
 -- A whole game: one message, or parts when it's long.
 function CH:SendState(g, force)
     local n = count(g.moves)
     local last = self.lastS[g.id]
     if not force and last and last.n == n and last.status == g.status and GetTime() - last.at < 10 then return end
     self.lastS[g.id] = { at = GetTime(), n = n, status = g.status }
-    local msg = ns.Join("S", g.id, g.w, g.b, g.by, STATE_CODE[g.status] or "a", g.result or "", g.reason or "", g.moves or "")
+    local msg = ns.Join("S", g.id, g.w, g.b, g.by, STATE_CODE[g.status] or "a", g.result or "", g.reason or "", g.moves or "",
+        self:TimerFields(g))
     if #msg <= 250 then
         ns.Send(PREFIX, msg, ns.DataChannel())
         return
@@ -305,7 +414,7 @@ end
 -- ---------------------------------------------------------------------
 -- What you do
 -- ---------------------------------------------------------------------
-function CH:Challenge(text)
+function CH:Challenge(text, tc)
     if not ns.DataChannel() then return false, ns.NEEDS_GUILD end
     local name, err = self:ResolveName(text)
     if not name then return false, err end
@@ -315,11 +424,13 @@ function CH:Challenge(text)
     if active >= self.MAX_GAMES then return false, ("You already have %d games going - finish one first."):format(active) end
     local id = ("%s-%d%02d"):format(ns.Short(ns.me), ns.Now(), math.random(0, 99))
     local white = math.random(2) == 1
+    tc = TIMER_OK[tc or ""] and tc or ""
     local g = { id = id, w = white and ns.me or name, b = white and name or ns.me, by = ns.me,
                 status = "invited", moves = "", created = ns.Now(), via = {} }
+    if tc ~= "" then g.tc, g.at = tc, {} end
     touch(g)
     db().games[id] = g
-    self:Send("C", id, g.w, g.b)
+    if tc ~= "" then self:Send("C", id, g.w, g.b, tc) else self:Send("C", id, g.w, g.b) end
     changed(g, "new")
     return true, g
 end
@@ -328,8 +439,9 @@ function CH:Accept(id)
     local g = self:Get(id)
     if not g or g.status ~= "invited" or g.by == ns.me then return false end
     g.status = "active"
+    g.startAt = ns.Now()
     touch(g)
-    self:Send("A", id)
+    if g.tc then self:Send("A", id, g.startAt) else self:Send("A", id) end
     changed(g, "state")
     return true
 end
@@ -357,9 +469,35 @@ function CH:Move(id, uci)
     self.live[g.id].text = g.moves
     g.offer = nil
     touch(g)
-    self:Send("M", id, #list, uci)
+    -- timers: when it was made, and our clock
+    local clock
+    if self:Timer(g) then
+        g.at = g.at or {}
+        g.at[#list] = ns.Now()
+        local kind = self:Timer(g)
+        if kind == "live" then
+            local mine = self:ColorOf(g)
+            -- (ToMove has already moved on: take our time from before the move)
+            self:ClockLeft(g, mine)
+            g.clk[mine] = math.max(0, (g.clk[mine] or 0) - (g.run or 0))
+            g.run = 0
+            clock = math.floor(g.clk[mine])
+        end
+    end
+    if g.tc then self:Send("M", id, #list, uci, g.at[#list], clock)
+    else self:Send("M", id, #list, uci) end
     checkEnd(g)
     changed(g, "move")
+    return true
+end
+
+-- Your opponent ran out of time: claim the win.
+function CH:ClaimTime(id)
+    local g = self:Get(id)
+    if not g or not self:CanClaimTime(g) then return false end
+    finish(g, self:ColorOf(g), "time")
+    self:Send("E", id, "T", count(g.moves))
+    changed(g, "state")
     return true
 end
 
@@ -419,7 +557,7 @@ local function carryCopy(id) return db().carry[id] end
 
 local function storeCarry(t)
     local c = db().carry[t.id] or {}
-    for _, k in ipairs({ "id", "w", "b", "by", "status", "result", "reason", "moves", "offer" }) do c[k] = t[k] end
+    for _, k in ipairs({ "id", "w", "b", "by", "status", "result", "reason", "moves", "offer", "tc", "at", "startAt", "clk", "created" }) do c[k] = t[k] end
     c.updated = ns.Now()
     db().carry[t.id] = c
     -- something newer went past: a queued delivery of an older copy isn't needed
@@ -430,11 +568,13 @@ end
 function CH:OnMessage(msg, sender)
     self.heard = self.heard or {}
     self.heard[sender] = GetTime()
+    db().known = db().known or {}
+    db().known[sender] = ns.Now()                    -- has Chess: offered in the challenge list
     local f = ns.Split(msg, "^")
     local kind = f[1]
-    if kind == "C" then self:OnChallenge(f[2], f[3], f[4], sender)
-    elseif kind == "A" or kind == "D" then self:OnAnswer(kind, f[2], sender)
-    elseif kind == "M" then self:OnMove(f[2], tonumber(f[3]), f[4], sender)
+    if kind == "C" then self:OnChallenge(f[2], f[3], f[4], sender, f[5])
+    elseif kind == "A" or kind == "D" then self:OnAnswer(kind, f[2], sender, f[3])
+    elseif kind == "M" then self:OnMove(f[2], tonumber(f[3]), f[4], sender, f[5], f[6])
     elseif kind == "E" then self:OnEnd(f[2], f[3], tonumber(f[4]), sender)
     elseif kind == "H" then self:OnHello(f[2] or "", sender)
     elseif kind == "S" then self:OnState(f, sender)
@@ -450,25 +590,26 @@ function CH:OnMessage(msg, sender)
     end
 end
 
-function CH:OnChallenge(id, w, b, sender)
+function CH:OnChallenge(id, w, b, sender, tc)
     if not (validName(w) and validName(b)) or w == b then return end
     if sender ~= w and sender ~= b then return end
     if not validId(id, sender) then return end
     local t = { id = id, w = w, b = b, by = sender, status = "invited", moves = "" }
+    if tc and tc ~= "" and TIMER_OK[tc] then t.tc, t.at = tc, {} end
     local target = (sender == w) and b or w
     if target == ns.me then
         if db().games[id] then return end
         t.created, t.via = ns.Now(), {}
         touch(t)
         db().games[id] = t
-        notify(("%s challenged you to a game of chess."):format(ns.Short(sender)), t)
+        notify(("%s challenged you to a game of chess%s."):format(ns.Short(sender), t.tc and (" (" .. TIMER_OK[t.tc] .. ")") or ""), t)
         changed(t, "new")
     elseif not db().games[id] and not carryCopy(id) then
         storeCarry(t)
     end
 end
 
-function CH:OnAnswer(kind, id, sender)
+function CH:OnAnswer(kind, id, sender, at)
     local g = self:Get(id)
     local mine = g and self:IsPlayer(g)
     local t = mine and g or carryCopy(id)
@@ -476,6 +617,7 @@ function CH:OnAnswer(kind, id, sender)
     if kind == "A" then
         if sender == t.by then return end                -- only the challenged player accepts
         t.status = "active"
+        t.startAt = clampTime(at, t.created)
         touch(t)
         if mine then notify(("%s accepted your challenge. %s"):format(ns.Short(sender),
             self:ColorOf(g) == "w" and "You play White - your move." or "You play Black."), g) end
@@ -487,7 +629,25 @@ function CH:OnAnswer(kind, id, sender)
     if mine then changed(g, "state") else storeCarry(t) end
 end
 
-function CH:OnMove(id, n, uci, sender)
+-- The timers of a move that arrived: when it was made, and the mover's clock
+-- (never more than we measured for them, plus 5 seconds for the message).
+function CH:TimeMove(g, n, at, clock)
+    if not self:Timer(g) then return end
+    g.at = g.at or {}
+    g.at[n] = clampTime(at, (n > 1 and g.at[n - 1]) or g.startAt)
+    if self:Timer(g) == "live" then
+        local color = (n % 2 == 1) and "w" or "b"
+        self:ClockLeft(g, color)                      -- (sets the clocks up if needed)
+        local measured = math.max(0, g.clk[color] - (g.run or 0))
+        local claimed = tonumber(clock)
+        if not claimed or claimed ~= claimed then claimed = measured end
+        g.clk = g.clk or {}
+        g.clk[color] = math.max(0, math.min(claimed, measured + 5))
+        g.run = 0
+    end
+end
+
+function CH:OnMove(id, n, uci, sender, at, clock)
     if not n or type(uci) ~= "string" or #uci < 4 or #uci > 5 then return end
     local g = self:Get(id)
     if g and self:IsPlayer(g) then
@@ -503,12 +663,14 @@ function CH:OnMove(id, n, uci, sender)
         self.live[g.id].text = g.moves
         if g.via then g.via[n] = nil end
         g.offer = nil
+        self:TimeMove(g, n, at, clock)
         touch(g)
         checkEnd(g)
         if g.status == "over" then
             notify(self:EndText(g), g)
         elseif ns.ChessUI and not ns.ChessUI:IsShown() then
             ns.Print(("|cff4fc2f7Chess:|r %s played %s - your move."):format(ns.Short(sender), game.san[n] or uci))
+            ns.ChessUI:FlashRail()
         end
         changed(g, "move")
         return
@@ -524,6 +686,7 @@ function CH:OnMove(id, n, uci, sender)
     c.moves = table.concat(list, ",")
     self.live[c.id].text = c.moves
     c.offer = nil
+    self:TimeMove(c, n, at, clock)
     if game.over then finish(c, game.winner or "d", game.over) end
     storeCarry(c)
 end
@@ -546,6 +709,20 @@ function CH:OnEnd(id, kind, n, sender)
         if not (t.offer and t.offer.n == n and n == moves and t.offer.by ~= sender) then return end
         finish(t, "d", "agreed")
         if mine then notify(("%s accepted your draw offer."):format(ns.Short(sender)), g) end
+    elseif kind == "T" or kind == "F" then
+        -- T: the sender claims the win on time; F: the sender's own clock ran out
+        local tk = self:Timer(t)
+        if not tk or n ~= moves then return end
+        local senderColor = self:ColorOf(t, sender)
+        local loser = (kind == "F") and senderColor or (senderColor == "w" and "b" or "w")
+        if kind == "T" then
+            if self:ToMove(t) ~= loser then return end
+            -- only when the loser really is out of time, as far as we can tell
+            if tk == "days" and self:DaysLeft(t) > self.CLAIM_GRACE then return end
+            if tk == "live" and mine and self:ClockLeft(t, loser) > 15 then return end
+        end
+        finish(t, loser == "w" and "b" or "w", "time")
+        if mine then notify(self:EndText(g), g) end
     else
         return
     end
@@ -627,6 +804,8 @@ end
 
 function CH:OnState(f, sender)
     local id, w, b, by, code, result, reason, moves = f[2], f[3], f[4], f[5], f[6], f[7], f[8], f[9] or ""
+    local tc, times, startAt, clocks = f[10] or "", f[11] or "", f[12], f[13] or ""
+    if not TIMER_OK[tc] then tc = "" end
     local status = CODE_STATE[code or ""]
     if not status or not (validName(w) and validName(b)) or w == b then return end
     if by ~= w and by ~= b then return end
@@ -639,10 +818,18 @@ function CH:OnState(f, sender)
     if result ~= "w" and result ~= "b" and result ~= "d" then result = nil end
     if tg.over then
         status, result, reason = "over", tg.winner or "d", tg.over
-    elseif status == "over" and (RULE_END[reason] or not (reason == "resign" or reason == "agreed" or reason == "declined" or reason == "cancelled")) then
+    elseif status == "over" and (RULE_END[reason] or not OTHER_END[reason]) then
         return                                       -- says it's over by the rules, but it isn't
     end
     local t = { id = id, w = w, b = b, by = by, status = status, result = result, reason = reason, moves = table.concat(theirs, ",") }
+    if tc ~= "" then
+        t.tc, t.at = tc, {}
+        local list = split(times)
+        for i = 1, #theirs do t.at[i] = clampTime(list[i] and tonumber(list[i]) ~= 0 and list[i] or nil, t.at[i - 1]) end
+        t.startAt = clampTime(tonumber(startAt) ~= 0 and startAt or nil)
+        local cw, cb = clocks:match("^(%d+):(%d+)$")
+        if cw then t.clk = { w = tonumber(cw), b = tonumber(cb) } end
+    end
 
     if w == ns.me or b == ns.me then
         self:MergeMine(t, theirs, sender)
@@ -671,12 +858,14 @@ function CH:MergeMine(t, theirs, sender)
     if not g then
         -- a challenge (or a game) we never heard about, delivered by a courier
         if t.status == "over" or t.by == ns.me then return end
-        g = { id = t.id, w = t.w, b = t.b, by = t.by, status = t.status, moves = t.moves, created = ns.Now(), via = {} }
+        g = { id = t.id, w = t.w, b = t.b, by = t.by, status = t.status, moves = t.moves, created = ns.Now(), via = {},
+              tc = t.tc, at = t.at, startAt = t.startAt, clk = t.clk }
         if not fromOpp then for i = 1, #theirs do g.via[i] = sender end end
         touch(g)
         db().games[g.id] = g
         if g.status == "invited" then
-            notify(("%s challenged you to a game of chess%s."):format(ns.Short(t.by), fromOpp and "" or (" (delivered by " .. ns.Short(sender) .. ")")), g)
+            notify(("%s challenged you to a game of chess%s%s."):format(ns.Short(t.by), g.tc and (" (" .. TIMER_OK[g.tc] .. ")") or "",
+                fromOpp and "" or (" (delivered by " .. ns.Short(sender) .. ")")), g)
         end
         checkEnd(g)
         changed(g, "new")
@@ -701,6 +890,7 @@ function CH:MergeMine(t, theirs, sender)
     end
     local before = g.moves
     local beforeStatus = g.status
+    local adoptFrom                                -- first ply taken from their copy
     if d then
         if moverOf(g, d) == ns.me then
             -- our own move: ours stands; tell them
@@ -711,6 +901,7 @@ function CH:MergeMine(t, theirs, sender)
         local courier = g.via[d]
         for i = d, #mine do g.via[i] = nil end
         g.moves = t.moves
+        adoptFrom = d
         if g.status == "over" and t.status ~= "over" then g.status, g.result, g.reason = "active", nil, nil end
         if courier then
             notify(("%s's move %d was wrong in the copy %s delivered - it's been put back to %s's real move."):format(
@@ -723,9 +914,25 @@ function CH:MergeMine(t, theirs, sender)
         end
         for i = #mine + 1, #theirs do g.via[i] = (not fromOpp) and sender or nil end
         g.moves = t.moves
+        adoptFrom = #mine + 1
     elseif fromOpp then
         for i = 1, #theirs do g.via[i] = nil end     -- they've confirmed these
     end
+    -- timers of the moves we took from their copy
+    if adoptFrom and g.tc and t.tc == g.tc then
+        g.at = g.at or {}
+        for i = adoptFrom, #split(g.moves) do g.at[i] = t.at and t.at[i] or ns.Now() end
+        for i = #split(g.moves) + 1, #mine do g.at[i] = nil end
+        if self:Timer(g) == "live" and t.clk then
+            -- their clocks, never more time than we already had down
+            g.clk = g.clk or {}
+            for _, c in ipairs({ "w", "b" }) do
+                g.clk[c] = math.min(t.clk[c] or 0, g.clk[c] or t.clk[c] or 0)
+            end
+            g.run = 0
+        end
+    end
+    if t.startAt and not g.startAt then g.startAt = t.startAt end
     -- the game's state
     local ours = split(g.moves)
     if #ours == #theirs and (RANK[t.status] or 0) > (RANK[g.status] or 0) then
@@ -759,7 +966,7 @@ end
 local REASONS = {
     mate = "checkmate", stalemate = "stalemate", repetition = "threefold repetition",
     fifty = "the 50-move rule", material = "not enough pieces to mate", agreed = "agreement",
-    resign = "resignation",
+    resign = "resignation", time = "time",
 }
 
 function CH:EndText(g)
@@ -770,14 +977,50 @@ function CH:EndText(g)
     local won = g.result == me
     local opp = ns.Short(self:Opponent(g))
     if g.reason == "resign" then return won and (opp .. " resigned. You win!") or "You resigned." end
+    if g.reason == "time" then return won and (opp .. " ran out of time. You win!") or "You ran out of time." end
     return (won and "You beat " .. opp or opp .. " won") .. " by " .. (REASONS[g.reason] or "checkmate") .. "."
 end
 
 -- ---------------------------------------------------------------------
 -- Start
 -- ---------------------------------------------------------------------
+-- Once a second: live clocks tick while both players are online, your own
+-- clock running out ends the game, and the window's clocks update.
+function CH:Tick()
+    local now = GetTime()
+    local dt = math.min(5, now - (self.lastTick or now))
+    self.lastTick = now
+    local liveGames = false
+    for _, g in pairs(db().games) do
+        if g.status == "active" and self:IsPlayer(g) and self:Timer(g) == "live" then
+            liveGames = true
+            local opp = self:Opponent(g)
+            if self:IsOnline(opp) == true then
+                g.run = (g.run or 0) + dt
+                if self:NeedsMe(g) and self:ClockLeft(g, self:ColorOf(g)) <= 0 then
+                    local mine = self:ColorOf(g)
+                    g.clk[mine], g.run = 0, 0
+                    finish(g, mine == "w" and "b" or "w", "time")
+                    self:Send("E", g.id, "F", count(g.moves))
+                    notify(self:EndText(g), g)
+                    changed(g, "state")
+                end
+            end
+        end
+    end
+    -- keep the guild roster (who's online) fresh while a live clock is running
+    if liveGames and now - (self.rosterAsked or 0) > 15 then
+        self.rosterAsked = now
+        if C_GuildInfo and C_GuildInfo.GuildRoster then pcall(C_GuildInfo.GuildRoster) end
+        self.roster = nil
+    end
+    if ns.ChessUI and ns.ChessUI.Tick then ns.ChessUI:Tick() end
+end
+
 function CH:Init()
     self:Prune()
+    self.lastTick = GetTime()
+    C_Timer.NewTicker(1, function() CH:Tick() end)
     ns.Listen(PREFIX, "guild", function(msg, sender) CH:OnMessage(msg, sender) end)
     -- say which games we have once the guild has loaded, then mention any waiting on you
     C_Timer.After(15, function()
