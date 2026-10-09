@@ -17,6 +17,12 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.34.0", {
+        "New game: Chess! Open Titan Up and pick Chess under Games (or type /tu chess), then challenge any guildmate by name.",
+        "Games are saved until someone wins, resigns or agrees a draw, and you can have several going at once.",
+        "You don't need to be online together: guildmates running Titan Up quietly pass your moves along, so your opponent gets them when they log in.",
+        "Click a piece to see where it can go. Illegal moves are never accepted, and nobody can change your moves.",
+    } },
     { "0.33.0", {
         "New: a search box in the middle of the Titan Up title bar. Type a few letters (\"sound\", \"wipe\", \"font\") to find any setting, then click it: Titan Up opens the page it's on and flashes it.",
         "Arrow keys and Enter work in the list, and Esc clears the box. You can also type /tu set death sound in chat.",

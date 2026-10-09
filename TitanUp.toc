@@ -1,8 +1,8 @@
 ## Interface: 120100, 120105
 ## Title: Titan Up
-## Notes: The Titan Up guild toolkit: TitanBoard live raid strategy board, a loot tracker, Death Roll, Wheel of Fortune, and more.
+## Notes: The Titan Up guild toolkit: TitanBoard live raid strategy board, a loot tracker, Death Roll, Wheel of Fortune, Chess, and more.
 ## Author: Ryan (Titan Up - Medivh)
-## Version: 0.33.0
+## Version: 0.34.0
 ## SavedVariables: TitanUpDB, TitanBoardDB
 ## IconTexture: Interface\AddOns\TitanUp\Media\TitanUp
 ## X-Category: Raid
@@ -61,4 +61,8 @@ Tweaks\BonusRollGuard.lua
 Keys\Keys.lua
 Wowdle\Words.lua
 Wowdle\Wowdle.lua
+
+Chess\Rules.lua
+Chess\Chess.lua
+Chess\ChessUI.lua
 

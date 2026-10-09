@@ -4,7 +4,7 @@
 -- permissions and slash commands; every module hangs off the shared `ns`.
 local ADDON, ns = ...
 
-ns.VERSION = "0.33.0"
+ns.VERSION = "0.34.0"
 ns.PREFIX = "TitanBoard"     -- board sync channel (unchanged, so it stays compatible)
 ns.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 ns.U = 4095            -- board coordinates run 0..4095 on both axes
@@ -473,7 +473,7 @@ end
 -- ---------------------------------------------------------------------
 local AREA_NAMES = {
     pullReport = "Pull Report (tonight's pulls)", raidHistory = "Raid Scorecard history", loot = "Loot history",
-    deathroll = "Death Roll ledger", wowdle = "Wowdle", timer = "Combat Timer", deathAlerts = "Death Alerts",
+    deathroll = "Death Roll ledger", wowdle = "Wowdle", chess = "Chess games", timer = "Combat Timer", deathAlerts = "Death Alerts",
     keys = "Keystone Roulette", splitter = "Stack Splitter", brez = "Battle rez tracker", raidcheck = "Raid Check",
     tweaks = "UI Tweaks", wheel = "Wheel of Fortune", minimap = "Minimap button",
 }
@@ -752,6 +752,7 @@ local SUITE_DEFAULTS = {
     pullReport = { popup = "never", personal = false },      -- pop-ups off until someone turns them on
     keys = { min = 0, max = 0, excluded = {}, weight = "equal", history = {} },
     wowdle = { guesses = {}, standings = {}, stats = { played = 0, wins = 0, streak = 0, best = 0, sum = 0, dist = { 0, 0, 0, 0, 0, 0 } } },
+    chess = { games = {}, carry = {} },          -- your games, and guildmates' games you carry
 }
 
 ns.On("ADDON_LOADED", function(name)
@@ -772,7 +773,7 @@ local function startModules()
     for _, name in ipairs({ "Updates", "Content", "Model", "Comms", "Sync", "Presence",
                             "Board", "Laser", "Invite", "ImportExport",
                             "Hub", "DeathRoll", "DRLedger", "DeathRollUI", "Wheel", "WheelUI", "Loot", "LootUI", "LootRolls",
-                            "RaidCheck", "RaidCheckUI", "PullReport", "PullReportUI", "RaidScorecard", "RaidScorecardUI", "MacroShare", "MacroShareUI", "MacroBuilder", "Timer", "TimerUI", "Tweaks", "TweaksUI", "DeathAlerts", "StackSplitter", "BattleRez", "BonusRollGuard", "Keys", "KeysUI", "Wowdle", "WowdleUI" }) do
+                            "RaidCheck", "RaidCheckUI", "PullReport", "PullReportUI", "RaidScorecard", "RaidScorecardUI", "MacroShare", "MacroShareUI", "MacroBuilder", "Timer", "TimerUI", "Tweaks", "TweaksUI", "DeathAlerts", "StackSplitter", "BattleRez", "BonusRollGuard", "Keys", "KeysUI", "Wowdle", "WowdleUI", "Chess" }) do
         -- each module starts on its own: one failing can't stop the rest
         local m = ns[name]
         if m and m.Init then
@@ -916,6 +917,7 @@ SlashCmdList.TITANUP = function(msg)
         ns.Print("/tu games - Home (the games are on the rail)")
         ns.Print("/tu roll - Death Roll   |   /tu roll sim - practice   |   /tu roll debug - roll-reading problems")
         ns.Print("/tu wheel - Wheel of Fortune   |   /tu wheel sim - practice with bots")
+        ns.Print("/tu chess - Chess with a guildmate (saved until the game ends)")
         ns.Print("/tu minimap - show/hide the minimap button")
         ns.Print("/tu settings - every module's options on one page")
         ns.Print("/tu set <words> - search the settings (or type in the box at the top of any Titan Up window)")
