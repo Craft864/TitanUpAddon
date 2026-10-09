@@ -1,4 +1,4 @@
-# Titan Up v0.33.0
+# Titan Up v0.34.0
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -16,6 +16,7 @@ The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up o
   - **Death Roll**: challenge a guildmate to a gold death roll with real /rolls, spectators and a tamper-proof guild ledger.
   - **Wheel of Fortune**: a host runs a puzzle game for three players (or practise with bots).
   - **Wowdle**: the daily guild word game, with guild standings.
+  - **Chess**: play a guildmate at your own pace. Games are saved until they end, and moves reach offline players through guildmates running Titan Up.
 
 **Getting around:** `/tu` (or the minimap button, or Blizzard's addon menu) opens the Titan Up window on **Home**: what happened last pull, tonight's Raid Check, loot to trade, and your games at a glance. The **rail** down the left side lists every module by section (Raid, UI Tweaks, Games) with **Settings** at the bottom; click one and it replaces what's showing, in the same spot. The **<** button narrows the rail to icons. A cog in the title bar opens that module's settings, and Settings has a "Back" button to where you were. The **search box** in the middle of the title bar finds any setting: type a few letters, pick a result, and Titan Up opens the page it's on and flashes it (`/tu set <words>` does the same from chat). Pop-ups (Pull Report summary, Raid Check alert, game invites, what's new) stack in one place on screen and can be dragged together. `/tb` still opens TitanBoard directly, `/tu roll` Death Roll, `/tu settings` Settings, `/tu help` lists everything, and `/tu mem` shows how much memory Titan Up is using.
 
@@ -101,6 +102,22 @@ A letter that isn't there (or was already called), a vowel that isn't there, or 
 
 The host's addon is the referee: it spins, checks letters and only ever sends the board with unrevealed letters hidden, so nobody can read the answer from addon traffic. `/tu wheel sim` (or **Practice solo**) plays a game against two bots with a fake host.
 
+## Chess
+
+`/tu chess` (or Chess on the rail).
+
+**Starting:** **Challenge a guildmate** and type their name (your target's name is filled in). They don't need to be online: the challenge waits for them. Colours are picked at random. You can have up to 20 games going at once.
+
+**Playing:** click one of your pieces and the squares it can reach are marked (a dot, or a ring around a piece you can take); click one to move. A pawn reaching the last rank asks what to promote to. Your pieces are always at the bottom. **Offer a draw** (it stands until the next move), **Accept the draw**, and **Resign** (click twice) are on the right with the move list. A finished game stays in your list until you **Remove** it (the newest 20 are kept).
+
+**Rules:** the full rules, checked on both players' computers: castling, en passant, promotion, check and checkmate, stalemate. Threefold repetition, the 50-move rule and positions where nobody can mate are automatic draws. An illegal move is never accepted.
+
+**Saved:** every game is saved until it's won, drawn or resigned, through /reload, logout and patches.
+
+**When you're not on together:** everything goes over the guild's private addon channel, so every guildmate running Titan Up quietly keeps a small copy of the guild's games (a few hundred bytes each). When your opponent logs in, whoever has the newest copy (you, or any guildmate who's online) hands it over, so your move, challenge, resignation or draw reaches them even if you two are never online at the same time. As long as one guildmate with Titan Up overlaps with each of you, moves get through.
+
+**Honesty:** a guildmate passing a game on can't slip in a move for you: your own moves always win, and your opponent's moves can only be replaced by your opponent. If a guildmate ever hands over a move your opponent didn't make, it's put back to the real move when your opponent's own game arrives, and you're told who delivered it. Nothing can stop someone asking a chess engine for help.
+
 ## TitanBoard quick reference
 
 `/tb` opens the board, `/tb help` lists its commands.
@@ -113,6 +130,17 @@ See the comments at the top of `Rooms.lua`. Short version: put a .blp or .tga in
 ## Planned
 
 - Match by ID instead of English names, so non-English clients work too: potion / flask / food / healthstone item IDs (Raid Check, Pull Report) and the cheat-death auras (Pull Report). The defensives themselves already match by spell ID (checked against 12.1.5 in 0.29.2).
+
+## Changes in 0.34.0
+
+- **Chess** (new module `Chess/`, rail key `chess`, Games section after Wowdle; `/tu chess`). Ryan picked option B (guild couriers) on 2026-10-09.
+  - `Rules.lua` (`ns.ChessRules`): the full rules on a 0..63 board (a1 = 0), legal move generation (castling through / out of check, en passant, promotions, pins), standard algebraic notation with disambiguation and +/#, mate, stalemate, threefold repetition (position key includes castling rights and the en passant square only when a capture is possible), 50-move rule and insufficient material, all automatic. Games grow one move at a time (`R.Begin` / `R.Step`), so a new move costs one position; `R.Play` replays a whole list (a 200-move game in about 0.1 s in Lua 5.1). Perft-tested against the standard positions (start, kiwipete, positions 3-6).
+  - `Chess.lua` (`ns.Chess`): games in `TitanUpDB.chess.games` keyed by id (`<Challenger>-<servertime><2 digits>`): `w`, `b`, `by` (challenger), `status` invited / active / over, `moves` (comma-joined UCI), `result` w / b / d, `reason`, `offer`, `via` (plies a courier delivered and the opponent hasn't confirmed). Up to 20 games in progress; the newest 20 finished games kept; unanswered challenges dropped after 30 days.
+  - Messages on the new `TitanUpCH` prefix (GUILD channel, any guildmate): `C id white black`, `A id`, `D id`, `M id n uci`, `E id R|O|Y n` (resign / offer / accept a draw), `H id:n:hash:state,...` (hello: login after 15 s, opening the window, max every 30 s), `S id w b by state result reason moves` (a whole game), `U key part n chunk` (an S over 250 bytes, 200-byte parts). Every incoming move or game is replayed against the rules; ids must start with the challenger's name; a claimed rules ending that the moves don't produce is ignored.
+  - Couriers: every client keeps other people's games it overhears in `TitanUpDB.chess.carry` (max 60, finished ones 3 days, others 60 days). When a player's hello shows they're behind, a courier sends its copy after 1.5-5 s unless the opponent or another courier sends one with at least as much first. A courier copy never replaces your own moves, never adds moves for you (copies are cut at the first move of yours you don't have), and your opponent's moves are only replaced by your opponent; a replaced courier-delivered move is announced with the courier's name. Hellos carry a djb2 hash of the move list, so matching plies are confirmed and a mismatch makes both players send their game.
+  - `ChessUI.lua`: 880 x 570 module window: your games (waiting-on-you first), the board (52 px squares, high contrast: near-white / deep blue, white pieces with a dark outline and black pieces with a light outline, `Media/Chess/*.tga` 128 px), last move / selection / check tints, move dots and capture rings, promotion picker, coordinates, player names with online / offline (guild roster) and whose move, the move list (mouse wheel scrolls), and the action buttons. The rail badge counts games waiting on you. A challenge, acceptance, resignation, draw offer or result shows a chat line and the docked notice when the window is closed; an opponent's move shows a chat line. Login prints how many games are waiting on you.
+  - Saves only the games; no options (nothing happens unless you play or someone challenges you).
+- Tests: `testChess0340.lua` (74 checks), plus a three-client run (challenger, opponent, courier passing a challenge, its acceptance and a move while the two players are never online together).
 
 ## Changes in 0.33.0
 
