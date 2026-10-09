@@ -86,6 +86,8 @@ function V:CreateLobby(p)
                 taken[pz[2]] = true
             end
         end
+        local pz = ns.udb.wheel.bonus and WF.RandomBonus(V:Theme(), taken)
+        if pz then V.bonusRow.cat:SetText(pz[1]); V.bonusRow.phrase:SetText(pz[2]) end
     end)
     fill:SetPoint("TOPRIGHT", -40, -6)           -- clear of the X
     self.fillBtn = fill
@@ -122,6 +124,22 @@ function V:CreateLobby(p)
         self.setupRows[i] = row
     end
     self.setupRows[1].cat:SetText("PHRASE")
+    -- Bonus round (off unless ticked; remembered): the host writes its puzzle
+    self.bonusCheck = UI.Check(p, "Bonus round", "After the last round, the winner gets R S T L N E, picks 3 consonants and a vowel, and has "
+        .. WF.BONUS_SOLVE .. " seconds to solve for a bonus prize.",
+        function() return ns.udb.wheel.bonus end, function(v) ns.udb.wheel.bonus = v; V:LayoutLobby() end)
+    local brow = CreateFrame("Frame", nil, p)
+    brow:SetSize(LOBBY_W - 32, 26)
+    UI.Text(brow, "GameFontNormal", C.accent, "B.", "LEFT", 0, 0)
+    brow.cat = textBox(brow, 140, 24); brow.cat:SetPoint("LEFT", 22, 0)
+    brow.phrase = textBox(brow, 396, 56); brow.phrase:SetPoint("LEFT", brow.cat, "RIGHT", 10, 0)
+    brow.random = UI.IconButton(brow, 24, ns.MEDIA .. "Dice", "Random bonus puzzle (from the theme picked above)", function()
+        local pz = WF.RandomBonus(V:Theme(), V:TakenPhrases(brow))
+        if pz then brow.cat:SetText(pz[1]); brow.phrase:SetText(pz[2]) end
+    end)
+    brow.random.keepIconColor = true
+    brow.random:SetPoint("LEFT", brow.phrase, "RIGHT", 8, 0)
+    self.bonusRow = brow
     self.addRound = UI.Button(p, 110, 22, "+ Add round", "Add another round (up to " .. WF.MAX_ROUNDS .. ")", function() V:AddRound() end)
     self.roundCount = 1
     self:LayoutRounds()
@@ -140,21 +158,22 @@ function V:CreateLobby(p)
     local open = UI.Button(p, 180, 32, "Open game", "Post the game to your group so players can take seats", function()
         local g
         if V.mode == "play" then
-            g = WF:Play(V.playRounds, V:Theme())
+            g = WF:Play(V.playRounds, V:Theme(), ns.udb.wheel.bonus)
         else
             local list = {}
             for i = 1, V.roundCount do
                 local row = V.setupRows[i]
                 if row.phrase:GetText() ~= "" then list[#list + 1] = { row.cat:GetText(), row.phrase:GetText() } end
             end
-            g = WF:Host(list, V.prizeBox:GetText())
+            local b = V.bonusRow
+            g = WF:Host(list, V.prizeBox:GetText(), ns.udb.wheel.bonus and { b.cat:GetText(), b.phrase:GetText() } or nil)
         end
         if g then V:ShowGame(g.id) end
     end)
     open:SetPoint("TOP", 0, -248)
     UI.SetActive(open, true)
     local solo = UI.Button(p, 120, 22, "Play solo", "Play against two bots, with a bot host (/tu wheel sim)", function()
-        local g = WF:StartSim()
+        local g = WF:StartSim(ns.udb.wheel.bonus)
         if g then V:ShowGame(g.id) end
     end)
     solo:SetPoint("TOP", open, "BOTTOM", 0, -6)
@@ -214,10 +233,19 @@ function V:LayoutLobby()
     for _, w in ipairs({ self.prizeLabel, self.prizeBox, self.prizeHint }) do w:SetShown(host) end
     for _, w in ipairs({ self.playLabel, self.playMinus, self.playValue, self.playPlus }) do w:SetShown(not host) end
     self.openBtn.label:SetText(host and "Open game" or "Start a game")
+    self.bonusCheck:Refresh()
     local y
     if host then
         y = -64 - self.roundCount * 30
         y = y - (self.roundCount < WF.MAX_ROUNDS and 30 or 6)          -- + Add round
+        self.bonusCheck:ClearAllPoints(); self.bonusCheck:SetPoint("TOPLEFT", 38, y - 4)
+        y = y - 26
+        local bonus = ns.udb.wheel.bonus and true or false
+        self.bonusRow:SetShown(bonus)
+        if bonus then
+            self.bonusRow:ClearAllPoints(); self.bonusRow:SetPoint("TOPLEFT", 16, y)
+            y = y - 32
+        end
         self.prizeLabel:ClearAllPoints(); self.prizeLabel:SetPoint("TOPLEFT", 38, y - 4)
         self.prizeBox:ClearAllPoints(); self.prizeBox:SetPoint("TOPLEFT", 90, y)
         self.prizeHint:ClearAllPoints(); self.prizeHint:SetPoint("LEFT", self.prizeBox, "RIGHT", 8, 0)
@@ -227,6 +255,8 @@ function V:LayoutLobby()
         self.playMinus:ClearAllPoints(); self.playMinus:SetPoint("TOPLEFT", 110, -60)
         self.playValue:ClearAllPoints(); self.playValue:SetPoint("LEFT", self.playMinus, "RIGHT", 12, 0)
         self.playPlus:ClearAllPoints(); self.playPlus:SetPoint("LEFT", self.playMinus, "RIGHT", 40, 0)
+        self.bonusCheck:ClearAllPoints(); self.bonusCheck:SetPoint("LEFT", self.playMinus, "RIGHT", 90, 0)
+        self.bonusRow:Hide()
         y = -96
     end
     self.openBtn:ClearAllPoints()
@@ -297,9 +327,11 @@ function V:RefreshLobby()
         row.g = g
         row:SetShown(g ~= nil)
         if g then
-            local status = g.state == "lobby" and ("%d/%d seats"):format(#g.seats, WF.SEATS) or ("round %d of %d"):format(g.round, g.rounds)
+            local status = g.state == "lobby" and ("%d/%d seats"):format(#g.seats, WF.SEATS)
+                or (g.state == "bonus" and "bonus round" or ("round %d of %d"):format(g.round, g.rounds))
             local prize = WF.PrizeText(g.prize)
-            row.text:SetText(("%s's game  |cff8a8f9c%d round%s - %s - %s|r%s"):format(colored(g.host), g.rounds, g.rounds == 1 and "" or "s", status,
+            row.text:SetText(("%s's game  |cff8a8f9c%d round%s%s - %s - %s|r%s"):format(colored(g.host), g.rounds, g.rounds == 1 and "" or "s",
+                g.bonus and " + bonus" or "", status,
                 g.auto and "everyone plays" or "hosted", prize and ("  |cffffd94dPrize: " .. prize .. "|r") or ""))
             row.join:SetShown(g.state == "lobby" and #g.seats < WF.SEATS and g.host ~= ns.me and not WF.SeatOf(g, ns.me))
         end
@@ -382,7 +414,10 @@ function V:CreateGame(p)
     self.spinBtn:SetPoint("TOPLEFT", GX, -376)
     self.spinBtn.label:SetFontObject("GameFontNormalLarge")
     self.solveBtn = UI.Button(p, 120, 34, "SOLVE", "Type the whole puzzle", function()
-        UI.Prompt({ title = "Solve the puzzle", help = "Type the whole answer. Wrong answers pass the turn.", accept = "Solve",
+        local g = V:Game()
+        local bonus = g and g.state == "bonus"
+        UI.Prompt({ title = bonus and "Solve the bonus puzzle" or "Solve the puzzle", accept = "Solve",
+            help = bonus and "Type the whole answer. Guess as often as you like until time runs out." or "Type the whole answer. Wrong answers pass the turn.",
             onAccept = function(text) WF:Act("solve", text) end })
     end)
     self.solveBtn:SetPoint("LEFT", self.spinBtn, "RIGHT", 8, 0)
@@ -405,7 +440,7 @@ function V:CreateGame(p)
         letterButton(ch, GX + col * 35, -420 - row * 32, "Call " .. ch)
         i = i + 1
     end
-    UI.Text(p, "GameFontHighlightSmall", C.muted, "BUY A VOWEL  $250", "TOPLEFT", GX, -490)
+    self.vowelLabel = UI.Text(p, "GameFontHighlightSmall", C.muted, "BUY A VOWEL  $250", "TOPLEFT", GX, -490)
     i = 0
     for ch in WF.VOWELS:gmatch(".") do
         letterButton(ch, GX + 120 + i * 35, -484, "Buy " .. ch .. " for $250")
@@ -484,19 +519,40 @@ function V:StatusText(g)
     local m, a = g.msg, g.arg or ""
     if g.state == "lobby" then return ("Waiting for players (%d/%d)..."):format(#g.seats, WF.SEATS) end
     if g.state == "cancelled" then return g.msg == "lost" and "Lost touch with the host - the game has ended." or "The game was closed." end
+    -- who won the game, and the host's prize
+    local function winner()
+        local best, bi = -1, 1
+        for i = 1, #g.seats do if (g.total[i] or 0) > best then best, bi = g.total[i] or 0, i end end
+        local prize = WF.PrizeText(g.prize)
+        return ("\n|cffffd94d%s wins the game with %s!|r"):format(colored(g.seats[bi]), money(best))
+            .. (prize and ("\n|cffffd94d%s wins the prize: %s|r"):format(colored(g.seats[bi]), prize) or "")
+    end
     if m == "solved" then
         local seat, win = a:match("^(%d+):(%d+)$")
         local text = ("%s solved it and banks %s!"):format(colored(g.seats[tonumber(seat) or 0]), money(tonumber(win)))
         if g.state == "over" then
-            local best, bi = -1, 1
-            for i = 1, #g.seats do if (g.total[i] or 0) > best then best, bi = g.total[i] or 0, i end end
-            local prize = WF.PrizeText(g.prize)
-            text = text .. ("\n|cffffd94d%s wins the game with %s!|r"):format(colored(g.seats[bi]), money(best))
-                .. (prize and ("\n|cffffd94d%s wins the prize: %s|r"):format(colored(g.seats[bi]), prize) or "")
+            text = text .. winner()
+        elseif g.round >= g.rounds then
+            text = text .. ((g.engine or g.auto) and "  |cff8a8f9cBonus round coming up...|r" or "  |cff8a8f9cWaiting for the host to start the bonus round.|r")
         else
             text = text .. (g.engine and "  |cff8a8f9cNext round starting...|r" or "  |cff8a8f9cWaiting for the host to start the next round.|r")
         end
         return text
+    end
+    if m == "nobonus" then return "No one is left to play the bonus round." .. winner() end
+    if m == "bonuswon" or m == "bonuslost" then
+        local seat, win = a:match("^(%d+):(%d+)$")
+        local name = colored(g.seats[tonumber(seat) or 0])
+        return (m == "bonuswon" and ("|cff66e08c%s solved the bonus puzzle and wins %s!|r"):format(name, money(tonumber(win)))
+            or ("|cffff5a5aTime's up!|r The bonus prize was %s."):format(money(tonumber(win)))) .. winner()
+    end
+    if g.state == "bonus" then
+        local picks = (g.phase == "pick" and a or ""):gsub(".", "%0 ")
+        if g.phase == "solve" then
+            return (m == "bonuswrong" and "Not it - keep guessing!  " or "") .. ("%s has %d seconds to solve!"):format(who, WF.BONUS_SOLVE)
+        end
+        return ("|cffffd94dBONUS ROUND!|r R S T L N E are free. %s picks 3 consonants and a vowel%s"):format(who,
+            picks ~= "" and (":  |cffffd94d" .. picks .. "|r") or ".")
     end
     local lead
     if m == "round" then lead = ("Round %s - %s goes first."):format(a, who)
@@ -532,7 +588,9 @@ function V:RefreshGame()
     local prize = WF.PrizeText(g.prize)
     self.prizeText:SetText(prize and ("|cffffd94dPrize|r\n" .. prize) or (g.auto and "|cff8a8f9cEveryone plays|r" or ""))
     self:UpdateTimer(g)
-    self.roundText:SetText(g.round > 0 and ("Round %d of %d"):format(g.round, g.rounds) or (g.rounds .. " round" .. (g.rounds == 1 and "" or "s")))
+    local bonus = g.state == "bonus"
+    self.roundText:SetText(bonus and "|cffffd94dBonus round|r" or (g.round > 0 and ("Round %d of %d"):format(g.round, g.rounds)
+        or (g.rounds .. " round" .. (g.rounds == 1 and "" or "s") .. (g.bonus and " + bonus" or ""))))
 
     -- board
     local rows = (g.mask ~= "" and WF.Layout(g.mask)) or {}
@@ -582,7 +640,7 @@ function V:RefreshGame()
             c.name:SetText(colored(name) .. (name == ns.me and " |cff8a8f9c(you)|r" or "") .. (gone and " |cffff5a5a(left)|r" or ""))
             c.round:SetText(money(g.bank[i]))
             c.total:SetText("total " .. money(g.total[i]))
-            local active = g.state == "playing" and g.turn == i
+            local active = (g.state == "playing" or bonus) and g.turn == i
             UI.Skin(c, active and C.accentDim or C.panel, active and C.accent or C.line)
         else
             c.name:SetText("|cff8a8f9cOpen seat|r")
@@ -601,10 +659,12 @@ function V:RefreshGame()
         self.wedgeText:SetText("|cffff5a5aBANKRUPT|r")
     elseif g.msg == "loseturn" then
         self.wedgeText:SetText("|cffffa340LOSE A TURN|r")
+    elseif bonus then
+        self.wedgeText:SetText("|cffffd94dBONUS|r")
     end
 
     -- controls
-    local myTurn = g.state == "playing" and mySeat and g.turn == mySeat and not self.spinAnim
+    local myTurn = (g.state == "playing" or bonus) and mySeat and g.turn == mySeat and not self.spinAnim
     local cLeft, vLeft = 0, 0
     if g.mask ~= "" then
         for ch in WF.CONSONANTS:gmatch(".") do if not g.used:find(ch, 1, true) then cLeft = cLeft + 1 end end
@@ -613,20 +673,37 @@ function V:RefreshGame()
     self.seatBtn:SetShown(g.state == "lobby" and not amHost)
     self.seatBtn.label:SetText(mySeat and "Leave seat" or "Take a seat")
     UI.SetDisabled(self.seatBtn, not mySeat and #g.seats >= WF.SEATS)
-    for _, b in ipairs({ self.spinBtn, self.solveBtn }) do b:SetShown(playing) end
+    self.spinBtn:SetShown(playing and not bonus)
+    self.solveBtn:SetShown(playing)
     UI.SetDisabled(self.spinBtn, not (myTurn and g.phase == "turn"))
     UI.SetActive(self.spinBtn, myTurn and g.phase == "turn")
-    UI.SetDisabled(self.solveBtn, not (myTurn and g.phase == "turn"))
+    local canSolve = myTurn and (g.phase == "turn" or (bonus and g.phase == "solve"))
+    UI.SetDisabled(self.solveBtn, not canSolve)
+    UI.SetActive(self.solveBtn, bonus and canSolve)
     local bank = mySeat and g.bank[mySeat] or 0
+    -- bonus picks: 3 consonants and a vowel, free
+    local picks = (bonus and g.phase == "pick") and (g.arg or "") or ""
+    local pc, pv = 0, 0
+    for ch in picks:gmatch(".") do if WF.VOWELS:find(ch, 1, true) then pv = pv + 1 else pc = pc + 1 end end
     for ch, b in pairs(self.letterBtns) do
         b:SetShown(playing)
-        local used = g.used:find(ch, 1, true) ~= nil
+        local used = g.used:find(ch, 1, true) ~= nil or picks:find(ch, 1, true) ~= nil
         local isV = WF.VOWELS:find(ch, 1, true) ~= nil
-        local ok = myTurn and not used and ((isV and g.phase == "turn" and bank >= WF.VOWEL_COST) or (not isV and g.phase == "letter"))
+        local ok
+        if bonus then
+            ok = myTurn and not used and g.phase == "pick" and (isV and pv < WF.BONUS_VOWELS or not isV and pc < WF.BONUS_PICKS)
+        else
+            ok = myTurn and not used and ((isV and g.phase == "turn" and bank >= WF.VOWEL_COST) or (not isV and g.phase == "letter"))
+        end
         UI.SetDisabled(b, not ok)
         b:SetAlpha(used and 0.25 or 1)
     end
-    self.vowelHint:SetText(myTurn and g.phase == "turn" and bank < WF.VOWEL_COST and "Vowels cost $250 of your round money." or "")
+    self.vowelLabel:SetText(bonus and "PICK A VOWEL  (free)" or "BUY A VOWEL  $250")
+    if bonus then
+        self.vowelHint:SetText(myTurn and (g.phase == "pick" and "Pick 3 consonants and 1 vowel." or "Solve before time runs out!") or "")
+    else
+        self.vowelHint:SetText(myTurn and g.phase == "turn" and bank < WF.VOWEL_COST and "Vowels cost $250 of your round money." or "")
+    end
 
     -- host panel (Play together: the starter runs it, but never sees the answer)
     self.hostPanel:SetShown(amHost)
@@ -642,6 +719,7 @@ function V:RefreshGame()
         self.hostStart:SetShown(g.state == "lobby")
         UI.SetDisabled(self.hostStart, #g.seats == 0)
         self.hostNext:SetShown(g.state == "roundover" and not g.auto)
+        self.hostNext.label:SetText(g.round >= g.rounds and "Bonus round" or "Next round")
         self.hostSkip:SetShown(g.state == "playing" and not g.auto)
         self.hostEnd:SetShown(g.state ~= "over" and g.state ~= "cancelled")
     end
@@ -654,10 +732,11 @@ end
 function V:UpdateTimer(g)
     if not self.timerText then return end
     local left = g and g.turnEnds and math.max(0, math.ceil(g.turnEnds - GetTime()))
-    local on = left ~= nil and g.state == "playing"
+    local on = left ~= nil and (g.state == "playing" or g.state == "bonus")
     self.timerLabel:SetShown(on)
     self.timerText:SetShown(on)
     if on then
+        self.timerLabel:SetText(g.phase == "solve" and "Time to solve" or "Turn timer")
         self.timerText:SetText(("0:%02d"):format(left))
         local c = left <= 5 and { 1, 0.35, 0.35 } or (left <= 10 and { 1, 0.82, 0.3 } or C.text)
         self.timerText:SetTextColor(c[1], c[2], c[3])
@@ -738,5 +817,5 @@ ns.RegisterModule({
     key = "wheel", name = "Wheel of Fortune", icon = ns.MEDIA .. "WheelIcon", group = "games", order = 2,
     desc = "Host a puzzle game for three players.",
     view = V,
-    sim = function() local g = ns.Wheel:StartSim(); if g then V:ShowGame(g.id) end end,
+    sim = function() local g = ns.Wheel:StartSim(ns.udb.wheel.bonus); if g then V:ShowGame(g.id) end end,
 })

@@ -2,7 +2,7 @@
 -- Wheel of Fortune. One host runs the game (sets the puzzles, doesn't
 -- play); up to three players take seats.
 --
--- Rules (like the show, without the bonus round):
+-- Rules (like the show):
 --   * On your turn: SPIN, BUY A VOWEL ($250 from your round money), or SOLVE.
 --   * Spin lands on $ -> call a consonant; you earn $ x each time it appears
 --     and keep your turn. Not in the puzzle (or already called) -> next player.
@@ -10,13 +10,16 @@
 --   * A vowel that's not in the puzzle passes the turn; a wrong solve too.
 --   * Solving banks your round money (at least $1,000) into your total.
 --   * Most money after the last round wins.
+--   * Bonus round (optional, ticked in the lobby): the winner gets R S T L N E
+--     free, picks 3 more consonants and a vowel, then has BONUS_SOLVE seconds
+--     to solve (as many guesses as they like) for a hidden bonus prize.
 --
 -- The host's client is the referee: it holds the phrase, spins, checks
 -- letters and solves, and only ever sends the board with unrevealed letters
 -- hidden - so players can't read the answer from addon traffic.
 --
 -- Messages ("TitanUpWF", fields joined by ^):
---   N id rounds auto prize           host opened a game (the id starts with the host's name)
+--   N id rounds auto prize bonus     host opened a game (the id starts with the host's name; bonus 0.36.0)
 --   P id name,name,name              seats
 --   S id ...state... cat mask left auto prize   game state (mask: "_" = hidden letter;
 --                                    the prize is left off when it won't fit)
@@ -24,6 +27,9 @@
 --   J id / L id                      take / leave a seat (to host)
 --   A id action arg                  spin | letter X | vowel X | solve text (to host)
 --   Q id                             ask the host for the current state
+-- Bonus round (0.36.0): the S state is "bonus" with phase "pick" (arg = the
+-- letters picked so far) then "solve". Older clients just watch it; the
+-- wire format is unchanged apart from the extra N field.
 local ADDON, ns = ...
 
 local WF = {}
@@ -41,8 +47,12 @@ WF.VOWEL_COST = 250
 WF.MIN_WIN = 1000
 WF.SEATS = 3
 WF.MAX_ROUNDS = 5
-WF.SPIN_TIME = 3.4
+WF.SPIN_TIME = 2.5          -- seconds from SPIN to the result (3.4 before 0.36.0)
 WF.ROWS, WF.COLS = 4, 14
+WF.BONUS_FREE = "RSTLNE"
+WF.BONUS_PICKS, WF.BONUS_VOWELS = 3, 1
+WF.BONUS_SOLVE = 20         -- seconds to solve the bonus puzzle (10 on the show; typing takes longer)
+WF.BONUS_PRIZES = { 25000, 30000, 35000, 40000, 50000, 75000, 100000 }
 
 WF.games = {}
 WF.current = nil   -- id of the game you're hosting / playing / watching
@@ -205,6 +215,20 @@ function WF.RandomPuzzle(theme, taken)
     if #pool == 0 then return nil end
     return pool[math.random(1, #pool)]
 end
+
+-- True when R S T L N E leave something to guess.
+function WF.BonusOK(phrase) return WF.Mask(phrase, WF.BONUS_FREE):find("_") ~= nil end
+
+-- A random bonus puzzle (one R S T L N E doesn't give away).
+function WF.RandomBonus(theme, taken)
+    local skip = {}
+    for k in pairs(taken or {}) do skip[k] = true end
+    for _ = 1, #WF.BANK do
+        local pz = WF.RandomPuzzle(theme, skip)
+        if not pz or WF.BonusOK(pz[2]) then return pz end
+        skip[pz[2]] = true
+    end
+end
 -- ---------------------------------------------------------------------
 -- Puzzle text
 -- ---------------------------------------------------------------------
@@ -317,12 +341,19 @@ end
 -- ---------------------------------------------------------------------
 WF.TURN_SECONDS = 25
 
-local function waiting(g) return g.state == "playing" and (g.phase == "turn" or g.phase == "letter") end
+local function waiting(g)
+    if g.state == "bonus" then return g.phase == "pick" or g.phase == "solve" end
+    return g.state == "playing" and (g.phase == "turn" or g.phase == "letter")
+end
+-- a game that's being played (a round or the bonus round)
+local function live(g) return g.state == "playing" or g.state == "bonus" end
 
 function WF:ArmTimer(g)
     if waiting(g) then
-        local key = table.concat({ g.round, g.turn, g.phase, g.used, g.sq, g.value }, ":")
-        if key ~= g.timerKey then g.timerKey, g.turnEnds = key, GetTime() + WF.TURN_SECONDS end
+        local key = table.concat({ g.state, g.round, g.turn, g.phase, g.used, g.sq, g.value, g.picks or "" }, ":")
+        if key ~= g.timerKey then
+            g.timerKey, g.turnEnds = key, GetTime() + (g.phase == "solve" and WF.BONUS_SOLVE or WF.TURN_SECONDS)
+        end
         if not self.timerTicker then self.timerTicker = C_Timer.NewTicker(0.5, function() WF:CheckTimers() end) end
     else
         g.turnEnds, g.timerKey = nil, nil
@@ -335,10 +366,15 @@ function WF:CheckTimers()
         if self:IsHost(g) and waiting(g) and g.turnEnds then
             any = true
             if GetTime() >= g.turnEnds then
-                local seat = g.turn
-                self:NextTurn(g)
-                g.msg, g.arg, g.timerKey = "timeout", tostring(seat), nil
-                self:Broadcast(g)
+                g.timerKey = nil
+                if g.state == "bonus" then
+                    self:BonusTimeout(g)
+                else
+                    local seat = g.turn
+                    self:NextTurn(g)
+                    g.msg, g.arg = "timeout", tostring(seat)
+                    self:Broadcast(g)
+                end
             end
         end
     end
@@ -388,7 +424,7 @@ function WF:OnMessage(text, sender)
         local rounds = int(f[3], 1, WF.MAX_ROUNDS)
         if g or not rounds or not hostsId(id, sender) then return end
         g = self:NewGame(id, sender, rounds)
-        g.auto, g.prize = f[4] == "1", WF.Clean(f[5] or "", 48, true)
+        g.auto, g.prize, g.bonus = f[4] == "1", WF.Clean(f[5] or "", 48, true), f[6] == "1"
         ui("new", g)
         return
     end
@@ -422,6 +458,7 @@ function WF:OnMessage(text, sender)
         g.turnEnds = (left and left >= 0) and (GetTime() + left) or nil
         g.auto = f[19] == "1"
         if f[20] then g.prize = WF.Clean(f[20], 48, true) end
+        if g.state == "bonus" then g.bonus = true end
         self:HeardHost(g)
         ui("state", g, { spun = g.sq ~= prevSq and g.phase == "spinning" })
     elseif kind == "X" then
@@ -439,7 +476,7 @@ WF.HOST_SILENCE = WF.TURN_SECONDS + 30
 
 function WF:HeardHost(g)
     g.heardAt = GetTime()
-    if g.state == "playing" and not self.hostTicker then
+    if live(g) and not self.hostTicker then
         self.hostTicker = C_Timer.NewTicker(5, function() WF:CheckHosts() end)
     end
 end
@@ -447,14 +484,14 @@ end
 function WF:CheckHosts()
     local any = false
     for _, g in pairs(self.games) do
-        if not self:IsHost(g) and g.state == "playing" and g.heardAt then
+        if not self:IsHost(g) and live(g) and g.heardAt then
             if ns.InLockdown() then
                 g.heardAt = GetTime()             -- an encounter holds every message: not the host's fault
             elseif GetTime() - g.heardAt > WF.HOST_SILENCE then
                 g.state, g.msg = "cancelled", "lost"
                 ui("state", g)
             end
-            any = any or g.state == "playing"
+            any = any or live(g)
         end
     end
     if not any and self.hostTicker then self.hostTicker:Cancel(); self.hostTicker = nil end
@@ -493,8 +530,8 @@ function WF:CanPlay()
     return true
 end
 
--- puzzles = { { category, phrase }, ... }
-function WF:Host(puzzles, prize)
+-- puzzles = { { category, phrase }, ... }; bonus = { category, phrase } or nil
+function WF:Host(puzzles, prize, bonus)
     local ok, why = self:CanPlay()
     if not ok then ns.Print(why) return nil end
     local list = {}
@@ -511,20 +548,32 @@ function WF:Host(puzzles, prize)
     end
     if #list == 0 then ns.Print("Add at least one puzzle (category + phrase).") return nil end
     if #list > WF.MAX_ROUNDS then ns.Print("Up to " .. WF.MAX_ROUNDS .. " rounds per game.") return nil end
-    return self:Launch(list, WF.Clean(prize or "", 48, true), false,
+    local bonusPz
+    if bonus then
+        local cat, phrase = WF.Clean(bonus[1], 24), WF.Clean(bonus[2], 56)
+        if phrase == "" or not phrase:find("[A-Z]") then ns.Print("Add a bonus puzzle, or untick Bonus round.") return nil end
+        if not WF.Layout(phrase) then
+            ns.Print("The bonus puzzle doesn't fit the board (4 rows of 14, words can't be split).")
+            return nil
+        end
+        if not WF.BonusOK(phrase) then ns.Print("R S T L N E would give the bonus puzzle away - pick another.") return nil end
+        bonusPz = { cat ~= "" and cat or "PHRASE", phrase }
+    end
+    return self:Launch(list, WF.Clean(prize or "", 48, true), false, bonusPz,
         "%s is hosting Wheel of Fortune (%d round%s) - open Titan Up (/tu wheel) to grab a seat!")
 end
 
 -- Start a game (hosted, or auto = everyone plays): tell the group, and post
 -- a chat invite when everyone in the group is in the guild.
-function WF:Launch(list, prize, auto, invite)
+function WF:Launch(list, prize, auto, bonusPz, invite)
     self._idSeq = ((self._idSeq or 0) % 9) + 1
     local id = ns.Short(ns.me) .. "-" .. ((GetServerTime and GetServerTime()) or time()) .. self._idSeq
     local g = self:NewGame(id, ns.me, #list)
     g.puzzles, g.prize = list, prize
+    g.bonusPz, g.bonus = bonusPz, bonusPz ~= nil
     if auto then g.auto, g.seats = true, { ns.me } end
     self.current = id
-    self:Send("N", id, #list, auto and 1 or 0, prize or "")
+    self:Send("N", id, #list, auto and 1 or 0, prize or "", bonusPz and 1 or 0)
     self:BroadcastSeats(g)
     if not self.sim and IsInGroup() and ns.GroupIsAllGuild() then
         ns.SayGroup(invite:format(ns.Short(ns.me), #list, #list == 1 and "" or "s"))
@@ -536,7 +585,7 @@ end
 -- Play together: no host. Random built-in puzzles; whoever starts it takes
 -- seat 1 (their addon referees, but their screen never shows the answer);
 -- rounds move on by themselves.
-function WF:Play(rounds, theme)
+function WF:Play(rounds, theme, bonus)
     local ok, why = self:CanPlay()
     if not ok then ns.Print(why) return nil end
     rounds = math.max(1, math.min(WF.MAX_ROUNDS, tonumber(rounds) or 3))
@@ -548,7 +597,8 @@ function WF:Play(rounds, theme)
         list[#list + 1] = { pz[1], pz[2] }
     end
     if #list == 0 then ns.Print("No puzzles for that theme.") return nil end
-    return self:Launch(list, nil, true,
+    local bonusPz = bonus and WF.RandomBonus(theme, taken)
+    return self:Launch(list, nil, true, bonusPz and { bonusPz[1], bonusPz[2] } or nil,
         "%s started Wheel of Fortune (%d round%s, everyone plays) - open Titan Up (/tu wheel) to grab a seat!")
 end
 
@@ -596,6 +646,7 @@ function WF:HostLeave(g, name)
         self:BroadcastSeats(g)
     else
         g.gone[name] = true
+        if g.turn == seat and g.state == "bonus" then return self:BonusEnd(g, false) end
         if g.turn == seat and g.state == "playing" then self:NextTurn(g) end
         self:Broadcast(g)
     end
@@ -609,6 +660,7 @@ function WF:Start()
 end
 
 function WF:NextRound(g)
+    if g.round >= g.rounds then return self:StartBonus(g) end
     g.round = g.round + 1
     local p = g.puzzles[g.round]
     g.cat, g.phrase = p[1], p[2]
@@ -637,10 +689,11 @@ function WF:RoundWon(g, seat)
         if not g.used:find(ch, 1, true) then g.used = g.used .. ch end
     end
     g.msg, g.arg, g.phase = "solved", seat .. ":" .. win, ""
-    g.state = (g.round >= g.rounds) and "over" or "roundover"
+    g.state = (g.round >= g.rounds and not g.bonusPz) and "over" or "roundover"
 end
 
 function WF:HostAct(g, name, action, arg)
+    if g.state == "bonus" then return self:BonusAct(g, name, action, arg) end
     if g.state ~= "playing" then return end
     local seat = WF.SeatOf(g, name)
     if not seat or seat ~= g.turn then return end
@@ -716,6 +769,86 @@ function WF:ResolveSpin(g, sq)
     self:Broadcast(g)
 end
 
+-- ---------------------------------------------------------------------
+-- Bonus round (referee)
+-- ---------------------------------------------------------------------
+-- The game's leader (first seat on a tie); nil if everyone has left.
+function WF.Leader(g)
+    local best, bi = -1, nil
+    for i, name in ipairs(g.seats) do
+        if not g.gone[name] and (g.total[i] or 0) > best then best, bi = g.total[i] or 0, i end
+    end
+    return bi
+end
+
+function WF:StartBonus(g)
+    local seat = g.bonusPz and WF.Leader(g)
+    if not seat then
+        g.state, g.phase, g.msg, g.arg = "over", "", "nobonus", ""
+        return self:Broadcast(g)
+    end
+    g.cat, g.phrase = g.bonusPz[1], g.bonusPz[2]
+    g.bonusPrize = WF.BONUS_PRIZES[math.random(1, #WF.BONUS_PRIZES)]
+    g.used, g.picks = WF.BONUS_FREE, ""
+    for i = 1, WF.SEATS do g.bank[i] = 0 end
+    g.state, g.turn, g.phase, g.value = "bonus", seat, "pick", 0
+    g.msg, g.arg = "bonus", ""
+    self:Broadcast(g)
+end
+
+local function pickCounts(picks)
+    local c, v = 0, 0
+    for ch in picks:gmatch(".") do if isVowel(ch) then v = v + 1 else c = c + 1 end end
+    return c, v
+end
+
+-- Reveal the picked letters and start the solve clock.
+function WF:BonusReveal(g)
+    g.used = g.used .. g.picks
+    g.phase, g.msg, g.arg = "solve", "bonussolve", g.picks
+    if not WF.Mask(g.phrase, g.used):find("_") then return self:BonusEnd(g, true) end
+    self:Broadcast(g)
+end
+
+function WF:BonusEnd(g, won)
+    local seat = g.turn
+    if won then g.total[seat] = (g.total[seat] or 0) + g.bonusPrize end
+    for ch in g.phrase:gmatch("[A-Z]") do
+        if not g.used:find(ch, 1, true) then g.used = g.used .. ch end
+    end
+    g.state, g.phase = "over", ""
+    g.msg, g.arg = won and "bonuswon" or "bonuslost", seat .. ":" .. g.bonusPrize
+    self:Broadcast(g)
+end
+
+function WF:BonusTimeout(g)
+    if g.phase == "pick" then return self:BonusReveal(g) end    -- out of time picking: play with what they chose
+    self:BonusEnd(g, false)
+end
+
+function WF:BonusAct(g, name, action, arg)
+    if WF.SeatOf(g, name) ~= g.turn then return end
+    if action == "letter" or action == "vowel" then
+        local L = WF.Clean(arg, 1)
+        if g.phase ~= "pick" or not isLetter(L) or g.used:find(L, 1, true) or g.picks:find(L, 1, true) then return end
+        local c, v = pickCounts(g.picks)
+        if isVowel(L) then
+            if v >= WF.BONUS_VOWELS then return end
+        elseif c >= WF.BONUS_PICKS then return end
+        g.picks = g.picks .. L
+        g.msg, g.arg = "picking", g.picks
+        c, v = pickCounts(g.picks)
+        if c >= WF.BONUS_PICKS and v >= WF.BONUS_VOWELS then return self:BonusReveal(g) end
+        self:Broadcast(g)
+    elseif action == "solve" then
+        if g.phase ~= "solve" then return end
+        local guess = WF.Clean(arg, 60):gsub("[^A-Z]", "")
+        if guess == g.phrase:gsub("[^A-Z]", "") then return self:BonusEnd(g, true) end
+        g.msg = "bonuswrong"                      -- keep guessing until the clock runs out
+        self:Broadcast(g)
+    end
+end
+
 -- Host buttons
 function WF:HostNextRound()
     local g = self.games[self.current or ""]
@@ -765,7 +898,7 @@ end
 local BOTS = { "Selune", "Vexa" }
 local FREQ = "RSTLNDHCMGPBFYWKVXZJQ"
 
-function WF:StartSim()
+function WF:StartSim(bonus)
     if IsInGroup() then ns.Print("Practice mode is for solo testing - leave your group first.") return end
     local realm = GetNormalizedRealmName() or "Medivh"
     self.sim = { bots = {} }
@@ -774,7 +907,10 @@ function WF:StartSim()
     local pool, picks = {}, {}
     for i = 1, #WF.BANK do pool[i] = WF.BANK[i] end
     for _ = 1, 3 do picks[#picks + 1] = table.remove(pool, math.random(1, #pool)) end
-    local g = self:Host(picks)
+    local taken = {}
+    for _, p in ipairs(picks) do taken[p[2]] = true end
+    local bonusPz = bonus and WF.RandomBonus(nil, taken)
+    local g = self:Host(picks, nil, bonusPz)
     if not g then self.sim = nil return end
     g.engine = true
     g.host = "Brakk-" .. realm
@@ -786,7 +922,9 @@ function WF:StartSim()
 end
 
 function WF:BotTurn(g)
-    if not (self.sim and g.engine and g.state == "playing") then return end
+    if not (self.sim and g.engine) then return end
+    if g.state == "bonus" then return self:BotBonus(g) end
+    if g.state ~= "playing" then return end
     local name = g.seats[g.turn]
     if not self.sim.bots[name] then return end
     if g.phase ~= "turn" and g.phase ~= "letter" then return end
@@ -815,5 +953,25 @@ function WF:BotTurn(g)
         end
         if cLeft > 0 then return WF:HostAct(g, name, "spin") end
         return WF:HostAct(g, name, "solve", g.phrase)
+    end)
+end
+
+-- A bot in the bonus round: picks common letters, then has a go at solving.
+function WF:BotBonus(g)
+    local name = g.seats[g.turn]
+    if not self.sim.bots[name] or (g.phase ~= "pick" and g.phase ~= "solve") then return end
+    local stamp = g.phase .. ":" .. (g.picks or "")
+    C_Timer.After(1.2 + math.random() * 0.8, function()
+        if g.state ~= "bonus" or g.phase .. ":" .. (g.picks or "") ~= stamp then return end
+        if g.phase == "solve" then
+            local hidden = select(2, WF.Mask(g.phrase, g.used):gsub("_", ""))
+            local letters = #g.phrase:gsub("[^A-Z]", "")
+            if math.random() < 1 - hidden / math.max(1, letters) then WF:BonusAct(g, name, "solve", g.phrase) end
+            return
+        end
+        local c, v = pickCounts(g.picks)
+        for ch in ((c < WF.BONUS_PICKS and "CDMGHPBFYW" or "") .. (v < WF.BONUS_VOWELS and "AEIOU" or "")):gmatch(".") do
+            if not g.used:find(ch, 1, true) and not g.picks:find(ch, 1, true) then return WF:BonusAct(g, name, "letter", ch) end
+        end
     end)
 end

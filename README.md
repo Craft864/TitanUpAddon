@@ -1,4 +1,4 @@
-# Titan Up v0.35.0
+# Titan Up v0.36.0
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -98,7 +98,9 @@ Notes:
 - **SPIN** - the wheel spins for everyone. Dollar wedge: call a consonant; you earn the value for each one in the puzzle and keep your turn. BANKRUPT loses your round money; LOSE A TURN passes.
 - **Buy a vowel** for $250 of your round money.
 - **SOLVE** - type the whole answer (case and punctuation don't matter).
-A letter that isn't there (or was already called), a vowel that isn't there, or a wrong solve passes the turn. Solving banks your round money (at least $1,000). Most money after the last round wins. No bonus round (yet).
+A letter that isn't there (or was already called), a vowel that isn't there, or a wrong solve passes the turn. Solving banks your round money (at least $1,000). Most money after the last round wins.
+
+**Bonus round** (tick **Bonus round** in the lobby; off until you do, and remembered): after the last round, the player with the most money gets R S T L N E, picks 3 more consonants and a vowel (free), and then has 20 seconds to solve - as many guesses as they like - for a hidden bonus prize of $25,000 to $100,000. Hosts type the bonus puzzle in the **B.** row; Play together and Play solo pick one.
 
 The host's addon is the referee: it spins, checks letters and only ever sends the board with unrevealed letters hidden, so nobody can read the answer from addon traffic. `/tu wheel sim` (or **Practice solo**) plays a game against two bots with a fake host.
 
@@ -132,6 +134,17 @@ See the comments at the top of `Rooms.lua`. Short version: put a .blp or .tga in
 ## Planned
 
 - Match by ID instead of English names, so non-English clients work too: potion / flask / food / healthstone item IDs (Raid Check, Pull Report) and the cheat-death auras (Pull Report). The defensives themselves already match by spell ID (checked against 12.1.5 in 0.29.2).
+
+## Changes in 0.36.0
+
+- **Wheel of Fortune: bonus round** (Ryan asked 2026-10-09; off by default: lobby tick box "Bonus round", `TitanUpDB.wheel.bonus`, used for Host, Play together and Play solo).
+  - After the last round (`roundover` instead of `over` when a bonus puzzle is set; the host's button reads "Bonus round", auto / solo games move on by themselves), `WF:StartBonus` gives it to the overall leader (`WF.Leader`: most money among players still seated, first seat on a tie; nobody left -> `over` / `nobonus`). Round money resets; `used` = `RSTLNE`.
+  - State `bonus`, phase `pick`: the leader picks 3 consonants + 1 vowel (`A id letter|vowel X`, free; the picks ride in `arg` and stay hidden until all four are in), 25 s (running out reveals what was picked). Phase `solve`: `WF.BONUS_SOLVE` = 20 s on the turn clock, any number of guesses (`bonuswrong`). Win: a hidden prize from `WF.BONUS_PRIZES` (25k-100k, only on the referee until the end) is added to the total (`over` / `bonuswon`, arg `seat:prize`); time out or the player leaving: `bonuslost`, the answer is revealed.
+  - Hosts type the bonus puzzle in a **B.** row (dice and Fill all pick one); Play together and practice pick a random one (`WF.RandomBonus`). Puzzles R S T L N E would give away are refused (`WF.BonusOK`). Bots play the bonus in practice.
+  - Wire: `N` gets a 6th field (bonus 1/0); the `S` format is unchanged. Older clients see the bonus state but can't play it; players' host-silence watch covers the bonus too.
+  - Game screen: "Bonus round" label, no SPIN, letter buttons for picking ("PICK A VOWEL (free)"), "Time to solve" countdown, bonus result + game winner lines. The lobby list shows "+ bonus".
+- **Wheel of Fortune: faster spin.** `WF.SPIN_TIME` 3.4 s -> 2.5 s (the animation 2.3 s). With an older client watching a newer host, that client's wheel is still turning for about 0.7 s when the result arrives.
+- Tests: `testWheel0360.lua` (48 checks).
 
 ## Changes in 0.35.0
 

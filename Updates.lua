@@ -17,6 +17,10 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.36.0", {
+        "Wheel of Fortune: new bonus round! Tick Bonus round in the lobby (it's off until you do). After the last round, the leader gets R S T L N E, picks 3 consonants and a vowel, then has 20 seconds to solve for a bonus prize.",
+        "Wheel of Fortune: the wheel spins faster, so games move along quicker.",
+    } },
     { "0.35.0", {
         "Chess: every move now slides across the board, and the Chess entry blinks when your opponent moves while you're looking at another Titan Up window.",
         "Chess: the pieces each side has taken show next to their names, and the move list shows which piece each capture took.",

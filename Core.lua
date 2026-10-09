@@ -4,7 +4,7 @@
 -- permissions and slash commands; every module hangs off the shared `ns`.
 local ADDON, ns = ...
 
-ns.VERSION = "0.35.0"
+ns.VERSION = "0.36.0"
 ns.PREFIX = "TitanBoard"     -- board sync channel (unchanged, so it stays compatible)
 ns.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 ns.U = 4095            -- board coordinates run 0..4095 on both axes
@@ -752,6 +752,7 @@ local SUITE_DEFAULTS = {
     pullReport = { popup = "never", personal = false },      -- pop-ups off until someone turns them on
     keys = { min = 0, max = 0, excluded = {}, weight = "equal", history = {} },
     wowdle = { guesses = {}, standings = {}, stats = { played = 0, wins = 0, streak = 0, best = 0, sum = 0, dist = { 0, 0, 0, 0, 0, 0 } } },
+    wheel = { bonus = false },                   -- Wheel of Fortune: play a bonus round (ticked in the lobby)
     chess = { games = {}, carry = {}, known = {} },  -- your games, guildmates' games you carry, who has Chess
 }
 
