@@ -446,7 +446,8 @@ function V:Refresh()
 end
 
 ns.RegisterModule({
-    key = "wowdle", name = "Wowdle", icon = ns.MEDIA .. "Wowdle", group = "games", order = 3,
+    key = "wowdle", name = "Wowdle", icon = ns.MEDIA .. "Wowdle", group = "guild", order = 3,
+    rail = "games", railName = "Games", tab = "Wowdle",
     desc = "The daily guild word game - WoW terms and everyday words.",
     view = V,
 })

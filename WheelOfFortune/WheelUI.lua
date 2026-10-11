@@ -814,7 +814,8 @@ function V:Toast(g)
 end
 
 ns.RegisterModule({
-    key = "wheel", name = "Wheel of Fortune", icon = ns.MEDIA .. "WheelIcon", group = "games", order = 2,
+    key = "wheel", name = "Wheel of Fortune", icon = ns.MEDIA .. "WheelIcon", group = "guild", order = 2,
+    rail = "games", railName = "Games", tab = "Wheel of Fortune",
     desc = "Host a puzzle game for three players.",
     view = V,
     sim = function() local g = ns.Wheel:StartSim(ns.udb.wheel.bonus); if g then V:ShowGame(g.id) end end,

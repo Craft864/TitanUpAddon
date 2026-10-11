@@ -314,25 +314,10 @@ function V:Animate()
     self.slider:Show()
 end
 
--- Your opponent moved while you're elsewhere in Titan Up: the Chess entry
--- on the rail blinks a few times.
+-- Your opponent moved while you're elsewhere in Titan Up: the Games entry,
+-- the Chess page under it and the Chess tab blink a few times.
 function V:FlashRail()
-    local Nav = ns.Nav
-    for _, h in pairs(Nav.headers or {}) do
-        for _, b in ipairs(h.railButtons or {}) do
-            local isChess = false
-            for _, k in ipairs(b.item and b.item.keys or {}) do if k == "chess" then isChess = true end end
-            if isChess and h.key ~= "chess" then
-                local n = 0
-                local ticker
-                ticker = C_Timer.NewTicker(0.3, function()
-                    n = n + 1
-                    UI.SetActive(b, n % 2 == 1)
-                    if n >= 6 then ticker:Cancel(); Nav:RefreshChrome(h) end
-                end)
-            end
-        end
-    end
+    ns.Nav:Flash("chess")
 end
 
 -- board square on screen -> square index, from your side of the board
@@ -782,7 +767,8 @@ function V:SendChallenge()
 end
 
 ns.RegisterModule({
-    key = "chess", name = "Chess", icon = ns.MEDIA .. "Chess", group = "games", order = 4,
+    key = "chess", name = "Chess", icon = ns.MEDIA .. "Chess", group = "guild", order = 4,
+    rail = "games", railName = "Games", tab = "Chess",
     desc = "Chess with a guildmate - games are saved until they end, and moves reach offline players.",
     view = V,
     badge = function() return CH:WaitingCount() end,
