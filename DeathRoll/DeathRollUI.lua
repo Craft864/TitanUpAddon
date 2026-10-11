@@ -854,7 +854,9 @@ function V:Toast(room, opened)
 end
 
 ns.RegisterModule({
-    key = "deathroll", name = "Death Roll", icon = ns.MEDIA .. "DeathRoll", group = "games", order = 1,
+    key = "deathroll", name = "Death Roll", icon = ns.MEDIA .. "DeathRoll", group = "guild", order = 1,
+    rail = "games", railName = "Games", tab = "Death Roll", railIcon = ns.MEDIA .. "Games",
+    railDesc = "Death Roll, Wheel of Fortune, Wowdle and Chess with your guild.",
     desc = "Challenge a guildmate - first to roll a 1 pays up.",
     view = V,
 })

@@ -17,7 +17,6 @@ local LEFT_W = 380
 local ROW_H = 26
 local WHO_H = 34
 
-ns.RegisterSection({ key = "guild", name = "Guild", order = 4 })
 
 function V:Init() CR = ns.Crafters end
 
@@ -280,7 +279,7 @@ function V:RefreshWho()
 end
 
 ns.RegisterModule({
-    key = "crafters", name = "Crafters", icon = ns.MEDIA .. "Crafters", group = "guild", order = 1,
+    key = "crafters", name = "Crafters", icon = ns.MEDIA .. "Crafters", group = "guild", order = 10,
     desc = "Who in the guild can make what - search any recipe or shift-click an item, then whisper the crafter.",
     view = V,
 })

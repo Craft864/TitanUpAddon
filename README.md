@@ -1,4 +1,4 @@
-# Titan Up v0.37.0
+# Titan Up v0.38.0
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -13,14 +13,14 @@ The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up o
   - **UI Tweaks**: Release protection, Death alerts, Stack splitter and Battle rez tracker, each with its options beside its switch.
   - **Keystone Roulette**: a wheel or a vote over the group's keys, then teleport.
 - **Guild**
+  - **Games** (one entry, with a tab per game):
+    - **Death Roll**: challenge a guildmate to a gold death roll with real /rolls, spectators and a tamper-proof guild ledger.
+    - **Wheel of Fortune**: a host runs a puzzle game for three players (or practise with bots).
+    - **Wowdle**: the daily guild word game, with guild standings.
+    - **Chess**: play a guildmate at your own pace. Games are saved until they end, and moves reach offline players through guildmates running Titan Up.
   - **Crafters**: who in the guild can craft what, read from everyone's profession windows, plus outside crafters (Name-Server) anyone can add for items nobody in the guild makes.
-- **Games**
-  - **Death Roll**: challenge a guildmate to a gold death roll with real /rolls, spectators and a tamper-proof guild ledger.
-  - **Wheel of Fortune**: a host runs a puzzle game for three players (or practise with bots).
-  - **Wowdle**: the daily guild word game, with guild standings.
-  - **Chess**: play a guildmate at your own pace. Games are saved until they end, and moves reach offline players through guildmates running Titan Up.
 
-**Getting around:** `/tu` (or the minimap button, or Blizzard's addon menu) opens the Titan Up window on **Home**: what happened last pull, tonight's Raid Check, loot to trade, and your games at a glance. The **rail** down the left side lists every module by section (Raid, UI Tweaks, Games) with **Settings** at the bottom; click one and it replaces what's showing, in the same spot. The **<** button narrows the rail to icons. A cog in the title bar opens that module's settings, and Settings has a "Back" button to where you were. The **search box** in the middle of the title bar finds any setting: type a few letters, pick a result, and Titan Up opens the page it's on and flashes it (`/tu set <words>` does the same from chat). Pop-ups (Pull Report summary, Raid Check alert, game invites, what's new) stack in one place on screen and can be dragged together. `/tb` still opens TitanBoard directly, `/tu roll` Death Roll, `/tu settings` Settings, `/tu help` lists everything, and `/tu mem` shows how much memory Titan Up is using.
+**Getting around:** `/tu` (or the minimap button, or Blizzard's addon menu) opens the Titan Up window on **Home**: what happened last pull, tonight's Raid Check, loot to trade, and your games at a glance. The **rail** down the left side lists every module by section (Raid Tools, UI Tweaks, Guild) with **Settings** at the bottom; click one and it replaces what's showing, in the same spot. Entries with several pages (Loot, Reports, Macro Workstation, Games) show a row of tabs across the top of the window and list their pages under the entry on the rail; either one switches page, and the entry reopens on the page you used last. The **<** button narrows the rail to icons. A cog in the title bar opens that module's settings, and Settings has a "Back" button to where you were. The **search box** in the middle of the title bar finds any setting: type a few letters, pick a result, and Titan Up opens the page it's on and flashes it (`/tu set <words>` does the same from chat). Pop-ups (Pull Report summary, Raid Check alert, game invites, what's new) stack in one place on screen and can be dragged together. `/tb` still opens TitanBoard directly, `/tu roll` Death Roll, `/tu settings` Settings, `/tu help` lists everything, and `/tu mem` shows how much memory Titan Up is using.
 
 ## Installing / upgrading from TitanBoard
 
@@ -165,6 +165,18 @@ Crafters, the wishlist and alt links share lists with a light, change-driven syn
 ## Planned
 
 - Fury of the Dead is still matched by its English name (Raid Check); no spell number for it is known yet.
+
+## Changes in 0.38.0
+
+- **Games is one rail entry** (Ryan, 2026-10-11): Death Roll, Wheel of Fortune, Wowdle and Chess share `rail = "games"` (`railName = "Games"`, `railIcon = Media\Games`, `railDesc`), in a new **Guild** section (`Nav.lua`, order 3) with Crafters (order 10). The Games section is gone. `/tu games` (also `/tu reports`, `/tu macros`) opens the entry via `Nav:OpenRail(id)`; `/tu chess` etc. still work.
+- **Tabs moved out of the title bar** (Ryan picked "both" from the mockup): a module that shares a rail entry gets
+  - a **tab row** (`h.strip`, `TAB_H` = 32) between the title bar and its window, one big tab per page with its icon, the open one lit with an accent underline (`b.mark`), badges on tabs;
+  - its **pages listed under the entry** on the rail (`b.sub`, 22 px rows, 14 px icons, a guide line; only in that window's own rail, so only the open entry is expanded). In the narrow rail they show as icons.
+  - `h.extra` (31) shifts the title bar, rail top, `Place`, `SavePos` and the clamp insets up by the tab row, so the window's saved top-left corner (and the rail) stays put; tabbed windows are 31 px taller.
+  - Title bar reads `Section  >  Entry  >  PAGE` ("Guild > Games > CHESS"). The old title-bar tabs are removed.
+- The page an entry opens on is saved (`TitanUpDB.nav.last[rail]`), so it survives a /reload. `Nav:ItemTarget` checks it's still a page of that entry.
+- `Nav:Flash(key)` blinks a module's rail entry, its page under the entry and its tab in every other window (Chess's `V:FlashRail` uses it).
+- Tests: `testRail0380.lua` (30 checks); `testChess0340`, `testLayout0290`, `testMacroBuilder0310` updated for the new rail and title.
 
 ## Changes in 0.37.0
 

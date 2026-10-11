@@ -17,6 +17,11 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.38.0", {
+        "A shorter rail: Death Roll, Wheel of Fortune, Wowdle and Chess are now one Games entry, under Guild with Crafters.",
+        "Pages are easier to find: Games, Loot, Reports and Macro Workstation show big tabs across the top of the window, and list their pages under the entry on the rail. Click either to switch.",
+        "Each of these opens on the page you used last, even after a reload. /tu games opens Games.",
+    } },
     { "0.37.0", {
         "New: Crafters, under Guild on the rail. Open your profession windows once and the guild can see what you can make. Search for a recipe or item, see who can craft it and whisper them.",
         "Crafters: anyone can add a crafter from outside the guild (Name-Server) for an item nobody in the guild makes, with a note.",

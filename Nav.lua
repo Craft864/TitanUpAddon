@@ -1,12 +1,14 @@
 -- Titan Up - Nav.lua
 -- Module registry and the Titan Up window frame every module shares:
 --
---   [emblem] TITAN UP | Section > MODULE  [tabs]         [cog] | [X]
+--   [emblem] TITAN UP | Section > MODULE      [search]   [cog] | [X]
 --   ---------------------------------------------------------------
---   Home             |
---   RAID TOOLS       |   the module's own window
---     TitanBoard     |
---     ...            |
+--   Home             | [Tab] [Tab] [Tab]   (entries with several pages)
+--   RAID TOOLS       |----------------------------------------------
+--     TitanBoard     |   the module's own window
+--     Loot           |
+--       Drops        |   (the open entry lists its pages under it)
+--       Wishlist     |
 --   Settings     [<] |
 --
 -- Each module keeps its own window; the title bar and the rail on its left
@@ -40,7 +42,9 @@ Nav.lastInRail = {}         -- rail group -> the module last opened in it
 -- def.view = V fills in show / hide / isShown / frame from the view (see ns.View).
 -- def.rail = a shared rail entry: modules with the same rail id share one
 -- item on the rail (def.railName, first module's icon) and switch between
--- each other with tabs in the title bar (def.tab = the tab's label).
+-- each other with a tab row above the window and a list of pages under
+-- the entry on the rail (def.tab = the page's label; def.railIcon and
+-- def.railDesc, on any of them, for the shared entry).
 -- def.badge = function returning a small number for the rail (or nil).
 -- def.onSwitch = run when the rail or Home switches to the module.
 function ns.RegisterModule(def)
@@ -107,7 +111,7 @@ end
 
 ns.RegisterSection({ key = "tools", name = "Raid Tools", order = 1 })
 ns.RegisterSection({ key = "uitweaks", name = "UI Tweaks", order = 2 })
-ns.RegisterSection({ key = "games", name = "Games", order = 3 })
+ns.RegisterSection({ key = "guild", name = "Guild", order = 3 })   -- Games (one entry, 0.38.0) and Crafters
 
 local function byOrder(a, b) return a.order < b.order end
 
@@ -151,9 +155,13 @@ function Nav:RailItems()
             if it then
                 it.keys[#it.keys + 1] = m.key
             else
-                it = { key = m.key, keys = { m.key }, name = m.railName or m.name, icon = m.icon, desc = m.railDesc or m.desc, rail = m.rail, section = g.section }
+                it = { key = m.key, keys = { m.key }, name = m.railName or m.name, icon = m.railIcon or m.icon, desc = m.railDesc or m.desc, rail = m.rail, section = g.section }
                 if m.rail then byRail[m.rail] = it end
                 items[#items + 1] = it
+            end
+            if m.rail then             -- any page may name the entry's icon / text
+                it.icon = m.railIcon or it.icon
+                it.desc = m.railDesc or it.desc
             end
         end
         out[#out + 1] = { section = g.section, items = items }
@@ -161,10 +169,22 @@ function Nav:RailItems()
     return out
 end
 
--- Where a rail entry goes: the module last opened in its group.
+-- Where a rail entry goes: the page last opened in it (remembered).
 function Nav:ItemTarget(it)
-    local last = it.rail and self.lastInRail[it.rail]
-    return last or it.key
+    if not it.rail then return it.key end
+    local s = ns.udb and ns.udb.nav
+    local last = self.lastInRail[it.rail] or (s and s.last and s.last[it.rail])
+    return (last and self.byKey[last] and self.byKey[last].rail == it.rail) and last or it.key
+end
+
+-- Open a shared rail entry by its id ("/tu games"); false if there's none.
+function Nav:OpenRail(id)
+    for _, g in ipairs(self:RailItems()) do
+        for _, it in ipairs(g.items) do
+            if it.rail == id then self.byKey[self:ItemTarget(it)].show() return true end
+        end
+    end
+    return false
 end
 
 -- The modules sharing m's rail entry (just m when it has none).
@@ -233,7 +253,11 @@ function Nav:Activate(key)
         if k ~= key and other.frame:IsShown() and other.tab:IsShown() then hideKey(k) end
     end
     local m = self.byKey[key]
-    if m and m.rail then self.lastInRail[m.rail] = key end
+    if m and m.rail then
+        self.lastInRail[m.rail] = key
+        local s = ns.udb and ns.udb.nav
+        if s then s.last = s.last or {}; s.last[m.rail] = key end
+    end
     self.current = key
     self:Place(key)
     self:RefreshChrome(h)
@@ -270,7 +294,7 @@ function Nav:Place(key)
     -- be moved in combat; it opens where it last was instead
     if InCombatLockdown() and f.IsAnchoringRestricted and f:IsAnchoringRestricted() then return end
     f:ClearAllPoints()
-    f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x + self:RailWidth(h) - 1, y - self.TITLE_H + 1)
+    f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x + self:RailWidth(h) - 1, y - self.TITLE_H + 1 - h.extra)
 end
 
 -- after a drag: remember where the whole window is now
@@ -280,7 +304,7 @@ function Nav:SavePos(key)
     if not (h and s) then return end
     local l, t = h.frame:GetLeft(), h.frame:GetTop()
     if type(l) ~= "number" or type(t) ~= "number" then return end
-    s.pos = { math.floor(l - self:RailWidth(h) + 1 + 0.5), math.floor(t + self.TITLE_H - 1 + 0.5) }
+    s.pos = { math.floor(l - self:RailWidth(h) + 1 + 0.5), math.floor(t + self.TITLE_H - 1 + h.extra + 0.5) }
     self:Place(key)
 end
 
@@ -299,8 +323,11 @@ end
 -- The title bar and the rail
 -- ---------------------------------------------------------------------
 -- Every window gets:
---   * a title bar above it: the emblem, where you are, tabs (modules that
---     share a rail entry), the cog for this module's settings, and the X;
+--   * a title bar above it: the emblem, where you are, the settings search,
+--     the cog for this module's settings, and the X;
+--   * for a module that shares a rail entry with others (Loot, Reports,
+--     Games...): a row of big tabs between the title bar and the window,
+--     one per page, and the same pages listed under the entry on the rail;
 --   * the rail on its left: Home, each section's modules, Settings, and a
 --     button that narrows the rail to icons;
 --   * an X inside the window that only shows when the title bar is hidden
@@ -309,6 +336,7 @@ end
 --     h.close is where that X sits.
 local ICON = 20
 local ITEM_H, HEAD_H = 28, 20
+local SUB_H, TAB_H = 22, 32     -- a page under its rail entry; the tab row (0.38.0)
 
 function Nav:CreateHeader(frame, key, opts)
     opts = opts or {}
@@ -322,6 +350,11 @@ function Nav:CreateHeader(frame, key, opts)
     h:SetPoint("TOPRIGHT")
     h:SetHeight(1)
     h.frame, h.key, h.railMin = frame, key, opts.railMin
+    -- the pages of this window's rail entry (Drops / Wishlist ...)
+    local sibs = m and m.rail and self:Siblings(m) or {}
+    if #sibs < 2 then sibs = {} end
+    h.pages = sibs
+    h.extra = #sibs > 0 and (TAB_H - 1) or 0     -- the tab row's height above the window
     h.close = UI.Button(h, 24, 22, "X", "Close", close)
     h.close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -6, -6)
     h.close:SetFrameLevel(frame:GetFrameLevel() + 20)
@@ -346,7 +379,7 @@ function Nav:CreateHeader(frame, key, opts)
     local bar = CreateFrame("Frame", nil, chrome, "BackdropTemplate")
     UI.Skin(bar, C.bg, C.line)
     bar:SetHeight(self.TITLE_H)
-    bar:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", 0, -1)
+    bar:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", 0, -1 + h.extra)
     bar:EnableMouse(true)
     bar:RegisterForDrag("LeftButton")
     bar:SetScript("OnDragStart", startMove)
@@ -360,8 +393,13 @@ function Nav:CreateHeader(frame, key, opts)
     h.crumb = UI.Text(bar, "GameFontHighlightSmall", C.muted, nil)
     h.title = UI.Text(bar, "GameFontNormal", C.text, nil, "LEFT", h.crumb, "RIGHT", 6, 0)
     local sec = m and self.sectionByKey[m.group]
-    local name = (m and m.rail and m.railName) or opts.title or ""
-    h.crumb:SetText(sec and (sec.name .. "  >") or "")
+    local name = opts.title or ""
+    local crumb = sec and sec.name or ""
+    if #sibs > 0 then                    -- "Guild  >  Games  >  CHESS"
+        crumb = crumb .. "  >  " .. (m.railName or "")
+        name = m.tab or m.name
+    end
+    h.crumb:SetText(crumb ~= "" and (crumb .. "  >") or "")
     h.title:SetText(name:upper())
     h.title:SetWordWrap(false)
 
@@ -380,29 +418,62 @@ function Nav:CreateHeader(frame, key, opts)
         edge = cog
     end
 
-    -- tabs: the other modules on the same rail entry ([Tonight] [This week]),
-    -- right-aligned just left of the cog / X; the title stops before them
+    -- the tab row: one big tab per page, left to right under the title bar
     h.tabs = {}
-    local sibs = m and m.rail and self:Siblings(m) or {}
-    if #sibs < 2 then sibs = {} end
-    local right = edge
-    for i = #sibs, 1, -1 do
-        local s = sibs[i]
-        local b = UI.Button(bar, 78, 20, s.tab or s.name, s.desc, function() Nav:Switch(s.key, key) end)
-        b:SetPoint("RIGHT", right, "LEFT", right == edge and -12 or -4, 0)
-        UI.SetActive(b, s.key == key)
-        table.insert(h.tabs, 1, b)
-        right = b
+    if #sibs > 0 then
+        local strip = CreateFrame("Frame", nil, chrome, "BackdropTemplate")
+        UI.Skin(strip, C.bg, C.line)
+        strip:SetHeight(TAB_H)
+        strip:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", 0, -1)
+        strip:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", 0, -1)
+        strip:EnableMouse(true)
+        strip:RegisterForDrag("LeftButton")
+        strip:SetScript("OnDragStart", startMove)
+        strip:SetScript("OnDragStop", stopMove)
+        h.strip = strip
+        local x = 8
+        for _, s in ipairs(sibs) do
+            local label = s.tab or s.name
+            local w = math.max(104, 7 * #label + 48)
+            local b = UI.Button(strip, w, TAB_H - 8, "", s.desc, function() Nav:Switch(s.key, key) end)
+            b:SetPoint("LEFT", x, 0)
+            b.icon = b:CreateTexture(nil, "ARTWORK")
+            b.icon:SetTexture(s.icon)
+            b.icon:SetSize(16, 16)
+            b.icon:SetPoint("LEFT", 9, 0)
+            b.keepIconColor = true
+            b.label:ClearAllPoints()
+            b.label:SetPoint("LEFT", b.icon, "RIGHT", 7, 0)
+            b.label:SetFontObject("GameFontHighlight")
+            b.label:SetText(label)
+            -- the open page: lit, with a bright line under it
+            b.mark = b:CreateTexture(nil, "OVERLAY")
+            b.mark:SetColorTexture(C.accent[1], C.accent[2], C.accent[3], 1)
+            b.mark:SetHeight(2)
+            b.mark:SetPoint("BOTTOMLEFT", 1, 1)
+            b.mark:SetPoint("BOTTOMRIGHT", -1, 1)
+            b.mark:SetShown(s.key == key)
+            b.badge = CreateFrame("Frame", nil, b, "BackdropTemplate")
+            UI.Skin(b.badge, C.warn, C.warn)
+            b.badge:SetSize(16, 14)
+            b.badge:SetPoint("RIGHT", -5, 0)
+            b.badge.text = UI.Text(b.badge, "GameFontHighlightSmall", { 0.1, 0.07, 0.02 }, nil, "CENTER", 0, 0)
+            b.badge:Hide()
+            b.item = { key = s.key, keys = { s.key }, name = label }
+            UI.SetActive(b, s.key == key)
+            h.tabs[#h.tabs + 1] = b
+            x = x + w + 4
+        end
     end
     -- the settings search box, in the middle; the title stops before it
     local box = ns.Search and ns.Search:Attach(h)
-    h.title:SetPoint("RIGHT", box or right, "LEFT", -12, 0)
+    h.title:SetPoint("RIGHT", box or edge, "LEFT", -12, 0)
     h.title:SetJustifyH("LEFT")         -- reads on from the section: "Raid Tools  >  REPORTS"
 
     -- rail
     local rail = CreateFrame("Frame", nil, chrome, "BackdropTemplate")
     UI.Skin(rail, C.bg, C.line)
-    rail:SetPoint("TOPRIGHT", frame, "TOPLEFT", 1, 0)
+    rail:SetPoint("TOPRIGHT", frame, "TOPLEFT", 1, h.extra)
     rail:SetPoint("BOTTOMRIGHT", frame, "BOTTOMLEFT", 1, 0)
     rail:EnableMouse(true)
     h.rail = rail
@@ -413,19 +484,21 @@ function Nav:CreateHeader(frame, key, opts)
 end
 
 -- the rail's buttons: Home, each section's entries, then Settings at the bottom
-local function railButton(h, it)
-    local b = UI.Button(h.rail, 100, ITEM_H - 2, "", nil, function()
+-- (sub = a page listed under the open entry: smaller, indented)
+local function railButton(h, it, sub)
+    local b = UI.Button(h.rail, 100, (sub and SUB_H or ITEM_H) - 2, "", nil, function()
         Nav:Switch(it.home and "home" or Nav:ItemTarget(it), h.key)
     end)
+    b.sub = sub
     b.label:ClearAllPoints()
-    b.label:SetPoint("LEFT", 32, 0)
+    b.label:SetPoint("LEFT", sub and 26 or 32, 0)
     b.label:SetPoint("RIGHT", -24, 0)
     b.label:SetJustifyH("LEFT")
     b.label:SetWordWrap(false)
     b.label:SetText(it.name)
     b.icon = b:CreateTexture(nil, "ARTWORK")
     b.icon:SetTexture(it.icon)
-    b.icon:SetSize(ICON, ICON)
+    b.icon:SetSize(sub and 14 or ICON, sub and 14 or ICON)
     b.icon:SetPoint("LEFT", 5, 0)
     b.keepIconColor = true
     b.badge = CreateFrame("Frame", nil, b, "BackdropTemplate")
@@ -472,6 +545,23 @@ function Nav:BuildRail(h)
             b:SetPoint("RIGHT", -6, 0)
             h.railButtons[#h.railButtons + 1] = b
             y = y - ITEM_H
+            -- this window's entry: its pages, listed under it
+            if #h.pages > 0 and h.pages[1].rail == it.rail then
+                local guide = rail:CreateTexture(nil, "ARTWORK")
+                guide:SetColorTexture(C.line[1], C.line[2], C.line[3], 1)
+                guide:SetWidth(1)
+                guide:SetPoint("TOPLEFT", 14, y)
+                for _, s in ipairs(h.pages) do
+                    local sb = railButton(h, { key = s.key, keys = { s.key }, name = s.tab or s.name, icon = s.icon, desc = s.desc, section = it.section }, true)
+                    sb.subY = y
+                    sb:SetPoint("TOPLEFT", 20, y)
+                    sb:SetPoint("RIGHT", -6, 0)
+                    h.railButtons[#h.railButtons + 1] = sb
+                    y = y - SUB_H
+                end
+                guide:SetPoint("BOTTOMLEFT", 14, y + 2)
+                h.railGuide = guide
+            end
         end
     end
     -- bottom: Settings, and the narrow / widen button
@@ -494,7 +584,7 @@ function Nav:ApplyRail(h)
     local w = self:RailWidth(h)
     local min = w == self.RAIL_MIN
     h.rail:SetWidth(w)
-    h.bar:SetPoint("BOTTOMLEFT", h.frame, "TOPLEFT", -(w - 1), -1)
+    h.bar:SetPoint("BOTTOMLEFT", h.frame, "TOPLEFT", -(w - 1), -1 + h.extra)
     h.brand:SetShown(not min)
     h.crumb:ClearAllPoints()
     h.crumb:SetPoint("LEFT", h.bar, "LEFT", min and 38 or (w + 8), 0)
@@ -502,11 +592,17 @@ function Nav:ApplyRail(h)
         b.label:SetShown(not min)
         b.icon:ClearAllPoints()
         b.icon:SetPoint(min and "CENTER" or "LEFT", min and 0 or 5, 0)
+        if b.sub then                    -- pages: barely indented when narrow
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", min and 9 or 20, b.subY)
+            b:SetPoint("RIGHT", min and -3 or -6, 0)
+        end
         b.badge:ClearAllPoints()
         if min then b.badge:SetSize(8, 8); b.badge:SetPoint("TOPRIGHT", 1, 1) else b.badge:SetSize(16, 14); b.badge:SetPoint("RIGHT", -5, 0) end
         b.badge.text:SetShown(not min)
     end
     for _, hd in ipairs(h.railHeads) do hd.text:SetShown(not min) end
+    if h.railGuide then h.railGuide:SetShown(not min) end
     -- the forced-narrow rail (TitanBoard) has nothing to toggle
     h.narrow:SetShown(not h.railMin)
     h.narrow.label:SetText(min and ">" or "<")
@@ -518,7 +614,7 @@ end
 function Nav:Clamp(h)
     local f = h.frame
     if not f.SetClampRectInsets then return end
-    if h.tab:IsShown() then f:SetClampRectInsets(-(self:RailWidth(h) - 1), 0, self.TITLE_H - 1, 0)
+    if h.tab:IsShown() then f:SetClampRectInsets(-(self:RailWidth(h) - 1), 0, self.TITLE_H - 1 + h.extra, 0)
     else f:SetClampRectInsets(0, 0, 0, 0) end
 end
 
@@ -526,7 +622,10 @@ end
 function Nav:RefreshChrome(h)
     h = h or self.headers[self.current or ""]
     if not h then return end
-    for _, b in ipairs(h.railButtons) do
+    local all = {}
+    for _, b in ipairs(h.railButtons) do all[#all + 1] = b end
+    for _, b in ipairs(h.tabs) do all[#all + 1] = b end
+    for _, b in ipairs(all) do
         local on = false
         for _, k in ipairs(b.item.keys) do if k == h.key then on = true end end
         UI.SetActive(b, on)
@@ -540,6 +639,33 @@ function Nav:RefreshChrome(h)
         end
         b.badge:SetShown(n ~= nil)
         if n then b.badge.text:SetText(n > 9 and "9+" or tostring(n)) end
+    end
+end
+
+-- Something new in module `key` while another Titan Up window is open
+-- (a chess move): its rail entry, its page under the entry and its tab
+-- blink a few times.
+function Nav:Flash(key)
+    for _, h in pairs(self.headers) do
+        if h.key ~= key then
+            local list = {}
+            for _, b in ipairs(h.railButtons or {}) do list[#list + 1] = b end
+            for _, b in ipairs(h.tabs or {}) do list[#list + 1] = b end
+            for _, b in ipairs(list) do
+                local hit = false
+                for _, k in ipairs(b.item and b.item.keys or {}) do if k == key then hit = true end end
+                if hit then
+                    local lit = b.active and true or false
+                    local n = 0
+                    local ticker
+                    ticker = C_Timer.NewTicker(0.3, function()
+                        n = n + 1
+                        UI.SetActive(b, (n % 2 == 1) ~= lit)
+                        if n >= 6 then ticker:Cancel(); Nav:RefreshChrome(h) end
+                    end)
+                end
+            end
+        end
     end
 end
 
