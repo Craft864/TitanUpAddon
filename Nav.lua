@@ -4,7 +4,7 @@
 --   [emblem] TITAN UP | Section > MODULE      [search]   [cog] | [X]
 --   ---------------------------------------------------------------
 --   Home             | [Tab] [Tab] [Tab]   (entries with several pages)
---   RAID TOOLS       |----------------------------------------------
+--   RAID INFO        |----------------------------------------------
 --     TitanBoard     |   the module's own window
 --     Loot           |
 --       Drops        |   (the open entry lists its pages under it)
@@ -109,8 +109,8 @@ function ns.RegisterSection(def)
     Nav.sectionByKey[def.key] = def
 end
 
-ns.RegisterSection({ key = "tools", name = "Raid Tools", order = 1 })
-ns.RegisterSection({ key = "uitweaks", name = "UI Tweaks", order = 2 })
+ns.RegisterSection({ key = "tools", name = "Raid Info", order = 1 })      -- (renamed 0.39.0; keys kept)
+ns.RegisterSection({ key = "uitweaks", name = "Tools", order = 2 })       -- UI Tweaks, Keystone Roulette, Macro Workstation
 ns.RegisterSection({ key = "guild", name = "Guild", order = 3 })   -- Games (one entry, 0.38.0) and Crafters
 
 local function byOrder(a, b) return a.order < b.order end

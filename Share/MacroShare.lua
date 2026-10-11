@@ -451,7 +451,7 @@ function V:Refresh()
 end
 
 ns.RegisterModule({
-    key = "macroshare", name = "Macro Share", icon = ns.MEDIA .. "MacroShare", group = "tools", order = 7.5,
+    key = "macroshare", name = "Macro Share", icon = ns.MEDIA .. "MacroShare", group = "uitweaks", order = 7.5,
     desc = "Send a macro to one person in your group - or, as raid leader or assistant, to the raid, a role or a class. They drag it onto their bars.",
     rail = "macros", railName = "Macro Workstation", tab = "Share",
     view = V,

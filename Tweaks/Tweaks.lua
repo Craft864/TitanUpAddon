@@ -20,27 +20,33 @@ local HOLD_SECONDS = 3
 local function db() return ns.udb.tweaks end
 
 -- get/set: where the switch lives; page: its options (shown beside it in UI Tweaks)
+-- short: the one line in the list; desc: the full text above its options
 TW.LIST = {
-    { key = "releaseGuard", name = "Release protection",
+    { key = "timer", name = "Combat timer", short = "A combat timer you can style and place anywhere.",
+      desc = "Times boss fights in raids, and any combat everywhere else. Move it here; its look and the chat line after a fight are in Timer settings.",
+      get = function() return ns.udb.timer.enabled end,
+      set = function(on) ns.udb.timer.enabled = on; ns.Timer:ApplyStyle(); ns.Timer:Render() end,
+      page = function() return ns.TimerTweak end, title = "COMBAT TIMER" },
+    { key = "releaseGuard", name = "Release protection", short = "Hold Alt for 3 seconds to release in raids.",
       desc = "In raid instances, the Release Spirit button only works after holding Alt for 3 seconds - no more accidental releases mid-fight.",
       get = function() return ns.udb.tweaks.releaseGuard end,
       set = function(on) ns.udb.tweaks.releaseGuard = on end },
-    { key = "deathAlerts", name = "Death alerts",
+    { key = "deathAlerts", name = "Death alerts", short = "A banner when someone in your group dies.",
       desc = "A banner when someone in your group dies - role icon, class color and fight time - with sounds, and one \"Wipe likely\" banner instead of spam.",
       get = function() return ns.udb.deathAlerts.enabled end,
       set = function(on) ns.udb.deathAlerts.enabled = on end,
       page = function() return ns.DeathAlerts end, title = "DEATH ALERTS" },
-    { key = "stackSplitter", name = "Stack splitter",
+    { key = "stackSplitter", name = "Stack splitter", short = "Shift-click a stack for a better split.",
       desc = "Shift-click a stack for a better split: take some, split it all into stacks of N or into K equal stacks, or combine partial stacks - in bags, bank and guild bank.",
       get = function() return ns.udb.splitter.enabled end,
       set = function(on) ns.udb.splitter.enabled = on end,
       page = function() return ns.StackSplitter end, title = "STACK SPLITTER" },
-    { key = "brez", name = "Battle rez tracker",
+    { key = "brez", name = "Battle rez tracker", short = "The group's battle-rez charges on screen.",
       desc = "The group's battle-rez charges on screen during Mythic+ keys and raid boss fights (even while you're dead) - grey at zero, with a countdown to the next.",
       get = function() return ns.udb.brez.enabled end,
       set = function(on) ns.udb.brez.enabled = on; ns.BattleRez:Check() end,
       page = function() return ns.BattleRez end, title = "BATTLE REZ TRACKER" },
-    { key = "bonusGuard", name = "Bonus roll protection",
+    { key = "bonusGuard", name = "Bonus roll protection", short = "Bonus roll Roll and Pass ask first.",
       desc = "Blizzard's bonus roll Roll and Pass buttons ask first - a green \"Spend a bonus roll?\" or a red \"Give up this bonus roll?\" - so a misclick can't waste one.",
       get = function() return ns.udb.tweaks.bonusGuard end,
       set = function(on) ns.udb.tweaks.bonusGuard = on; ns.BonusRollGuard:Check() end },
@@ -156,7 +162,7 @@ ns.TweaksUI = V
 local W, H = 880, 570
 local LIST_W = 380
 local PAGE_W = 460                 -- the tweak pages are laid out for this width
-local ROW_H = 92
+local ROW_H = 50                   -- one short row per tweak (0.39.0)
 
 function V:Create()
     local f = ns.Nav:Window(self, "TitanUpTweaks", "tweaks", "UI TWEAKS", W, H, { mark = { 360, 0.04, -20 } })
@@ -166,7 +172,7 @@ function V:Create()
     list:SetPoint("TOPLEFT")
     list:SetSize(LIST_W, H)
     self.list = list
-    self.intro = UI.Text(list, "GameFontHighlightSmall", C.muted, "Small changes to the game's own UI - each is off until you turn it on.", "TOPLEFT", 16, -14)
+    self.intro = UI.Text(list, "GameFontHighlightSmall", C.muted, "Small changes to the game's own UI. Click one for its options.", "TOPLEFT", 16, -14)
     self.intro:SetWidth(LIST_W - 28)
     self.intro:SetJustifyH("LEFT")
     self.rows = {}
@@ -180,16 +186,15 @@ function V:Create()
         local hl = card:CreateTexture(nil, "HIGHLIGHT")
         hl:SetAllPoints()
         hl:SetColorTexture(1, 1, 1, 0.04)
-        local name = UI.Text(card, "GameFontNormal", C.text, t.name, "TOPLEFT", 12, -10)
-        local desc = UI.Text(card, "GameFontHighlightSmall", C.muted, t.desc, "TOPLEFT", name, "BOTTOMLEFT", 0, -4)
-        desc:SetWidth(LIST_W - 130); desc:SetJustifyH("LEFT")
-        desc:SetHeight(ROW_H - 36); desc:SetJustifyV("TOP")
-        local b = UI.Button(card, 64, 24, "", nil, function()
+        local name = UI.Text(card, "GameFontNormal", C.text, t.name, "TOPLEFT", 12, -8)
+        local short = UI.Text(card, "GameFontHighlightSmall", C.muted, t.short or t.desc, "TOPLEFT", name, "BOTTOMLEFT", 0, -4)
+        short:SetWidth(LIST_W - 120); short:SetJustifyH("LEFT"); short:SetWordWrap(false)
+        local b = UI.Button(card, 60, 24, "", t.desc, function()
             t.set(not t.get())
             V:Select(t.key)
             ns.SettingsChanged()                  -- updates this list and the page beside it
         end)
-        b:SetPoint("TOPRIGHT", -10, -10)
+        b:SetPoint("RIGHT", -10, 0)
         self.rows[t.key] = b
         self.cards[t.key] = card
     end
@@ -209,7 +214,7 @@ function V:Select(key)
     for _, x in ipairs(TW.LIST) do if x.key == key then t = x end end
     if not t then return end
     self.current = key
-    self.pageTitle:SetText(t.name:upper() .. " OPTIONS")
+    self.pageTitle:SetText(t.name:upper())
     for k, card in pairs(self.cards) do
         local c = (k == key) and C.accent or C.line
         card:SetBackdropBorderColor(c[1], c[2], c[3], 1)
