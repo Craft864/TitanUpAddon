@@ -588,6 +588,13 @@ function PR.AuraNews(info)
     return (type(added) == "table" and #added > 0) or (type(removed) == "table" and #removed > 0) or false
 end
 
+-- the aura's name in your language (from its spell), else the English one
+local function auraName(cd)
+    local f = cd.spell and ((C_Spell and C_Spell.GetSpellName) or GetSpellInfo)
+    local n = f and ns.Safe.Call(f, cd.spell)
+    return n or cd.aura
+end
+
 local function hasAura(name)
     if not (C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName) then return false end
     for _, filter in ipairs({ "HARMFUL", "HELPFUL" }) do
@@ -600,7 +607,7 @@ end
 function PR:CheckAuras()
     if not self.current then return end
     for _, cd in ipairs(D.CHEAT_DEATHS[select(2, UnitClass("player"))] or {}) do
-        local on = hasAura(cd.aura)
+        local on = hasAura(auraName(cd))
         if on and not self.auraSeen[cd.aura] then self:Snapshot("save", cd.name) end
         self.auraSeen[cd.aura] = on
     end

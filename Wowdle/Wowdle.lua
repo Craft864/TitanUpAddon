@@ -207,7 +207,18 @@ end
 function WD:Standings()
     local today, rows = WD.Today(), {}
     db().standings[ns.me] = (db().stats.played or 0) > 0 and self:MyRecord() or nil
+    -- with alt linking, one row per player: their main's name, and the
+    -- character with the most games (progress is shared per account anyway)
+    local AL, best = ns.Alts, {}
     for name, r in pairs(db().standings) do
+        local main = AL and AL:Main(name) or name
+        local b = best[main]
+        if not b or (r.played or 0) > (b.r.played or 0) or ((r.played or 0) == (b.r.played or 0) and (r.day or 0) > (b.r.day or 0)) then
+            best[main] = { r = r }
+        end
+    end
+    for name, b in pairs(best) do
+        local r = b.r
         local t = (r.day == today) and r.n or -1
         rows[#rows + 1] = { name = name, today = t, played = r.played or 0, wins = r.wins or 0,
             streak = (r.day == today or r.day == today - 1) and (r.streak or 0) or 0, best = r.best or 0,

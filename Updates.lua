@@ -17,6 +17,15 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.37.0", {
+        "New: Crafters, under Guild on the rail. Open your profession windows once and the guild can see what you can make. Search for a recipe or item, see who can craft it and whisper them.",
+        "Crafters: anyone can add a crafter from outside the guild (Name-Server) for an item nobody in the guild makes, with a note.",
+        "New: Loot Wishlist, a tab in the Loot window. Browse any raid or dungeon by boss and difficulty, filter by slot and stats (Both or Either), and mark items BIS, Sidegrade or Want.",
+        "Loot: click a drop to see who in the guild wants it. BIS names are gold. The roll window shows wishlist picks too.",
+        "Your characters are linked: Wowdle and Death Roll standings show one row per player under their main, and Death Roll debts can be paid from any of your characters. Pick your main or turn it off in Titan Up settings.",
+        "Raid Check and the Pull Report now recognise flasks, potions, food, healthstones and Vantus Runes on non-English clients.",
+        "/tu mem now shows how many addon messages each feature sent and received in the last 10 minutes.",
+    } },
     { "0.36.0", {
         "Wheel of Fortune: new bonus round! Tick Bonus round in the lobby (it's off until you do). After the last round, the leader gets R S T L N E, picks 3 consonants and a vowel, then has 20 seconds to solve for a bonus prize.",
         "Wheel of Fortune: the wheel spins faster, so games move along quicker.",

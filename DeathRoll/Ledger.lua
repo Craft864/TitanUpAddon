@@ -73,6 +73,16 @@ local function clamp(v, lo, hi)
     if v and v == v then return math.max(lo, math.min(hi, math.floor(v))) end
 end
 local function isMine(rec) return (rec.w == ns.me or rec.l == ns.me) and rec.src and rec.src[ns.me] end
+-- one of your characters (any of them with alt linking on, else just this one)
+local function mine(name)
+    if name == ns.me then return true end
+    local AL = ns.Alts
+    return AL and AL:Enabled() and AL:IsMine(name) or false
+end
+L.Mine = mine
+-- a game between two characters of the same player doesn't count
+local function selfGame(rec) return ns.Alts and rec.w and rec.l and ns.Alts:Same(rec.w, rec.l) or false end
+L.SelfGame = selfGame
 -- one game record as an E message
 local function recMsg(rec)
     return table.concat({ "E", rec.id, rec.w, rec.l, rec.g, rec.t, rec.r or 0, rec.paid or 0 }, SEP)
@@ -117,11 +127,12 @@ function L:Quiet() return ns.Busy() end
 
 function L:Init()
     for _, rec in pairs(games()) do self:CheckLock(rec) end
+    self:FlushPayLater()
     -- trades: gold that went from a loser to their winner
     ns.WatchTrades(function(t)
-        local mine = GetPlayerTradeMoney and GetPlayerTradeMoney() or 0
+        local myGold = GetPlayerTradeMoney and GetPlayerTradeMoney() or 0
         local theirs = GetTargetTradeMoney and GetTargetTradeMoney() or 0
-        if not ns.IsSecret(mine) then t.gave = math.floor((mine or 0) / 10000) end
+        if not ns.IsSecret(myGold) then t.gave = math.floor((myGold or 0) / 10000) end
         if not ns.IsSecret(theirs) then t.got = math.floor((theirs or 0) / 10000) end
     end, function(t) L:OnTradeComplete(t.partner, t.gave or 0, t.got or 0) end)
     ns.On("GROUP_ROSTER_UPDATE", function()
@@ -198,7 +209,32 @@ function L:FlushDeferred()
 end
 
 function L:Confirmed(rec) return (rec.src and rec.src[rec.w] and rec.src[rec.l]) and true or false end
-function L:Owed(rec) return math.max(0, (rec.g or 0) - (rec.paid or 0)) end
+function L:Owed(rec) return math.max(0, (rec.g or 0) - math.max(rec.paid or 0, rec.payLater or 0)) end
+
+-- A payment one of your other characters received (or marked): only the
+-- winning character's own addon can confirm it to the guild, so it's kept
+-- here and sent the next time you log onto that character.
+function L:PayLater(rec, amount)
+    amount = math.min(rec.g, math.floor(amount))
+    if amount <= math.max(rec.paid or 0, rec.payLater or 0) then return false end
+    rec.payLater = amount
+    dirty(rec)
+    refresh()
+    return true
+end
+
+function L:FlushPayLater()
+    for _, rec in pairs(games()) do
+        if rec.payLater then
+            if (rec.paid or 0) >= rec.payLater then rec.payLater = nil
+            elseif rec.w == ns.me then
+                local amount = rec.payLater
+                rec.payLater = nil
+                self:SetPaid(rec, amount)
+            end
+        end
+    end
+end
 
 -- Both players' copies match -> lock it for good (on this client).
 function L:CheckLock(rec)
@@ -229,7 +265,7 @@ end
 local checks = {}           -- [id] = { at = time asked, replied = bool }
 function L:CheckDebt(id)
     local rec = games()[id]
-    if not rec or rec.l ~= ns.me then return end
+    if not rec or not mine(rec.l) then return end
     local who = ns.Short(rec.w)
     if self:Quiet() then ns.Print("Can't check during combat - try again after the fight.") return end
     local c = checks[id]
@@ -275,7 +311,9 @@ end
 
 function L:MarkPaid(id)
     local rec = games()[id]
-    if rec and rec.w == ns.me then self:SetPaid(rec, rec.g) end
+    if not rec then return end
+    if rec.w == ns.me then self:SetPaid(rec, rec.g)
+    elseif mine(rec.w) then self:PayLater(rec, rec.g) end
 end
 
 -- Your confirmed games that still have gold outstanding, oldest first (a
@@ -283,7 +321,7 @@ end
 function L:MyUnpaid()
     local out = {}
     for _, rec in pairs(games()) do
-        if (rec.w == ns.me or rec.l == ns.me) and not rec.conflict and self:Confirmed(rec) and self:Owed(rec) > 0 then out[#out + 1] = rec end
+        if (mine(rec.w) or mine(rec.l)) and not rec.conflict and not selfGame(rec) and self:Confirmed(rec) and self:Owed(rec) > 0 then out[#out + 1] = rec end
     end
     table.sort(out, function(a, b) return a.t < b.t end)
     return out
@@ -293,10 +331,15 @@ end
 -- Standings (every game you know about, disputed ones excluded)
 -- ---------------------------------------------------------------------
 function L:Stats()
-    local by = {}
+    local by, alias = {}, {}
+    local AL = ns.Alts
+    -- with alt linking, each player is one row under their main
     local function s(name)
-        by[name] = by[name] or { name = name, wins = 0, losses = 0, net = 0, owes = 0, owed = 0, games = 0 }
-        return by[name]
+        local main = AL and AL:Main(name) or name
+        alias[name] = main
+        by[main] = by[main] or { name = main, wins = 0, losses = 0, net = 0, owes = 0, owed = 0, games = 0, chars = {} }
+        if name ~= main then by[main].chars[name] = true end
+        return by[main]
     end
     -- archived (older, settled) games count through their totals
     local arch = ns.udb.deathroll.archive
@@ -305,7 +348,7 @@ function L:Stats()
         x.wins, x.losses, x.net, x.games = x.wins + a.wins, x.losses + a.losses, x.net + a.net, x.games + a.games
     end
     for _, rec in pairs(games()) do
-        if not rec.conflict and rec.w and rec.l and self:Confirmed(rec) then
+        if not rec.conflict and rec.w and rec.l and self:Confirmed(rec) and not selfGame(rec) then
             local w, l, owed = s(rec.w), s(rec.l), self:Owed(rec)
             w.wins, w.net, w.games, w.owed = w.wins + 1, w.net + rec.g, w.games + 1, w.owed + owed
             l.losses, l.net, l.games, l.owes = l.losses + 1, l.net - rec.g, l.games + 1, l.owes + owed
@@ -317,6 +360,10 @@ function L:Stats()
         if a.net ~= b.net then return a.net > b.net end
         return a.name < b.name
     end)
+    -- every character finds its player's row (by[ns.me] is you, on any character)
+    for name, main in pairs(alias) do by[name] = by[main] end
+    local me = AL and AL:Main(ns.me) or ns.me
+    if by[me] then by[ns.me] = by[me] end
     return list, by
 end
 
@@ -340,13 +387,14 @@ function L:OnTradeComplete(partner, gave, got)
         local list = {}
         for _, rec in pairs(games()) do
             local match
+            -- (with alt linking: any of your characters, any of theirs)
             if iAmWinner then
-                match = rec.w == ns.me and rec.l == partner      -- they're paying you
+                match = mine(rec.w) and (rec.l == partner or (ns.Alts and ns.Alts:Same(rec.l, partner)))   -- they're paying you
             else
-                match = rec.l == ns.me and rec.w == partner      -- you're paying them
+                match = mine(rec.l) and (rec.w == partner or (ns.Alts and ns.Alts:Same(rec.w, partner)))   -- you're paying them
                     and math.max(rec.paid or 0, rec.sent or 0) < rec.g
             end
-            if match and not rec.conflict and self:Confirmed(rec) and self:Owed(rec) > 0 then list[#list + 1] = rec end
+            if match and not rec.conflict and not selfGame(rec) and self:Confirmed(rec) and self:Owed(rec) > 0 then list[#list + 1] = rec end
         end
         table.sort(list, function(a, b) return a.t < b.t end)
         local total = 0
@@ -354,7 +402,8 @@ function L:OnTradeComplete(partner, gave, got)
             if amount <= 0 then break end
             if iAmWinner then
                 local pay = math.min(amount, self:Owed(rec))
-                self:SetPaid(rec, (rec.paid or 0) + pay)
+                local to = math.max(rec.paid or 0, rec.payLater or 0) + pay
+                if rec.w == ns.me then self:SetPaid(rec, to) else self:PayLater(rec, to) end
                 amount, total = amount - pay, total + pay
             else
                 local covered = math.max(rec.paid or 0, rec.sent or 0)
@@ -497,7 +546,7 @@ end
 function L:Trim()
     local others = {}
     for _, rec in pairs(games()) do
-        if rec.w ~= ns.me and rec.l ~= ns.me then others[#others + 1] = rec end
+        if not (ns.Alts and (ns.Alts:IsMine(rec.w) or ns.Alts:IsMine(rec.l))) and rec.w ~= ns.me and rec.l ~= ns.me then others[#others + 1] = rec end
     end
     if #others <= KEEP_OTHERS then return end
     table.sort(others, function(a, b) return (a.t or 0) > (b.t or 0) end)
@@ -529,12 +578,12 @@ function L:ShareMine(asker)
     if self._sharedAt and GetTime() - self._sharedAt < 20 then return end
     self._sharedAt = GetTime()
     if asker then sharedTo[asker] = { at = GetTime(), h = h } end
-    local mine = {}
+    local list = {}
     for _, rec in pairs(games()) do
-        if isMine(rec) and (rec.t or 0) >= from then mine[#mine + 1] = rec end
+        if isMine(rec) and (rec.t or 0) >= from then list[#list + 1] = rec end
     end
-    table.sort(mine, function(a, b) return a.t > b.t end)
-    for _, r in ipairs(mine) do queue[#queue + 1] = recMsg(r) end
+    table.sort(list, function(a, b) return a.t > b.t end)
+    for _, r in ipairs(list) do queue[#queue + 1] = recMsg(r) end
     self:StartPump()
 end
 
@@ -597,7 +646,7 @@ function L:Merge(f, sender)
     end
     self:CheckLock(rec)
     dirty(rec)
-    if sender == rec.w and rec.l == ns.me then self:CheckAnswered(rec) end
+    if sender == rec.w and mine(rec.l) then self:CheckAnswered(rec) end
     refresh()
 end
 
@@ -624,7 +673,7 @@ function L:OnMessage(f, sender)
     elseif kind == "C" then
         -- someone asks whether their debt to us is paid: answer with our record
         local rec = games()[f[2] or ""]
-        if not (rec and rec.w == ns.me and rec.l == sender) then return end
+        if not (rec and rec.w == ns.me and (rec.l == sender or (ns.Alts and ns.Alts:Same(rec.l, sender)))) then return end
         if self:Quiet() then
             -- in combat: answer as soon as the fight is over
             self._pendingChecks = self._pendingChecks or {}

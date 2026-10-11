@@ -38,6 +38,16 @@ function S:Pages()
         { text = "Titan Up " .. ns.VERSION .. " - the guild toolkit." },
         { button = "Check raid versions", tip = "See which Titan Up version everyone in your group runs - the list fills in as they answer", run = function() ns.Updates:Check() end },
         { button = "Reset alert position", tip = "Put the stack of pop-ups (pull alert, death summary, key vote, What's new) back at the top of the screen", run = function() ns.Dock:Reset() end },
+        { toggle = "Link my characters", tip = "Show your characters as one player under your main: one row in the Wowdle and Death Roll standings, and Death Roll wins and debts combined (pay from any of them). Your guild sees which characters are yours. Each character joins once you've logged into it with Titan Up.",
+          get = function() return ns.Alts:Enabled() end, set = function(on) ns.Alts:SetEnabled(on) end },
+        { cycle = "My main", tip = "The character the others are listed under",
+          options = (function()
+              local out = {}
+              for _, n in ipairs(ns.Alts:MyChars()) do out[#out + 1] = { n, ns.Short(n) } end
+              if #out == 0 then out[1] = { ns.me, ns.Short(ns.me) } end
+              return out
+          end)(),
+          get = function() return ns.Alts:MyMain() end, set = function(v) ns.Alts:SetMain(v) end },
         { notes = true },                       -- what's new, every version, newest first
     } }
     -- the raid tools' pages, keyed by module (shown in the tools' own order)
@@ -50,6 +60,8 @@ function S:Pages()
               set = function(on) u.loot.rollWindow = on; if not on and ns.LootRolls then ns.LootRolls.V:Hide() end end },
             { button = "Preview the roll window", tip = "Open it with sample items and raiders - nothing is rolled or sent", run = function() ns.LootRolls:Preview() end },
             { text = "/tu rolls opens it again after you close it (rolls stay listed for 2 hours, the trade window)." },
+            { toggle = "Share my loot wishlist", tip = "Let the guild see the items on your wishlist (the Wishlist tab), so the Loot window and the roll window can show who wants a drop. Off: your wishlist stays on your screen only.",
+              get = function() return ns.Wishlist:Enabled() end, set = function(on) ns.Wishlist:SetEnabled(on) end },
         } },
         raidcheck = u.raidcheck and { title = "Raid Check", rows = {
             { toggle = "Check before /pull", tip = "When you (leader / assist) type /pull in a Heroic or Mythic raid, check everyone first",
@@ -74,6 +86,16 @@ function S:Pages()
     for key, pg in pairs(TOOL_PAGES) do                       -- (anything not in the nav yet)
         if pg and not added[key] then pages[#pages + 1] = { key = key, title = pg.title, group = "RAID TOOLS", rows = pg.rows } end
     end
+    if u.crafters then
+        pages[#pages + 1] = { key = "crafters", title = "Crafters", group = "GUILD", rows = {
+            { toggle = "Share my recipes", tip = "Let the guild see what this character can craft (read when you open a profession window). Off: the guild forgets this character's recipes.",
+              get = function() return ns.Crafters:Enabled() end, set = function(on) ns.Crafters:SetEnabled(on) end },
+            { toggle = "Include older expansions", tip = "Also share recipes from earlier expansions (about three times as much). Open each profession window once afterwards.",
+              get = function() return u.crafters.oldTiers end, set = function(on) ns.Crafters:SetOldTiers(on) end },
+            { text = "Your recipes are read each time you open a profession window, so new recipes show up on their own." },
+            { text = "Outside crafters you add are shown to the whole guild; you (or an officer) can remove them." },
+        } }
+    end
     return pages
 end
 
@@ -81,7 +103,7 @@ end
 -- so a change in one place shows everywhere at once.
 function ns.SettingsChanged()
     if S.frame and S.frame:IsShown() then S:RefreshPage() end
-    for _, name in ipairs({ "TweaksUI", "LootUI", "RaidCheckUI", "PullReportUI", "DeathRollUI" }) do
+    for _, name in ipairs({ "TweaksUI", "LootUI", "RaidCheckUI", "PullReportUI", "DeathRollUI", "WowdleUI", "CraftersUI", "WishlistUI" }) do
         local v = ns[name]
         if v and v.frame and v.frame:IsShown() and v.Refresh then pcall(v.Refresh, v) end
     end

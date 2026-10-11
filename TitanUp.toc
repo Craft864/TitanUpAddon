@@ -2,7 +2,7 @@
 ## Title: Titan Up
 ## Notes: The Titan Up guild toolkit: TitanBoard live raid strategy board, a loot tracker, Death Roll, Wheel of Fortune, Chess, and more.
 ## Author: Ryan (Titan Up - Medivh)
-## Version: 0.36.0
+## Version: 0.37.0
 ## SavedVariables: TitanUpDB, TitanBoardDB
 ## IconTexture: Interface\AddOns\TitanUp\Media\TitanUp
 ## X-Category: Raid
@@ -20,6 +20,8 @@ Nav.lua
 Updates.lua
 Settings.lua
 Search.lua
+Guild\Shared.lua
+Guild\Alts.lua
 
 Board\Content.lua
 Board\Model.lua
@@ -43,6 +45,8 @@ WheelOfFortune\WheelUI.lua
 Loot\Loot.lua
 Loot\LootUI.lua
 Loot\LootRolls.lua
+Loot\Wishlist.lua
+Loot\WishlistUI.lua
 
 RaidCheck\RaidCheck.lua
 RaidCheck\RaidCheckUI.lua
@@ -65,4 +69,7 @@ Wowdle\Wowdle.lua
 Chess\Rules.lua
 Chess\Chess.lua
 Chess\ChessUI.lua
+
+Guild\Crafters.lua
+Guild\CraftersUI.lua
 

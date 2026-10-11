@@ -4,7 +4,7 @@
 -- permissions and slash commands; every module hangs off the shared `ns`.
 local ADDON, ns = ...
 
-ns.VERSION = "0.36.0"
+ns.VERSION = "0.37.0"
 ns.PREFIX = "TitanBoard"     -- board sync channel (unchanged, so it stays compatible)
 ns.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 ns.U = 4095            -- board coordinates run 0..4095 on both axes
@@ -272,8 +272,55 @@ function ns.TrySend(prefix, msg, channel, target)
     if not ok then return false end
     local R = Enum and Enum.SendAddonMessageResult
     if r == false or (R and type(r) == "number" and (r == R.AddonMessageThrottle or r == R.ChannelThrottle)) then return "throttle" end
-    if r == nil or r == true or (R and r == R.Success) or not R then return true end
+    if r == nil or r == true or (R and r == R.Success) or not R then ns.Tally("out", prefix, #msg) return true end
     return false
+end
+
+-- ---------------------------------------------------------------------
+-- Traffic meter (/tu mem): addon messages sent and received per feature,
+-- in one-minute buckets for the last TRAFFIC_MIN minutes.
+-- ---------------------------------------------------------------------
+local TRAFFIC_MIN = 10
+local traffic = {}          -- [prefix] = { [minute] = { out n, out bytes, in n, in bytes } }
+function ns.Tally(dir, prefix, bytes)
+    if not prefix then return end
+    local m = math.floor(GetTime() / 60)
+    local t = traffic[prefix]
+    if not t then t = {} traffic[prefix] = t end
+    local b = t[m]
+    if not b then
+        b = { 0, 0, 0, 0 }
+        t[m] = b
+        for k in pairs(t) do if k <= m - TRAFFIC_MIN then t[k] = nil end end
+    end
+    local i = dir == "out" and 1 or 3
+    b[i], b[i + 1] = b[i] + 1, b[i + 1] + (bytes or 0)
+end
+
+ns.TRAFFIC_NAMES = {
+    TitanBoard = "TitanBoard", TitanBoardL = "TitanBoard laser", TitanUpVC = "Version check", TitanUpDR = "Death Roll",
+    TitanUpWF = "Wheel of Fortune", TitanUpLT = "Loot trades", TitanUpLR = "Loot roll window", TitanUpRC = "Raid Check",
+    TitanUpPR = "Pull Report", TitanUpRS = "Raid Scorecard", TitanUpMS = "Macro Share", TitanUpKR = "Keystone Roulette",
+    TitanUpWD = "Wowdle", TitanUpCH = "Chess", TitanUpCR = "Crafters", TitanUpLW = "Loot wishlist", TitanUpAL = "Alt linking",
+}
+
+-- { { prefix, name, sent, sentBytes, got, gotBytes }, ... } busiest first
+function ns.Traffic(minutes)
+    minutes = minutes or TRAFFIC_MIN
+    local from = math.floor(GetTime() / 60) - minutes + 1
+    local out = {}
+    for prefix, t in pairs(traffic) do
+        local r = { prefix = prefix, name = ns.TRAFFIC_NAMES[prefix] or prefix, sent = 0, sentBytes = 0, got = 0, gotBytes = 0 }
+        for m, b in pairs(t) do
+            if m >= from then r.sent, r.sentBytes, r.got, r.gotBytes = r.sent + b[1], r.sentBytes + b[2], r.got + b[3], r.gotBytes + b[4] end
+        end
+        if r.sent + r.got > 0 then out[#out + 1] = r end
+    end
+    table.sort(out, function(a, b)
+        if a.sent + a.got ~= b.sent + b.got then return a.sent + a.got > b.sent + b.got end
+        return a.name < b.name
+    end)
+    return out
 end
 
 local function queueFor(prefix)
@@ -341,6 +388,62 @@ function ns.SendFields(prefix, ...)
     return ch ~= nil
 end
 
+-- ---------------------------------------------------------------------
+-- The background lane: bulk sync that can wait (Crafters, Loot wishlists)
+-- shares one slow budget - one message every BULK_EVERY seconds in all -
+-- so live traffic (rolls, the board, games) never queues behind it. It's
+-- a speed limit, not a schedule: with nothing queued, nothing is sent. The
+-- lane pauses in combat, boss fights, raid instances and Mythic+ runs, and
+-- carries on afterwards.
+-- ---------------------------------------------------------------------
+local BULK_EVERY, BULK_MAX = 2, 400
+local bulk = { items = {}, nextAt = 0 }
+ns.BULK_EVERY = BULK_EVERY
+
+function ns.BulkPaused()
+    if ns.Busy() or ns.InRaidInstance() then return true end
+    local cm = C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive
+    return cm and ns.Safe.Call(cm) == true or false
+end
+
+local function bulkPump()
+    if #bulk.items == 0 then
+        if bulk.ticker then bulk.ticker:Cancel(); bulk.ticker = nil end
+        return
+    end
+    if ns.BulkPaused() or GetTime() < bulk.nextAt then return end
+    local ch = ns.DataChannel()
+    if not ch then return end
+    local item = table.remove(bulk.items, 1)
+    ns.Send(item[1], item[2], ch)
+    bulk.nextAt = GetTime() + BULK_EVERY
+end
+
+-- ns.BulkSend(prefix, msg, key): queue msg on the background lane. key
+-- (optional) tags it so ns.BulkDrop can take it back out unsent.
+function ns.BulkSend(prefix, msg, key)
+    if not (prefix and msg) then return false end
+    if #bulk.items >= BULK_MAX then table.remove(bulk.items, 1) end
+    bulk.items[#bulk.items + 1] = { prefix, msg, key }
+    if not bulk.ticker then bulk.ticker = C_Timer.NewTicker(0.5, bulkPump) end
+    return true
+end
+
+-- take queued messages back out: every item whose key is `key`
+function ns.BulkDrop(key)
+    local n = 0
+    for i = #bulk.items, 1, -1 do
+        if bulk.items[i][3] == key then table.remove(bulk.items, i); n = n + 1 end
+    end
+    return n
+end
+
+function ns.BulkQueued(key)
+    local n = 0
+    for _, it in ipairs(bulk.items) do if key == nil or it[3] == key then n = n + 1 end end
+    return n
+end
+
 -- Long messages go out in numbered parts: ns.Chunks splits, and
 -- ns.Reassemble(inbox, key, part, n, chunk, maxParts) collects them and
 -- returns the whole text once every part is in. A message whose parts
@@ -403,6 +506,7 @@ function ns.Listen(prefix, scope, fn)
         ns.On("CHAT_MSG_ADDON", function(p, msg, channel, sender)
             local list = listeners[p]
             if not list or ns.IsSecret(msg) then return end
+            ns.Tally("in", p, #msg)
             sender = ns.NormalizeSender(sender)
             if not sender or sender == ns.me then return end
             for _, l in ipairs(list) do
@@ -476,6 +580,7 @@ local AREA_NAMES = {
     deathroll = "Death Roll ledger", wowdle = "Wowdle", chess = "Chess games", timer = "Combat Timer", deathAlerts = "Death Alerts",
     keys = "Keystone Roulette", splitter = "Stack Splitter", brez = "Battle rez tracker", raidcheck = "Raid Check",
     tweaks = "UI Tweaks", wheel = "Wheel of Fortune", minimap = "Minimap button",
+    crafters = "Crafters directory", wishlist = "Loot wishlists", alts = "Alt linking",
 }
 
 -- rough size of a value in KB (strings, numbers and table entries)
@@ -532,6 +637,20 @@ function ns.MemoryReport()
     end
     ns.Print(("  Windows opened this session (%d, stay built until /reload): %s"):format(#b.windows, #b.windows > 0 and table.concat(b.windows, ", ") or "none"))
     if total then ns.Print(("  Code, windows and everything else: about %.0f KB"):format(math.max(0, total - b.saved))) end
+    local t = ns.Traffic()
+    if #t == 0 then
+        ns.Print("  Addon messages, last 10 minutes: none sent or received.")
+    else
+        local sent, got = 0, 0
+        for _, r in ipairs(t) do sent, got = sent + r.sent, got + r.got end
+        ns.Print(("  Addon messages, last 10 minutes: |cffffffff%d|r sent, |cffffffff%d|r received"):format(sent, got))
+        for i, r in ipairs(t) do
+            if i > 8 then break end
+            ns.Print(("    %s  |cff8a8f9csent %d (%.1f KB), received %d (%.1f KB)|r"):format(r.name, r.sent, r.sentBytes / 1024, r.got, r.gotBytes / 1024))
+        end
+        local q = ns.BulkQueued()
+        if q > 0 then ns.Print(("    |cff8a8f9c%d background message%s waiting%s|r"):format(q, q == 1 and "" or "s", ns.BulkPaused() and " (paused: combat, raid or Mythic+)" or "")) end
+    end
 end
 
 -- Where Titan Up addon data goes: your guild's channel, or nowhere.
@@ -754,6 +873,10 @@ local SUITE_DEFAULTS = {
     wowdle = { guesses = {}, standings = {}, stats = { played = 0, wins = 0, streak = 0, best = 0, sum = 0, dist = { 0, 0, 0, 0, 0, 0 } } },
     wheel = { bonus = false },                   -- Wheel of Fortune: play a bonus round (ticked in the lobby)
     chess = { games = {}, carry = {}, known = {} },  -- your games, guildmates' games you carry, who has Chess
+    -- 0.37.0 (Ryan: these three are on by default)
+    alts = { share = true, chars = {}, links = {} },          -- your characters (this account), guildmates' alt lists
+    crafters = { share = true, oldTiers = false, mine = {}, people = {} },   -- mine[character] = professions, outside crafters
+    wishlist = { share = true, mine = {}, people = {} },      -- mine[character] = { [itemID] = tags }
 }
 
 ns.On("ADDON_LOADED", function(name)
@@ -774,7 +897,8 @@ local function startModules()
     for _, name in ipairs({ "Updates", "Content", "Model", "Comms", "Sync", "Presence",
                             "Board", "Laser", "Invite", "ImportExport",
                             "Hub", "DeathRoll", "DRLedger", "DeathRollUI", "Wheel", "WheelUI", "Loot", "LootUI", "LootRolls",
-                            "RaidCheck", "RaidCheckUI", "PullReport", "PullReportUI", "RaidScorecard", "RaidScorecardUI", "MacroShare", "MacroShareUI", "MacroBuilder", "Timer", "TimerUI", "Tweaks", "TweaksUI", "DeathAlerts", "StackSplitter", "BattleRez", "BonusRollGuard", "Keys", "KeysUI", "Wowdle", "WowdleUI", "Chess" }) do
+                            "RaidCheck", "RaidCheckUI", "PullReport", "PullReportUI", "RaidScorecard", "RaidScorecardUI", "MacroShare", "MacroShareUI", "MacroBuilder", "Timer", "TimerUI", "Tweaks", "TweaksUI", "DeathAlerts", "StackSplitter", "BattleRez", "BonusRollGuard", "Keys", "KeysUI", "Wowdle", "WowdleUI", "Chess",
+                            "Alts", "Crafters", "CraftersUI", "Wishlist", "WishlistUI" }) do
         -- each module starts on its own: one failing can't stop the rest
         local m = ns[name]
         if m and m.Init then
@@ -924,7 +1048,7 @@ SlashCmdList.TITANUP = function(msg)
         ns.Print("/tu set <words> - search the settings (or type in the box at the top of any Titan Up window)")
         ns.Print("/tu versions - which Titan Up version everyone in your group runs")
         ns.Print("/tu new - what's new in this version")
-        ns.Print("/tu mem - how much memory Titan Up is using, broken down by saved data and open windows")
+        ns.Print("/tu mem - how much memory Titan Up is using (saved data, open windows) and how many addon messages it sent")
     end
 end
 

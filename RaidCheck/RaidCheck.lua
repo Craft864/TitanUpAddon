@@ -34,14 +34,25 @@ RC.RAID_BUFFS = {
     { key = "bronze", spell = 364342, name = "Blessing of the Bronze", class = "EVOKER" },
     { key = "sky", spell = 462854, name = "Skyfury", class = "SHAMAN" },
 }
--- Current-tier consumables (Midnight). Matched by name so every quality
--- rank (and the cauldron versions) counts. Any food buff counts.
-RC.FLASKS = { "Flask of Thalassian Resistance", "Flask of the Blood Knights", "Flask of the Magisters", "Flask of the Shattered Sun" }
-RC.POTIONS = { "Light's Potential", "Potion of Recklessness", "Potion of Zealotry", "Liquid Luster" }
-RC.HEALTH_POTIONS = { "Silvermoon Health Potion", "Concentrated Silvermoon Health Potion" }
-RC.WEEKLY = "Fury of the Dead"
-RC.VANTUS = "Vantus Rune"
-RC.FOOD = "Well Fed"
+-- Current-tier consumables (Midnight). Since 0.37.0 they're matched by
+-- item and spell number, so every game language works: each list has the
+-- item IDs (both quality ranks), the spells the items use, and the English
+-- names as a last resort (an item the client hasn't loaded yet). The names
+-- the game gives in your own language are matched too, so a cauldron flask
+-- (another item with the same name) still counts. Any food buff counts.
+-- (IDs from the 12.1.5 game data.)
+RC.FLASKS = { names = { "Flask of Thalassian Resistance", "Flask of the Blood Knights", "Flask of the Magisters", "Flask of the Shattered Sun" },
+              items = { 241320, 241321, 241324, 241325, 241322, 241323, 241326, 241327 } }
+RC.POTIONS = { names = { "Light's Potential", "Potion of Recklessness", "Potion of Zealotry", "Liquid Luster" },
+               items = { 241308, 241309, 241288, 241289, 241296, 241297, 271886, 271887 } }
+RC.HEALTH_POTIONS = { names = { "Silvermoon Health Potion", "Concentrated Silvermoon Health Potion" },
+                      spells = { 1234768, 1295247 } }
+RC.HEALTHSTONES = { names = { "Healthstone", "Demonic Healthstone" }, items = { 5512, 224464 }, spells = { 6262, 452930 },
+                    contains = { item = 5512, english = "healthstone" } }       -- any kind of healthstone
+-- Auras: a spell whose name (in your language) is the buff's name
+RC.WEEKLY = "Fury of the Dead"          -- (no spell number known yet: English clients only)
+RC.VANTUS = { spell = 1290561, english = "Vantus Rune" }      -- "Vantus Rune: <boss>": the part before the colon
+RC.FOOD = { spells = { 19705, 462209 }, english = { "Well Fed", "Hearty Well Fed" } }
 
 RC.CHECKS = {
     { key = "flask", label = "Flask" },
@@ -88,6 +99,96 @@ local function spellName(id, fallback)
     return (ok and type(name) == "string" and name) or fallback
 end
 
+-- ---------------------------------------------------------------------
+-- Names in the player's own language, from the game (item names can take a
+-- moment to load: until then the English name stands in)
+-- ---------------------------------------------------------------------
+local function itemName(id)
+    local f = C_Item and C_Item.GetItemNameByID
+    local name = f and ns.Safe.Call(f, id)
+    if not name and C_Item and C_Item.RequestLoadItemDataByID then pcall(C_Item.RequestLoadItemDataByID, id) end
+    return name
+end
+
+local spellOf = {}           -- item ID -> the spell it uses (false: none), once known
+local function itemSpell(id)
+    local known = spellOf[id]
+    if known ~= nil then return known or nil end
+    local f = C_Item and C_Item.GetItemSpell
+    if not f then return nil end
+    local ok, name, spellID = pcall(f, id)
+    spellID = ok and ns.Safe.Num(spellID) or nil
+    if spellID then spellOf[id] = spellID
+    elseif ok and name == nil and C_Item.GetItemNameByID and ns.Safe.Call(C_Item.GetItemNameByID, id) then spellOf[id] = false end
+    return spellID
+end
+
+local function lowerSet(list, out)
+    out = out or {}
+    for _, n in ipairs(list or {}) do if type(n) == "string" then out[n:lower()] = true end end
+    return out
+end
+
+-- a list spec -> { ids = {}, spells = {}, names = {} (lowercase), contains = {} (lowercase) }
+local matchers = {}
+function RC.Matcher(spec)
+    local plain = spec[1] ~= nil and not spec.names
+    if plain then spec = { names = spec } end          -- a plain list of names (not remembered)
+    local m = not plain and matchers[spec]
+    if m and m.done then return m end
+    m = { ids = {}, spells = {}, names = lowerSet(spec.names), contains = {} }
+    local done = true
+    for _, id in ipairs(spec.items or {}) do
+        m.ids[id] = true
+        local n = itemName(id)
+        if n then m.names[n:lower()] = true else done = false end
+        local sp = itemSpell(id)
+        if sp then m.spells[sp] = true end
+    end
+    for _, id in ipairs(spec.spells or {}) do m.spells[id] = true end
+    if spec.contains then
+        m.contains[spec.contains.english] = true
+        local n = itemName(spec.contains.item)
+        if n then m.contains[n:lower()] = true else done = false end
+    end
+    -- only remembered once every name has loaded (or there's no item API at all)
+    m.done = done or not (C_Item and C_Item.GetItemNameByID)
+    if not plain then matchers[spec] = m end
+    m.plain = plain
+    return m
+end
+
+-- does a bag item (id, link) match?
+function RC.Matches(m, id, lname)
+    if id and m.ids[id] then return true end
+    if lname then
+        if m.names[lname] then return true end
+        for part in pairs(m.contains) do if lname:find(part, 1, true) then return true end end
+    end
+    if id and next(m.spells) then
+        local sp = itemSpell(id)
+        if sp and m.spells[sp] then return true end
+    end
+    return false
+end
+
+-- localized buff names from spell IDs (+ English)
+local function spellNames(spells, english)
+    local out = lowerSet(type(english) == "table" and english or { english })
+    for _, id in ipairs(spells or {}) do
+        local n = spellName(id)
+        if n then out[n:lower()] = true end
+    end
+    return out
+end
+
+-- "Vantus Rune" in your language: the part of a Vantus Rune buff's name before the colon
+local function vantusPrefix()
+    local n = spellName(RC.VANTUS.spell)
+    local p = n and n:match("^(.-)%s*[:：]")
+    return (p and p ~= "" and p:lower()) or RC.VANTUS.english:lower()
+end
+
 local function playerAuras()
     local list = {}
     if not (C_UnitAuras and C_UnitAuras.GetAuraDataByIndex) then return list end
@@ -109,35 +210,32 @@ function RC.ItemName(link)
     return (inner:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
--- How many of each list's items are in your bags (by name, any quality),
--- and their item IDs - every list in one pass over the bags:
--- RC.BagCounts({ pots = {...}, hs = {...} }) -> { pots = { count, ids }, ... }.
--- Asking for "Healthstone" counts every kind of healthstone.
+-- How many of each list's items are in your bags (any quality), and their
+-- item IDs - every list in one pass over the bags:
+-- RC.BagCounts({ pots = RC.POTIONS, hs = RC.HEALTHSTONES }) -> { pots = { count, ids }, ... }.
+-- A list is a spec like RC.POTIONS (item IDs, spells, names) or a plain
+-- list of names; asking for "Healthstone" by name counts every kind.
 function RC.BagCounts(lists)
-    local want, out = {}, {}
-    for key, names in pairs(lists) do
+    local ms, out = {}, {}
+    for key, spec in pairs(lists) do
         out[key] = { count = 0, ids = {} }
-        for _, n in ipairs(names) do
-            local l = n:lower()
-            want[l] = want[l] or {}
-            table.insert(want[l], key)
-        end
+        local m = RC.Matcher(spec)
+        if m.plain and m.names.healthstone then m.contains.healthstone = true end
+        ms[key] = m
     end
     if not (C_Container and C_Container.GetContainerNumSlots) then return out end
-    local anyStone, hit = want.healthstone, {}
     for bag = 0, 5 do
         for slot = 1, C_Container.GetContainerNumSlots(bag) or 0 do
             local info = C_Container.GetContainerItemInfo(bag, slot)
-            local name = info and info.hyperlink and RC.ItemName(info.hyperlink)
-            local lname = name and name:lower()
-            if lname then
-                wipe(hit)
-                for _, key in ipairs(want[lname] or {}) do hit[key] = true end
-                if anyStone and lname:find("healthstone", 1, true) then for _, key in ipairs(anyStone) do hit[key] = true end end
-                for key in pairs(hit) do
-                    local o = out[key]
-                    o.count = o.count + (info.stackCount or 1)
-                    if info.itemID then o.ids[info.itemID] = true end
+            if info then
+                local name = info.hyperlink and RC.ItemName(info.hyperlink)
+                local lname = name and name:lower()
+                for key, m in pairs(ms) do
+                    if RC.Matches(m, info.itemID, lname) then
+                        local o = out[key]
+                        o.count = o.count + (info.stackCount or 1)
+                        if info.itemID then o.ids[info.itemID] = true end
+                    end
                 end
             end
         end
@@ -169,12 +267,17 @@ function RC:Snapshot()
         buffs[i] = byName[spellName(b.spell, b.name)] and "1" or "0"
     end
     local flask, food, vantus, weekly = 0, 0, 0, 0
-    local flaskNames = {}
-    for _, n in ipairs(self.FLASKS) do flaskNames[n] = true end
+    local flasks = RC.Matcher(self.FLASKS)
+    local foods = spellNames(self.FOOD.spells, self.FOOD.english)
+    local runePrefix = vantusPrefix()
     for _, a in ipairs(auras) do
-        if flaskNames[a.name] then flask = a.spellId end
-        if a.name == self.FOOD or a.name:find(self.FOOD, 1, true) then food = a.spellId end
-        if a.name:find(self.VANTUS, 1, true) then vantus = 1 end
+        local lname = a.name:lower()
+        if flasks.spells[a.spellId] or flasks.names[lname] then flask = a.spellId end
+        if foods[lname] then food = a.spellId
+        else
+            for f in pairs(foods) do if lname:find(f, 1, true) then food = a.spellId break end end
+        end
+        if lname:sub(1, #runePrefix) == runePrefix then vantus = 1 end
         if a.name == self.WEEKLY then weekly = 1 end
     end
     -- Weapon oil / stone on the main hand. GetWeaponEnchantInfo was removed
@@ -187,7 +290,7 @@ function RC:Snapshot()
     elseif GetWeaponEnchantInfo then
         hasMain = GetWeaponEnchantInfo()
     end
-    local bags = RC.BagCounts({ pots = self.POTIONS, hs = { "Healthstone" }, hpots = self.HEALTH_POTIONS })
+    local bags = RC.BagCounts({ pots = self.POTIONS, hs = self.HEALTHSTONES, hpots = self.HEALTH_POTIONS })
     return {
         buffs = table.concat(buffs), flask = flask, food = food, weapon = hasMain and 1 or 0,
         vantus = vantus, weekly = weekly, pots = bags.pots.count, hs = bags.hs.count, hpots = bags.hpots.count,

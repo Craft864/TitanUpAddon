@@ -89,13 +89,15 @@ D.DEFENSIVES = {
 
 -- Cheat-death saves, recognised by the debuff (or buff) they leave on you,
 -- by name. If a name doesn't match in game, that save just isn't reported.
+-- aura: the English name; spell: its spell number, so the name is read in
+-- your own language (0.37.0)
 D.CHEAT_DEATHS = {
-    ROGUE = { { aura = "Cheated Death", name = "Cheat Death" } },
-    MAGE = { { aura = "Cauterized", name = "Cauterize" } },
-    EVOKER = { { aura = "Empty Hourglass", name = "Defy Fate" } },     -- Defy Fate's lockout debuff
-    WARRIOR = { { aura = "Kill or Be Killed", name = "Kill or Be Killed" } },
+    ROGUE = { { aura = "Cheated Death", spell = 45181, name = "Cheat Death" } },
+    MAGE = { { aura = "Cauterized", spell = 87024, name = "Cauterize" } },
+    EVOKER = { { aura = "Empty Hourglass", spell = 404369, name = "Defy Fate" } },     -- Defy Fate's lockout debuff
+    WARRIOR = { { aura = "Kill or Be Killed", spell = 1265361, name = "Kill or Be Killed" } },
 }
 
 -- Consumables, found in your bags by name (every quality counts).
 D.HEALTH_POTIONS = ns.RaidCheck.HEALTH_POTIONS        -- one list, Raid Check's (update it each tier)
-D.HEALTHSTONES = { "Healthstone", "Demonic Healthstone" }
+D.HEALTHSTONES = ns.RaidCheck.HEALTHSTONES             -- (by item and spell number, 0.37.0)
