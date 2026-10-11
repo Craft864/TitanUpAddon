@@ -126,8 +126,37 @@ function V:Create()
         row.status:SetWordWrap(false)
         row:SetScript("OnEnter", function(s) V:Tooltip(s) end)
         row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        row:SetScript("OnMouseUp", function(s) if s.drop then V:ShowWanters(s.drop) end end)
         self.dropRows[i] = row
     end
+
+    -- who wants a drop (click a row): a panel over the right side of the list
+    local w = CreateFrame("Frame", nil, right, "BackdropTemplate")
+    UI.Skin(w, C.bg, C.accent)
+    w:SetPoint("TOPRIGHT", -6, -26)
+    w:SetPoint("BOTTOMRIGHT", -6, 6)
+    w:SetWidth(280)
+    w:SetFrameLevel((right:GetFrameLevel() or 1) + 20)
+    w:EnableMouse(true)
+    w:Hide()
+    UI.Text(w, "GameFontNormal", C.accent, "WHO WANTS IT", "TOPLEFT", 10, -8)
+    w.item = UI.Text(w, "GameFontHighlightSmall", C.text, nil, "TOPLEFT", 10, -26)
+    w.item:SetWidth(260); w.item:SetJustifyH("LEFT"); w.item:SetWordWrap(false)
+    w.text = UI.Text(w, "GameFontHighlightSmall", C.text, nil, "TOPLEFT", 10, -46)
+    w.text:SetWidth(260); w.text:SetJustifyH("LEFT"); w.text:SetSpacing(3)
+    w.close = UI.Button(w, 22, 20, "x", "Close", function() w:Hide() end)
+    w.close:SetPoint("TOPRIGHT", -6, -6)
+    self.wanters = w
+end
+
+-- click a drop: everyone in the guild with it on their wishlist (BIS in gold)
+function V:ShowWanters(r)
+    local w = self.wanters
+    if w:IsShown() and w.drop == r then w:Hide() return end
+    w.drop = r
+    w.item:SetText(r.link or "?")
+    w.text:SetText(ns.Wishlist and ns.WishlistUI.WantersText(r.item) or "")
+    w:Show()
 end
 
 function V:Tooltip(row)
@@ -217,6 +246,9 @@ function V:Refresh()
     end
     self.title:SetText(title .. "  |cff8a8f9c(" .. #shown .. ")|r")
     self.empty:SetShown(#shown == 0)
+    if self.wanters:IsShown() and self.wanters.drop then
+        self.wanters.text:SetText(ns.WishlistUI.WantersText(self.wanters.drop.item))
+    end
     local drows = self.dropRows
     self.dropOffset = math.max(0, math.min(math.max(0, #shown - #drows), self.dropOffset or 0))
     for i, row in ipairs(drows) do
@@ -235,6 +267,8 @@ end
 
 ns.RegisterModule({
     key = "loot", name = "Loot", icon = ns.MEDIA .. "Loot", group = "tools", order = 2,
-    desc = "Raid drops and rolls, Mythic+ loot, trades until equipped.",
+    desc = "Raid drops and rolls, Mythic+ loot, trades until equipped. Click a drop to see who has it on their wishlist.",
+    rail = "loot", railName = "Loot", tab = "Drops",
+    railDesc = "Raid drops and rolls, trades until equipped, and the guild's loot wishlists.",
     view = V,
 })

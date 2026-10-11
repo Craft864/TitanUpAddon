@@ -327,6 +327,12 @@ function LR:Raiders(e)
         x.class = r.c
         if r.s and r.s ~= NO_ROLL then x.state, x.num = r.s, r.r end
     end
+    -- loot wishlists (0.37.0): raiders who wanted it, even if they haven't picked anything
+    if ns.Wishlist and e.item and e.item > 0 then
+        for _, w in ipairs(ns.Wishlist:Wanters(e.item)) do
+            if w.group or by[w.name] then get(w.name).wish = w.tag end
+        end
+    end
     for _, x in ipairs(list) do
         x.won = e.winner == x.name
         local text
@@ -343,6 +349,7 @@ function LR:Raiders(e)
         if a.won ~= b.won then return a.won end
         if (a.num or -1) ~= (b.num or -1) then return (a.num or -1) > (b.num or -1) end
         if ((a.tags or "") ~= "") ~= ((b.tags or "") ~= "") then return (a.tags or "") ~= "" end
+        if (a.wish == "B") ~= (b.wish == "B") then return a.wish == "B" end
         return a.name < b.name
     end)
     return list
@@ -688,10 +695,14 @@ function V:RefreshDetail()
             r:SetPoint("TOPLEFT", 6, top - (i - 1) * RAIDER_H)
             if top - i * RAIDER_H < -(LIST_H - 4) then break end
             r:Show()
-            r.name:SetText((x.won and "|cff66e08c>|r " or "") .. UI.ClassName(x.name, x.class or ns.ClassOf(x.name)) .. (x.name == ns.me and " |cff8a8f9c(you)|r" or ""))
+            -- gold: BIS for them (their tag here, or their wishlist)
+            local bis = (x.tags or ""):find("B", 1, true) or x.wish == "B"
+            local nameText = bis and ("|cffffd100" .. ns.Short(x.name) .. "|r") or UI.ClassName(x.name, x.class or ns.ClassOf(x.name))
+            r.name:SetText((x.won and "|cff66e08c>|r " or "") .. nameText .. (x.name == ns.me and " |cff8a8f9c(you)|r" or ""))
             r.roll:SetText((x.won and "|cff66e08c" or "|cffffd94d") .. x.rollText .. "|r")
             local sub = LR.TagText(x.tags)
             if (x.note or "") ~= "" then sub = sub .. (sub ~= "" and "  -  " or "") .. "\"" .. x.note .. "\"" end
+            if x.wish then sub = sub .. (sub ~= "" and "  -  " or "") .. "|cff4fc3f7wishlist: " .. (ns.Wishlist.TAG_NAME[x.wish] or "") .. "|r" end
             if sub == "" then sub = x.titan and "no tags" or "|cff5a5f6ano Titan Up tags|r" end
             r.sub:SetText(sub)
         end

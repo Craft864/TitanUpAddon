@@ -140,7 +140,7 @@ function V:CreateLobby(p)
         row.paid = UI.Button(row, 82, 22, "Mark paid", nil, function()
             local e = row.entry
             if not e then return end
-            if e.w == ns.me then ns.DRLedger:MarkPaid(e.id) else ns.DRLedger:CheckDebt(e.id) end
+            if ns.DRLedger.Mine(e.w) then ns.DRLedger:MarkPaid(e.id) else ns.DRLedger:CheckDebt(e.id) end
             V:RefreshLobby()
         end)
         row.paid:SetScript("OnEnter", function(s)
@@ -151,6 +151,9 @@ function V:CreateLobby(p)
             if e.w == ns.me then
                 GameTooltip:SetText("Mark paid", 1, 1, 1)
                 GameTooltip:AddLine("They paid you some other way (mail, etc.). Trades are detected automatically. You're the winner, so your confirmation is what counts.", 0.8, 0.82, 0.86, true)
+            elseif ns.DRLedger.Mine(e.w) then
+                GameTooltip:SetText("Mark paid", 1, 1, 1)
+                GameTooltip:AddLine(("%s won this game, so the guild hears it's paid the next time you log onto %s."):format(ns.Short(e.w), ns.Short(e.w)), 0.8, 0.82, 0.86, true)
             else
                 GameTooltip:SetText("Check", 1, 1, 1)
                 GameTooltip:AddLine(("Ask %s's addon whether it has confirmed your payment. The winner is the source of truth."):format(ns.Short(e.w)), 0.8, 0.82, 0.86, true)
@@ -221,13 +224,14 @@ function V:RefreshLobby(by)
         if e then
             local owed = ns.DRLedger:Owed(e)
             local partial = (e.paid or 0) > 0 and ("  |cff8a8f9c(" .. DR.Fmt(e.paid) .. " of " .. DR.Fmt(e.g) .. " paid)|r") or ""
-            if e.w == ns.me then
-                row.text:SetText(("%s owes you %s%s"):format(colored(e.l), fmtGold(owed), partial))
+            local on = function(name) return name ~= ns.me and ("  |cff8a8f9c(" .. ns.Short(name) .. ")|r") or "" end
+            if ns.DRLedger.Mine(e.w) then
+                row.text:SetText(("%s owes you %s%s%s"):format(colored(e.l), fmtGold(owed), partial, on(e.w)))
                 row.paid.label:SetText("Mark paid")
                 row.paid:Show()
             else
                 local waiting = ((e.sent or 0) > (e.paid or 0)) and ("  |cff8a8f9c(sent " .. DR.Fmt(e.sent) .. " - waiting for them to confirm)|r") or partial
-                row.text:SetText(("|cffff9f40You owe|r %s %s%s"):format(colored(e.w), fmtGold(owed), waiting))
+                row.text:SetText(("|cffff9f40You owe|r %s %s%s%s"):format(colored(e.w), fmtGold(owed), waiting, on(e.l)))
                 row.paid.label:SetText("Check")         -- only the winner can confirm; you can ask
                 row.paid:Show()
             end
@@ -347,7 +351,11 @@ function V:RefreshStandings(list)
         local s = list[i + off]
         r:SetShown(s ~= nil)
         if s then
-            r.name:SetText(("%d.  %s%s"):format(i + off, colored(s.name), s.name == ns.me and " |cff8a8f9c(you)|r" or ""))
+            local alts = 0
+            for _ in pairs(s.chars or {}) do alts = alts + 1 end
+            local you = s.name == ns.me or (ns.Alts and s.name == ns.Alts:Main(ns.me))
+            r.name:SetText(("%d.  %s%s%s"):format(i + off, colored(s.name), you and " |cff8a8f9c(you)|r" or "",
+                alts > 0 and (" |cff8a8f9c+" .. alts .. (alts == 1 and " alt" or " alts") .. "|r") or ""))
             r.wl:SetText(s.wins .. "-" .. s.losses)
             r.net:SetText(((s.net >= 0) and "|cff66e08c+" or "|cffff5a5a-") .. DR.Fmt(math.abs(s.net)) .. "|r")
             local unpaid = ""

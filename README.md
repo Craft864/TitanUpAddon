@@ -1,17 +1,19 @@
-# Titan Up v0.36.0
+# Titan Up v0.37.0
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
 - **Raid tools**
   - **TitanBoard**: live raid strategy board - draw on boss rooms with the raid, plans and slides, laser pointer, Raidstrats import. `/tb`.
   - **Reports**: the **Pull Report** (who died each pull and what they had ready) and the **Raid Scorecard** (weekly death stats), as two tabs of one entry.
-  - **Loot**: every raid drop and roll, Mythic+ loot, and who it was traded to until it's equipped; optional roll window with BIS / Sidegrade / set tags shared with the raid.
+  - **Loot**: every raid drop and roll, Mythic+ loot, and who it was traded to until it's equipped; optional roll window with BIS / Sidegrade / set tags shared with the raid. The **Wishlist** tab lets you pick wanted items from any raid or dungeon in the Adventure Guide, shared with the guild.
   - **Combat Timer**: a combat timer you can style and move.
   - **Raid Check**: raid buffs and personal readiness on every ready check and typed /pull (Heroic and Mythic raids).
   - **Macro Workstation**: the **Builder** helps anyone make a macro step by step (pick an ability, choose where it lands, add trinkets, then save it or share it), and **Share** lets the leader or an assist send macros to the raid, a role or a class, and anyone send one to a person in their group.
 - **UI tweaks**
   - **UI Tweaks**: Release protection, Death alerts, Stack splitter and Battle rez tracker, each with its options beside its switch.
   - **Keystone Roulette**: a wheel or a vote over the group's keys, then teleport.
+- **Guild**
+  - **Crafters**: who in the guild can craft what, read from everyone's profession windows, plus outside crafters (Name-Server) anyone can add for items nobody in the guild makes.
 - **Games**
   - **Death Roll**: challenge a guildmate to a gold death roll with real /rolls, spectators and a tamper-proof guild ledger.
   - **Wheel of Fortune**: a host runs a puzzle game for three players (or practise with bots).
@@ -131,9 +133,48 @@ Left: draw - Right-drag: pan - Right-click: delete - Wheel: zoom - Ctrl+drag: mo
 
 See the comments at the top of `Rooms.lua`. Short version: put a .blp or .tga into `Media/Rooms/`, run `/tb ids` on that boss for its encounter ID, and add an entry to `Rooms.lua`. An encounter can have several images (one per phase); each slide picks one with the Room button.
 
+## Loot wishlist
+
+Loot on the rail, **Wishlist** tab.
+
+- Pick an expansion, raid or dungeon, a boss (or **All drops**) and a difficulty; the drops come from the Adventure Guide. Search, a slot filter, and stat buttons with **Both** (items with every ticked stat, up to two) or **Either** (items with any of them). "My spec" shows only what drops for your spec; "My wishlist" shows only what you've picked.
+- Each item has **BIS**, **Sidegrade** and **Want** buttons. Your list is per character and the whole guild sees it ("Share my loot wishlist" in Loot settings, on by default).
+- **Who wants it:** click an item in the Wishlist tab, or a drop in the Loot tab, for everyone who has it on their list. BIS names are gold, others in class colour. The roll window shows wishlist tags for the raid too.
+- While Blizzard's Adventure Guide is open the Wishlist can't browse (they share the same game data); close it and the list loads.
+
+## Crafters
+
+Crafters under Guild on the rail.
+
+- Open a profession window once and Titan Up reads which recipes you know for the newest expansion (or all of them: "Include older expansions" in Crafters settings). Only recipe numbers travel; every client shows names and icons in its own language, and new recipes from a patch are picked up with no addon update.
+- Search by recipe or item (shift-click an item into the box), filter by profession, and pick a recipe to see who can make it, their skill, whether they're online, and a **Whisper** button. Only guildmates running Titan Up are listed.
+- **Add outside crafter:** anyone can add a Name-Server crafter from outside the guild for an item, with a note. It shows who added it; the person who added it, or an officer, can remove it.
+- "Share my recipes" (on by default) in Crafters settings. Turning it off takes your list back from the guild.
+
+## Characters (alt linking)
+
+"Link my characters" in Titan Up settings (on by default). Your characters on this account that are in the guild tell the guild they belong together, and a link only counts when both characters say so.
+
+- **Wowdle and Death Roll standings:** one row per player, under their main (pick it with "My main"; otherwise your oldest character).
+- **Death Roll:** debts and winnings from all your characters show together, games between your own characters don't count, gold from any of a loser's characters pays their debt, and **Mark paid** on another of your characters is confirmed when you next log onto the winning one.
+
+## Background messages
+
+Crafters, the wishlist and alt links share lists with a light, change-driven sync: one short version line when you log in, your list about 30 seconds after you change it, and a catch-up the first time you open the window (at most every 30 minutes). Lists you're missing are asked for once; whoever has a copy answers only if the owner doesn't. These go out at most one message every 2 seconds and pause during combat, boss fights, raids and Mythic+. `/tu mem` shows messages sent and received per feature for the last 10 minutes.
+
 ## Planned
 
-- Match by ID instead of English names, so non-English clients work too: potion / flask / food / healthstone item IDs (Raid Check, Pull Report) and the cheat-death auras (Pull Report). The defensives themselves already match by spell ID (checked against 12.1.5 in 0.29.2).
+- Fury of the Dead is still matched by its English name (Raid Check); no spell number for it is known yet.
+
+## Changes in 0.37.0
+
+- **Background lane + traffic meter (Core.lua).** `ns.BulkSend(prefix, msg, key)` / `ns.BulkDrop(key)` / `ns.BulkQueued(key)`: one message every 2 s (`BULK_EVERY`), at most 400 queued, a 0.5 s ticker only while something is queued; paused while `ns.BulkPaused()` (`ns.Busy()`, a raid instance, or `C_ChallengeMode.IsChallengeModeActive`). `ns.Tally` counts sent (`TrySend`) and received (`CHAT_MSG_ADDON`) messages and bytes per prefix in one-minute buckets for 10 minutes; `ns.Traffic(minutes)`; `/tu mem` prints it (names from `ns.TRAFFIC_NAMES`) and the queue length.
+- **Shared lists (`Guild/Shared.lua`, `ns.Shared`).** `Shared.New{prefix, name, store, mine, changed, max}`: one entry per owner `{t, h, p}`, pruned after 120 days. Messages `H hash t` (10-40 s after login), `Q owners`, `D owner t hash part n chunk` (170-byte chunks, djb2 hash checked), `W nonce` / `L nonce part n owner:hash:t;...` (catch-up, at most every 30 min). Changes are pushed 30 s after the last edit. Asks and copies wait a random moment and stay quiet if someone else asked or answered; copies wait 5-13 s for the owner. The owner's own copy always wins, a relayed one only if newer; an empty payload removes the entry. Helpers: `Hash`, `B36` / `FromB36`, `PackIds` / `UnpackIds` (sorted base36 gaps). `ns.AcceptLinks(box)` fills a focused box from a shift-clicked link.
+- **Alt linking (`Guild/Alts.lua`, `ns.Alts`, prefix `TitanUpAL`).** `TitanUpDB.alts {share=true, chars, links, main}`. `A main part n names` 8-28 s after the guild is up; a link counts only when both characters list each other (`Linked`), and a main only when it names itself (`Main`, cached). An empty main forgets the sender's links. Wowdle `WD:Standings` and the Home card merge by main; Death Roll `L.Mine` / `L.SelfGame`: `Stats` groups by main (`chars`), self-games skipped, `MyUnpaid` / `CheckDebt` / trades work across linked characters, `L:PayLater` + `L:FlushPayLater` for Mark paid on another own character, `Trim` keeps all own characters' games, the C handler accepts checks from the loser's alts. Settings: "Link my characters", "My main".
+- **Language fix (Raid Check, Pull Report).** `RC.FLASKS` items 241320-241327, `RC.POTIONS` 241308/9, 241288/9, 241296/7, 271886/7, `RC.HEALTH_POTIONS` spells 1234768 / 1295247, `RC.HEALTHSTONES` items 5512 / 224464 + spells 6262 / 452930 (+ the localized item 5512 name contained), `RC.VANTUS` spell 1290561 (the part before the colon), `RC.FOOD` spells 19705 / 462209 + the English names. `RC.Matcher(spec)` / `RC.Matches` (cached for specs, plain name lists still work); `BagCounts` and `Snapshot` use them. `CHEAT_DEATHS` gained `spell` (45181, 87024, 404369, 1265361) and the Pull Report reads their names from `C_Spell.GetSpellName`. IDs from SimulationCraft's `midnight` game data. Fury of the Dead stays English.
+- **Crafters (`Guild/Crafters.lua`, `Guild/CraftersUI.lua`, prefix `TitanUpCR`).** `TitanUpDB.crafters {share=true, oldTiers=false, mine, people}`. `CR:Scan()` on TRADE_SKILL_SHOW / LIST_UPDATE / DATA_SOURCE_CHANGED (1.5 s debounce): skips linked, guild, NPC and runeforging windows; newest tier = highest child `professionID`; learned recipes only. Payload `base:skill:max:tier:ids,... # item~crafter~text~note~t,... # adder/t,...` (base36). Outside crafters: `AddOutside` (Name-Server, 40 each), `RemoveOutside` (own, or an officer's tombstone; tombstones only honoured from officers, guild rank index <= 1), `CheckProfessions` drops lost professions. `ns.GuildRoster()` (10 s cache). New Guild rail section, `Media/Crafters.tga`, Crafters settings page.
+- **Loot wishlist (`Loot/Wishlist.lua`, `Loot/WishlistUI.lua`, prefix `TitanUpLW`).** `TitanUpDB.wishlist {share=true, mine[char], people}`, payload `item:B|S|W,...` (150 max). Adventure Guide reads go through `withJournal`, which saves and restores tier, instance, encounter, difficulty, loot and slot filters, and refuses while `EncounterJournal` is shown; reloads on `EJ_LOOT_DATA_RECIEVED`. `WL.Passes` (search, slot, stats Both/Either, my wishlist). `WL:Wanters(item)` sorts BIS, Sidegrade, Want, your group first; `WL.NameText` gold for BIS. Loot and Wishlist share one rail entry (tabs Drops / Wishlist); clicking a drop opens `V:ShowWanters`; `LR:Raiders` adds `wish`, BIS wishes sort first and show gold.
+- Tests: `testBuild0370.lua` (105 checks).
 
 ## Changes in 0.36.0
 

@@ -642,9 +642,14 @@ Hub.CARDS = {
         local WD = ns.Wowdle
         WD:CheckDay()
         local d = ns.udb.wowdle
-        local solved = 0
+        local solved, AL, counted = 0, ns.Alts, {}
+        local me = AL and AL:Main(ns.me) or ns.me
         for name, r in pairs(d.standings or {}) do
-            if name ~= ns.me and r.day == d.day and (r.n or -1) > 0 then solved = solved + 1 end
+            local who = AL and AL:Main(name) or name      -- (a player's alts count once)
+            if name ~= ns.me and who ~= me and not counted[who] and r.day == d.day and (r.n or -1) > 0 then
+                counted[who] = true
+                solved = solved + 1
+            end
         end
         local who = solved > 0 and (solved .. " guildmate" .. (solved == 1 and "" or "s") .. " solved it") or "Today's word is waiting"
         if not d.done then return "|cffffd94dNot played|r", who, "Play today's" end
