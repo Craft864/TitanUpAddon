@@ -7,7 +7,7 @@
 -- Nothing is kept by hand: the index is read from what already describes
 -- each setting - the Settings pages' rows (S:Pages), the UI Tweaks list
 -- (TW.LIST) and the rows the hand-built pages tag as they build
--- (SR.Tag, used by the tweak pages and the Combat Timer window). It's
+-- (SR.Tag, used by the tweak pages and the Combat Timer's Settings page). It's
 -- built the first time someone types, so it costs nothing until then.
 local ADDON, ns = ...
 
@@ -69,6 +69,16 @@ function SR:BuildIndex()
                     end)
                 end
             end
+            -- a hand-built page (Combat Timer): the rows it tagged
+            if p.mod then
+                local content = S.pager:Prebuild(p)
+                for _, tag in ipairs(p.mod.searchTags or {}) do
+                    add(tag.label, tag.tip, "Settings > " .. p.title, function()
+                        S:Open(p.key)
+                        return S.pager, tag.region, (content.hostY or 0) - tag.y, tag.w
+                    end)
+                end
+            end
         end
     end
 
@@ -91,18 +101,6 @@ function SR:BuildIndex()
                     end)
                 end
             end
-        end
-    end
-
-    -- the Combat Timer's window is its settings
-    local TV = ns.TimerUI
-    if TV then
-        TV:EnsureFrame()
-        for _, tag in ipairs(TV.searchTags or {}) do
-            add(tag.label, tag.tip, "Combat Timer", function()
-                ns.Nav:Switch("timer", ns.Nav:ShellKey())
-                return nil, tag.region, nil, tag.w
-            end)
         end
     end
 

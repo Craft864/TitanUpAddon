@@ -747,7 +747,7 @@ function V:ToShare()
 end
 
 ns.RegisterModule({
-    key = "macrobuilder", name = "Macro Builder", icon = ns.MEDIA .. "MacroShare", group = "tools", order = 7,
+    key = "macrobuilder", name = "Macro Builder", icon = ns.MEDIA .. "MacroShare", group = "uitweaks", order = 7,
     desc = "Build a macro step by step: pick an ability, choose where it lands, add your trinkets - then save it or share it.",
     rail = "macros", railName = "Macro Workstation", tab = "Builder",
     railDesc = "Build macros step by step, and share them with your raid or a friend.",

@@ -40,7 +40,10 @@ local function db() return ns.udb.timer end
 function T:Init()
     ns.On("PLAYER_REGEN_DISABLED", function() T:OnEvent("combat start") end)
     ns.On("PLAYER_REGEN_ENABLED", function() T:OnEvent("combat end") end)
-    ns.On("ENCOUNTER_START", function(_, name) T:OnEvent("boss pull", not ns.IsSecret(name) and name or nil) end)
+    ns.On("ENCOUNTER_START", function(id, name)
+        T.encID = (not ns.IsSecret(id)) and tonumber(id) or nil       -- for the fight's details (Pull Report)
+        T:OnEvent("boss pull", not ns.IsSecret(name) and name or nil)
+    end)
     ns.On("ENCOUNTER_END", function(_, _, _, _, success)
         -- remembered for the history (kill or wipe); success can be hidden in Midnight
         T.endedWithKill = (not ns.IsSecret(success)) and (success == 1 or success == true) or nil
@@ -137,8 +140,13 @@ function T:Stop()
     db().lastTime, db().lastLabel, db().lastAt = self.last, self.label, time()
     -- history: the last 10 real fights (tests excluded), newest first
     if not self.testing and self.last >= 1 then
-        local entry = { t = time(), dur = self.last, label = self.label }
+        local entry = { t = time(), dur = self.last, label = self.label, where = self.where }
         if self.startedBy == "boss" and self.endedKnown then entry.result = self.endedWithKill and "kill" or "wipe" end
+        -- where it was (for its details), and the boss pull it was
+        local zone, _, _, diffName = GetInstanceInfo()
+        if not ns.IsSecret(zone) and zone and zone ~= "" then entry.zone = zone end
+        if not ns.IsSecret(diffName) and diffName and diffName ~= "" then entry.diff = diffName end
+        if self.startedBy == "boss" and self.encID then entry.enc, entry.start = self.encID, GetServerTime() - math.floor(self.last + 0.5) end
         local hist = db().history or {}
         table.insert(hist, 1, entry)
         while #hist > 10 do table.remove(hist) end
@@ -161,6 +169,7 @@ function T:Stop()
         end
     end
     if ns.TimerUI then ns.TimerUI:Refresh() end
+    if ns.TimerTweak then ns.TimerTweak:RefreshPage() end
 end
 
 -- Hide unless it's running, unlocked for moving, or being previewed.
@@ -250,7 +259,13 @@ function T:SetUnlocked(on)
     if self.unlocked then f:Show() else self:HideIfIdle() end
 end
 
--- While the settings window is open, show the timer so changes are visible.
+-- While one of its pages is open (UI Tweaks, Settings), show the timer so
+-- changes are visible. who: which page; it hides once none is open.
+function T:PreviewBy(who, on)
+    self.previewers = self.previewers or {}
+    self.previewers[who] = on and true or nil
+    self:SetPreview(next(self.previewers) ~= nil)
+end
 function T:SetPreview(on)
     self.preview = on and true or false
     if self.preview then
@@ -266,12 +281,14 @@ end
 function T:ResetPosition() self:EnsureDisplay():ResetPlace() end
 
 -- ---------------------------------------------------------------------
--- Settings window (the module's page)
+-- Its pages (0.39.0): the timer is a UI Tweak. Its page there has Move,
+-- Reset position, a button to its settings and the recent fights (click
+-- one for details); the look and the chat line are a Settings page.
 -- ---------------------------------------------------------------------
-local V = {}
+local V = {}                   -- Settings > Combat Timer
 ns.TimerUI = V
-local W, H = 880, 570          -- the standard module size
-local OPT_W = 430              -- the options column (recent fights to its right)
+local OPT_W = 460              -- the options' width on the page
+V.pageHeight = 360
 T.SIZE_MIN, T.SIZE_MAX = 10, 96
 
 function T.SetSize(n)
@@ -282,46 +299,31 @@ function T.SetSize(n)
 end
 
 local function row(parent, y, label, tip)
-    local t = UI.Text(parent, "GameFontHighlight", nil, label, "TOPLEFT", 18, y)
+    local t = UI.Text(parent, "GameFontHighlight", nil, label, "TOPLEFT", 4, y)
     ns.Search.Tag(V, label, tip, t, y, OPT_W - 20)
     return t
 end
 
-function V:Create()
-    local f = ns.Nav:Window(self, "TitanUpTimerSettings", "timer", "COMBAT TIMER", W, H, { mark = { 300, 0.05, -20 },
-        onShow = function() T:SetPreview(true); V:Refresh() end })
-    f:SetScript("OnHide", function() T:SetPreview(false) end)
-
-    -- top line: the anchor (move the timer) next to the X; a small reset in
-    -- the bottom-right corner
-    local reset
-    self.anchorBtn, reset = ns.Tweaks.MoveControls(f, T, { size = 22, resetH = 18, after = function() V:Refresh() end,
-        tip = "Move the timer: click to unlock and drag it anywhere, click again to lock it in place",
-        resetTip = "Put the timer back at the top of the screen" })
-    self.anchorBtn:SetPoint("RIGHT", self.header.close, "LEFT", -6, 0)
-    reset.label:SetFontObject("GameFontHighlightSmall")
-    reset:SetPoint("BOTTOMRIGHT", -10, 10)
-    self.resetBtn = reset
-    local when = UI.Text(f, "GameFontHighlightSmall", C.muted, "Times boss fights in raids, and any combat everywhere else.", "TOPLEFT", 18, -12)
-    when:SetPoint("RIGHT", self.anchorBtn, "LEFT", -10, 0)
-    when:SetJustifyH("LEFT")
-
-    -- left: the options; right: recent fights
-    local p = CreateFrame("Frame", nil, f)
+function V:BuildPage(host)
+    self.frame = host
+    host:HookScript("OnShow", function() T:PreviewBy("settings", true) end)
+    host:HookScript("OnHide", function() T:PreviewBy("settings", false) end)
+    if host:IsVisible() then T:PreviewBy("settings", true) end   -- built while already showing
+    local p = CreateFrame("Frame", nil, host)
     p:SetPoint("TOPLEFT")
-    p:SetSize(OPT_W, H)
+    p:SetSize(OPT_W, V.pageHeight)
     local d = function() return ns.udb.timer end
-    local RIGHT = -18
-    local y = -40
+    local RIGHT = -8
+    local y = -4
     local function toggleRow(label, key, tip, after)
         row(p, y - 5, label, tip)
         local b = UI.Button(p, 160, 24, "", tip, function()
             d()[key] = not d()[key]
             if after then after() end
-            V:Refresh()
+            ns.SettingsChanged()
         end)
         b:SetPoint("TOPRIGHT", RIGHT, y)
-        y = y - 34
+        y = y - 32
         return b
     end
     self.enabledBtn = toggleRow("Timer", "enabled", "Turn the combat timer on or off", function() T:ApplyStyle(); T:Render() end)
@@ -333,7 +335,7 @@ function V:Create()
     self.fontBtn.label:ClearAllPoints()
     self.fontBtn.label:SetPoint("LEFT", 8, 0)
     UI.Caret(self.fontBtn, "RIGHT", -6, 0)
-    y = y - 34
+    y = y - 32
 
     -- Size:  [-] [ 30 v ] [+]
     row(p, y - 5, "Size", "How big the timer's numbers are")
@@ -355,7 +357,7 @@ function V:Create()
     local minus = UI.Button(p, 24, 24, "-", "One size smaller", function() T.SetSize(d().size - 1); V:Refresh() end)
     minus:SetPoint("RIGHT", box, "LEFT", -4, 0)
     self.sizeBox, self.sizePlus, self.sizeMinus, self.sizeList = box, plus, minus, list
-    y = y - 34
+    y = y - 32
 
     row(p, y - 5, "Color", "The timer's color")
     self.swatches = {}
@@ -369,7 +371,7 @@ function V:Create()
         sw:SetColorTexture(c[1], c[2], c[3], 1)
         self.swatches[i] = b
     end
-    y = y - 34
+    y = y - 32
     self.outlineBtn = toggleRow("Outline", "outline", nil, function() T:ApplyStyle() end)
     self.tenthsBtn = toggleRow("Tenths of a second", "tenths", nil, function() T:Render() end)
     row(p, y - 5, "After combat, keep showing", "How long the timer stays on screen after a fight ends")
@@ -380,7 +382,8 @@ function V:Create()
         V:Refresh()
     end)
     self.lingerBtn:SetPoint("TOPRIGHT", RIGHT, y)
-    y = y - 34
+    y = y - 32
+    self.instanceBtn = toggleRow("Only in dungeons & raids", "instanceOnly", "Don't run the timer in the open world")
     self.chatBtn = toggleRow("Chat summary after combat", "chatSummary", "Print \"Combat lasted 3:42\" in your chat (only you see it) after a timed fight - pick which fights below")
     row(p, y - 5, "Summary for", "Which fights get a chat summary line")
     self.whereBtns = {}
@@ -394,7 +397,7 @@ function V:Create()
         b:SetPoint("TOPRIGHT", RIGHT - (#T.WHERE - i) * 70, y)
         self.whereBtns[w[1]] = b
     end
-    y = y - 34
+    y = y - 32
     row(p, y - 5, "Minimum fight length", "Shorter fights get no chat line (the timer still runs and records them)")
     self.chatMinBtn = UI.Button(p, 160, 24, "", "Shorter fights get no chat line (the timer still runs and records them)", function()
         local i = 1
@@ -403,26 +406,9 @@ function V:Create()
         V:Refresh()
     end)
     self.chatMinBtn:SetPoint("TOPRIGHT", RIGHT, y)
-    y = y - 34
-    self.instanceBtn = toggleRow("Only in dungeons & raids", "instanceOnly", "Don't run the timer in the open world")
-
-    -- recent fights (last 10, newest first), in the right-hand column
-    local sep = f:CreateTexture(nil, "ARTWORK")
-    sep:SetColorTexture(C.line[1], C.line[2], C.line[3], 1)
-    sep:SetPoint("TOPLEFT", OPT_W, -40); sep:SetPoint("BOTTOMLEFT", OPT_W, 40); sep:SetWidth(1)
-    local hx, hy = OPT_W + 20, -40
-    UI.Text(f, "GameFontNormalSmall", C.accent, "RECENT FIGHTS", "TOPLEFT", hx, hy)
-    self.historyRows = {}
-    for i = 1, 10 do
-        local r = {}
-        local ry = hy - 24 - (i - 1) * 20
-        r.dur = UI.Text(f, "GameFontHighlightSmall", nil, nil, "TOPLEFT", hx, ry); r.dur:SetWidth(60); r.dur:SetJustifyH("LEFT")
-        r.label = UI.Text(f, "GameFontHighlightSmall", nil, nil, "TOPLEFT", hx + 64, ry); r.label:SetWidth(160); r.label:SetJustifyH("LEFT"); r.label:SetWordWrap(false)
-        r.result = UI.Text(f, "GameFontHighlightSmall", nil, nil, "TOPLEFT", hx + 228, ry); r.result:SetWidth(50); r.result:SetJustifyH("LEFT")
-        r.when = UI.Text(f, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", hx + 282, ry); r.when:SetWidth(W - hx - 282 - 16); r.when:SetJustifyH("RIGHT")
-        self.historyRows[i] = r
-    end
-    self.lastText = UI.Text(f, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", hx, hy - 24)
+    y = y - 32
+    self.pageHeight = -y + 8
+    self.built = true
 end
 
 function V:FontMenu()
@@ -449,9 +435,9 @@ function V:SizeMenu()
 end
 
 function V:Refresh()
-    if not self.frame then return end
+    if not self.built then return end
     local d = ns.udb.timer
-    local function onOff(b, on) b.label:SetText(on and "On" or "Off"); UI.SetActive(b, on) end
+    local function onOff(b, on) b.label:SetText(on and "|cff66e08cOn|r" or "Off"); UI.SetActive(b, on) end
     self.enabledBtn.label:SetText(d.enabled and "|cff66e08cTimer: On|r" or "|cffff5a5aTimer: Off|r")
     UI.SetActive(self.enabledBtn, d.enabled)
     for _, ft in ipairs(T.FONTS) do if ft.key == d.font then self.fontBtn.label:SetText(ft.label) end end
@@ -469,21 +455,149 @@ function V:Refresh()
     UI.SetDisabled(self.chatMinBtn, not d.chatSummary)
     onOff(self.instanceBtn, d.instanceOnly)
     for _, l in ipairs(T.LINGER) do if l[1] == d.linger then self.lingerBtn.label:SetText(l[2]) end end
-    UI.SetActive(self.anchorBtn, T.unlocked)
-    local hist = d.history or {}
-    for i, r in ipairs(self.historyRows) do
-        local e = hist[i]
-        r.dur:SetText(e and T.Format(e.dur, true) or "")
-        r.label:SetText(e and (e.label or "Combat") or "")
-        r.result:SetText(e and ns.UI.ResultTag(e.result) or "")
-        r.when:SetText(e and date("%a %b %d %H:%M", e.t) or "")
-    end
-    self.lastText:SetText(#hist == 0 and "No fights timed yet." or "")
     T:Render()
 end
+V.RefreshPage = V.Refresh
 
-ns.RegisterModule({
-    key = "timer", name = "Combat Timer", icon = ns.MEDIA .. "Timer", group = "tools", order = 3,
-    desc = "A combat timer you can style and place anywhere.",
-    view = V,
-})
+-- ---------------------------------------------------------------------
+-- UI Tweaks > Combat timer: Move / Reset position / Timer settings, and
+-- the last 10 fights. Click a fight for its details; a raid boss pull's
+-- come from the Pull Report (tonight's pulls), with a button to open it.
+-- ---------------------------------------------------------------------
+local TP = {}
+ns.TimerTweak = TP
+local FIGHTS, FROW_H = 10, 22
+TP.pageHeight = 64 + FIGHTS * FROW_H + 150
+
+function TP:BuildPage(host)
+    self.frame = host
+    host:HookScript("OnShow", function() T:PreviewBy("tweak", true) end)
+    host:HookScript("OnHide", function()
+        T:PreviewBy("tweak", false)
+        if T.unlocked then T:SetUnlocked(false) end
+    end)
+    if host:IsVisible() then T:PreviewBy("tweak", true) end
+    self.moveBtn = UI.Button(host, 96, 24, "Move", "Unlock the timer and drag it anywhere; click again to lock it", function()
+        T:SetUnlocked(not T.unlocked)
+        TP:RefreshPage()
+    end)
+    self.moveBtn:SetPoint("TOPLEFT", 8, -4)
+    self.resetBtn = UI.Button(host, 120, 24, "Reset position", "Put the timer back at the top of the screen", function() T:ResetPosition() end)
+    self.resetBtn:SetPoint("LEFT", self.moveBtn, "RIGHT", 6, 0)
+    self.setBtn = UI.Button(host, 140, 24, "Timer settings", "Font, size, color and the chat line after a fight", function() ns.Settings:Open("timer") end)
+    self.setBtn:SetPoint("LEFT", self.resetBtn, "RIGHT", 6, 0)
+    UI.SetActive(self.setBtn, true)
+
+    local hy = -44
+    UI.Text(host, "GameFontNormalSmall", C.accent, "RECENT FIGHTS", "TOPLEFT", 8, hy)
+    UI.Text(host, "GameFontHighlightSmall", C.muted, "click one for details", "TOPRIGHT", -16, hy)
+    self.rows = {}
+    for i = 1, FIGHTS do
+        local r = UI.Row(host, FROW_H, 0.05, { C.accentDim[1], C.accentDim[2], C.accentDim[3], 0.8 })
+        r:SetPoint("TOPLEFT", 4, hy - 16 - (i - 1) * FROW_H)
+        r:SetPoint("RIGHT", host, "LEFT", OPT_W - 8, 0)
+        r.text:SetPoint("LEFT", 4, 0)
+        r.text:SetWidth(52)
+        r.label = UI.Text(r, "GameFontHighlightSmall", nil, nil, "LEFT", 58, 0)
+        r.label:SetWidth(200); r.label:SetJustifyH("LEFT"); r.label:SetWordWrap(false)
+        r.result = UI.Text(r, "GameFontHighlightSmall", nil, nil, "LEFT", 262, 0)
+        r.when = UI.Text(r, "GameFontHighlightSmall", C.muted, nil, "RIGHT", -6, 0)
+        r.when:SetJustifyH("RIGHT")
+        r:SetScript("OnClick", function() TP:Pick(i) end)
+        self.rows[i] = r
+    end
+    self.none = UI.Text(host, "GameFontHighlightSmall", C.muted, "No fights timed yet.", "TOPLEFT", 8, hy - 20)
+
+    -- the picked fight's details
+    local dy = hy - 16 - FIGHTS * FROW_H - 10
+    local box = CreateFrame("Frame", nil, host, "BackdropTemplate")
+    UI.Skin(box, C.panel, C.line)
+    box:SetPoint("TOPLEFT", 4, dy)
+    box:SetSize(OPT_W - 12, 136)
+    self.detail = box
+    box.text = UI.Text(box, "GameFontHighlightSmall", C.text, nil, "TOPLEFT", 10, -8)
+    box.text:SetWidth(OPT_W - 36); box.text:SetJustifyH("LEFT"); box.text:SetSpacing(3)
+    box.open = UI.Button(box, 190, 22, "Open this pull in Reports", "The full Pull Report for this pull", function()
+        if TP.pull and ns.PullReportUI then ns.PullReportUI:ShowPull(TP.pull) end
+    end)
+    box.open:SetPoint("BOTTOMLEFT", 8, 8)
+    self.built = true
+end
+
+-- the boss pull this fight was, if the Pull Report still has it (tonight)
+function TP.PullFor(e)
+    local PR = ns.PullReport
+    if not (e and e.enc and e.start and PR and PR.FindPull) then return nil end
+    return PR:FindPull(e.enc, e.start)
+end
+
+-- The details lines for fight e (and the pull it was, if any).
+function TP.Details(e)
+    local lines = {}
+    lines[#lines + 1] = "|cffffffff" .. (e.label or "Combat") .. "|r" .. ((e.diff or e.zone) and ("  -  " .. (e.diff and e.zone and (e.diff .. ", " .. e.zone) or e.diff or e.zone)) or "")
+    lines[#lines + 1] = ("Length |cffffffff%s|r  -  ended %s"):format(T.Format(e.dur, true), date("%a %b %d %H:%M", e.t))
+    local pull = TP.PullFor(e)
+    if pull then
+        local deaths, first, ready = 0, nil, 0
+        for _, d in ipairs(pull.deaths or {}) do
+            if d.kind ~= "save" then
+                deaths = deaths + 1
+                first = first or d
+                if not d.tank and #(d.major or {}) > 0 and not ns.PullReport.AfterWipe(pull, d) then ready = ready + 1 end
+            end
+        end
+        lines[#lines + 1] = ("Pull %d tonight: %s  -  %d death%s"):format(pull.n or 0, pull.result == "kill" and "|cff66e08cKill|r" or (pull.result == "wipe" and "|cffff5a5aWipe|r" or "?"),
+            deaths, deaths == 1 and "" or "s")
+        if first then
+            local killer = first.hits and first.hits[1]
+            lines[#lines + 1] = ("First to die: %s%s at %s"):format(ns.Short(first.owner or "?"), killer and (" (" .. killer.spell .. ")") or "", ns.PullReport.Clock(first.ft))
+        end
+        lines[#lines + 1] = ("Died with a defensive ready: %d"):format(ready)
+    elseif e.enc then
+        lines[#lines + 1] = "|cff8a8f9cThe Pull Report keeps tonight's pulls only.|r"
+    elseif e.where == "mplus" then
+        lines[#lines + 1] = "|cff8a8f9cA fight in a Mythic+ key.|r"
+    else
+        lines[#lines + 1] = "|cff8a8f9cOutside a raid boss, only the time and place are recorded.|r"
+    end
+    return table.concat(lines, "\n"), pull
+end
+
+function TP:Pick(i)
+    local hist = ns.udb.timer.history or {}
+    if not hist[i] then return end
+    self.sel = (self.sel ~= i) and i or nil
+    self:RefreshPage()
+end
+
+function TP:RefreshPage()
+    if not self.built then return end
+    UI.SetActive(self.moveBtn, T.unlocked)
+    self.moveBtn.label:SetText(T.unlocked and "Lock" or "Move")
+    local hist = ns.udb.timer.history or {}
+    if self.sel and not hist[self.sel] then self.sel = nil end
+    for i, r in ipairs(self.rows) do
+        local e = hist[i]
+        r:SetShown(e ~= nil)
+        if e then
+            r.text:SetText(T.Format(e.dur, false))
+            r.label:SetText((e.label or "Combat") .. (e.diff and (" |cff8a8f9c" .. e.diff .. "|r") or ""))
+            r.result:SetText(UI.ResultTag(e.result))
+            r.when:SetText(date("%a %b %d %H:%M", e.t))
+            if r.hl then r.hl:SetShown(self.sel == i) end
+        end
+    end
+    self.none:SetShown(#hist == 0)
+    local e = self.sel and hist[self.sel]
+    if e then
+        local text, pull = TP.Details(e)
+        self.detail.text:SetText(text)
+        self.pull = pull
+        self.detail.open:SetShown(pull ~= nil)
+    else
+        self.detail.text:SetText(#hist > 0 and "|cff8a8f9cClick a fight above to see its details.|r" or "")
+        self.pull = nil
+        self.detail.open:Hide()
+    end
+end
+

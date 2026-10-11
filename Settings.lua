@@ -2,9 +2,10 @@
 -- Every module's settings, shown in the Titan Up window: a list of pages on
 -- the left, the page on the right. The cog in a module's title bar opens
 -- its page directly, with a button back to the module (Home's cog opens the
--- Titan Up page). UI Tweaks keep their options in the UI Tweaks module.
--- (The Combat Timer's window is its settings; Keystone Roulette's and Death
--- Roll's choices are per-game, in their windows.)
+-- Titan Up page). UI Tweaks keep their options in the UI Tweaks module,
+-- except the Combat Timer's look and chat line, which are a page here
+-- (its Timer settings button opens it). Keystone Roulette's and Death
+-- Roll's choices are per-game, in their windows.
 -- Pages follow the tools' own order.
 -- Pages are built the first time they're opened; tall pages scroll.
 --
@@ -30,6 +31,7 @@ local ROW_H = 30
 --                          { text = "a line of help" }
 --   tweak pages:  { tweak = TW.LIST entry } - its On/Off, then its own page
 --                 (shown by UI Tweaks)
+--   module pages: { mod = M } - M:BuildPage(host), M:RefreshPage(), M.pageHeight
 -- ---------------------------------------------------------------------
 function S:Pages()
     local u = ns.udb
@@ -79,12 +81,15 @@ function S:Pages()
     for _, m in ipairs(order) do
         local pg = TOOL_PAGES[m.key]
         if pg and m.group == "tools" then
-            pages[#pages + 1] = { key = m.key, title = pg.title, group = "RAID TOOLS", rows = pg.rows }
+            pages[#pages + 1] = { key = m.key, title = pg.title, group = "RAID INFO", rows = pg.rows }
             added[m.key] = true
         end
     end
     for key, pg in pairs(TOOL_PAGES) do                       -- (anything not in the nav yet)
-        if pg and not added[key] then pages[#pages + 1] = { key = key, title = pg.title, group = "RAID TOOLS", rows = pg.rows } end
+        if pg and not added[key] then pages[#pages + 1] = { key = key, title = pg.title, group = "RAID INFO", rows = pg.rows } end
+    end
+    if u.timer and ns.TimerUI then
+        pages[#pages + 1] = { key = "timer", title = "Combat Timer", group = "TOOLS", mod = ns.TimerUI }
     end
     if u.crafters then
         pages[#pages + 1] = { key = "crafters", title = "Crafters", group = "GUILD", rows = {
@@ -179,7 +184,20 @@ function Pager:Build(p)
         y = y - ROW_H
         return r
     end
-    if p.tweak then
+    local function host(mod)
+        local hf = CreateFrame("Frame", nil, content)
+        hf:SetPoint("TOPLEFT", 0, y)
+        content.hostY = -y
+        hf:SetSize(PW, 10)
+        mod:BuildPage(hf)
+        local h = mod.pageHeight or 400
+        hf:SetHeight(h)
+        content.mod = mod
+        y = y - h
+    end
+    if p.mod then
+        host(p.mod)
+    elseif p.tweak then
         local t = p.tweak
         local desc = UI.Text(content, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", 8, y - 2)
         desc:SetWidth(PW - 24); desc:SetJustifyH("LEFT")
@@ -191,15 +209,7 @@ function Pager:Build(p)
         end
         local mod = t.page and t.page()
         if mod and mod.BuildPage then
-            local host = CreateFrame("Frame", nil, content)
-            host:SetPoint("TOPLEFT", 0, y)
-            content.hostY = -y
-            host:SetSize(PW, 10)
-            mod:BuildPage(host)
-            local h = mod.pageHeight or 400
-            host:SetHeight(h)
-            content.mod = mod
-            y = y - h
+            host(mod)
         elseif not t.page then
             UI.Text(content, "GameFontHighlightSmall", C.muted, "Nothing else to set - just turn it on or off.", "TOPLEFT", 8, y - 4)
             y = y - 24

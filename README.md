@@ -1,17 +1,16 @@
-# Titan Up v0.38.0
+# Titan Up v0.39.0
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
-- **Raid tools**
+- **Raid Info**
   - **TitanBoard**: live raid strategy board - draw on boss rooms with the raid, plans and slides, laser pointer, Raidstrats import. `/tb`.
   - **Reports**: the **Pull Report** (who died each pull and what they had ready) and the **Raid Scorecard** (weekly death stats), as two tabs of one entry.
   - **Loot**: every raid drop and roll, Mythic+ loot, and who it was traded to until it's equipped; optional roll window with BIS / Sidegrade / set tags shared with the raid. The **Wishlist** tab lets you pick wanted items from any raid or dungeon in the Adventure Guide, shared with the guild.
-  - **Combat Timer**: a combat timer you can style and move.
   - **Raid Check**: raid buffs and personal readiness on every ready check and typed /pull (Heroic and Mythic raids).
-  - **Macro Workstation**: the **Builder** helps anyone make a macro step by step (pick an ability, choose where it lands, add trinkets, then save it or share it), and **Share** lets the leader or an assist send macros to the raid, a role or a class, and anyone send one to a person in their group.
-- **UI tweaks**
-  - **UI Tweaks**: Release protection, Death alerts, Stack splitter and Battle rez tracker, each with its options beside its switch.
+- **Tools**
+  - **UI Tweaks**: Combat Timer (move it, and click a recent fight for its details; its look and chat line are in Settings), Release protection, Death alerts, Stack splitter and Battle rez tracker. One line each with a switch; click one for its options.
   - **Keystone Roulette**: a wheel or a vote over the group's keys, then teleport.
+  - **Macro Workstation**: the **Builder** helps anyone make a macro step by step (pick an ability, choose where it lands, add trinkets, then save it or share it), and **Share** lets the leader or an assist send macros to the raid, a role or a class, and anyone send one to a person in their group.
 - **Guild**
   - **Games** (one entry, with a tab per game):
     - **Death Roll**: challenge a guildmate to a gold death roll with real /rolls, spectators and a tamper-proof guild ledger.
@@ -20,7 +19,7 @@ The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up o
     - **Chess**: play a guildmate at your own pace. Games are saved until they end, and moves reach offline players through guildmates running Titan Up.
   - **Crafters**: who in the guild can craft what, read from everyone's profession windows, plus outside crafters (Name-Server) anyone can add for items nobody in the guild makes.
 
-**Getting around:** `/tu` (or the minimap button, or Blizzard's addon menu) opens the Titan Up window on **Home**: what happened last pull, tonight's Raid Check, loot to trade, and your games at a glance. The **rail** down the left side lists every module by section (Raid Tools, UI Tweaks, Guild) with **Settings** at the bottom; click one and it replaces what's showing, in the same spot. Entries with several pages (Loot, Reports, Macro Workstation, Games) show a row of tabs across the top of the window and list their pages under the entry on the rail; either one switches page, and the entry reopens on the page you used last. The **<** button narrows the rail to icons. A cog in the title bar opens that module's settings, and Settings has a "Back" button to where you were. The **search box** in the middle of the title bar finds any setting: type a few letters, pick a result, and Titan Up opens the page it's on and flashes it (`/tu set <words>` does the same from chat). Pop-ups (Pull Report summary, Raid Check alert, game invites, what's new) stack in one place on screen and can be dragged together. `/tb` still opens TitanBoard directly, `/tu roll` Death Roll, `/tu settings` Settings, `/tu help` lists everything, and `/tu mem` shows how much memory Titan Up is using.
+**Getting around:** `/tu` (or the minimap button, or Blizzard's addon menu) opens the Titan Up window on **Home**: what happened last pull, tonight's Raid Check, loot to trade, and your games at a glance. The **rail** down the left side lists every module by section (Raid Info, Tools, Guild) with **Settings** at the bottom; click one and it replaces what's showing, in the same spot. Entries with several pages (Loot, Reports, Macro Workstation, Games) show a row of tabs across the top of the window and list their pages under the entry on the rail; either one switches page, and the entry reopens on the page you used last. The **<** button narrows the rail to icons. A cog in the title bar opens that module's settings, and Settings has a "Back" button to where you were. The **search box** in the middle of the title bar finds any setting: type a few letters, pick a result, and Titan Up opens the page it's on and flashes it (`/tu set <words>` does the same from chat). Pop-ups (Pull Report summary, Raid Check alert, game invites, what's new) stack in one place on screen and can be dragged together. `/tb` still opens TitanBoard directly, `/tu roll` Death Roll, `/tu settings` Settings, `/tu help` lists everything, and `/tu mem` shows how much memory Titan Up is using.
 
 ## Installing / upgrading from TitanBoard
 
@@ -165,6 +164,18 @@ Crafters, the wishlist and alt links share lists with a light, change-driven syn
 ## Planned
 
 - Fury of the Dead is still matched by its English name (Raid Check); no spell number for it is known yet.
+
+## Changes in 0.39.0
+
+- **Rail headings** (Ryan, 2026-10-11): section `tools` is now named "Raid Info" and `uitweaks` "Tools" (keys unchanged). Macro Workstation (`macrobuilder`, `macroshare`) moved to `group = "uitweaks"`, after Keystone Roulette. Settings group "RAID TOOLS" is "RAID INFO".
+- **Combat Timer is a UI Tweak**: it's no longer its own module (`RegisterModule "timer"` removed, the `TitanUpTimerSettings` window is gone). It is the first `TW.LIST` entry (switch = `timer.enabled`, page `ns.TimerTweak`).
+  - Its tweak page: **Move / Lock** (`T:SetUnlocked`, locks again when the page hides), **Reset position**, **Timer settings** (`ns.Settings:Open("timer")`), then the last 10 fights. Clicking one (`TP:Pick`) opens a details box: name, difficulty and zone, length and end time; for a boss pull the Pull Report still has (`PullReport:FindPull(enc, start)`), the pull number, result, deaths, first to die (spell and time) and how many died with a defensive ready, plus **Open this pull in Reports** (`PullReportUI:ShowPull`).
+  - History entries gain `where`, `zone`, `diff`, and for boss fights `enc` (from ENCOUNTER_START) and `start` (server time). Older entries still list; they just have fewer details.
+  - The style and chat options are a new Settings page `timer` (group TOOLS), a module page (`{ mod = ns.TimerUI }` with `BuildPage` / `RefreshPage` / `pageHeight`). `Pager:Build` builds module pages and tweak pages with one host helper. Search indexes module pages as "Settings > Combat Timer".
+  - The timer shows (`T:PreviewBy(who, on)`) while either page is open and hides when both are closed.
+  - `/tu timer` opens UI Tweaks on the timer.
+- **UI Tweaks condensed**: each tweak is one 42 px row (`ROW_H` 50) with its name, a one-line `short` text (new field on every `TW.LIST` entry, full `desc` stays the tooltip and the page text) and the switch on the right. The page title is the tweak's name.
+- Tests: `testBuild0390.lua` (39 checks); `testLayout0290`, `testSearch0330`, `testRail0380`, `testBuild0300`, `testBuild0370` and the scenario flows updated. The before/after comparison differs by the timer window's frames, the new history fields, the version, and a one-second shift of timestamps (one module fewer opened in the scenario).
 
 ## Changes in 0.38.0
 

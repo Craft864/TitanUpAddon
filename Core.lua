@@ -4,7 +4,7 @@
 -- permissions and slash commands; every module hangs off the shared `ns`.
 local ADDON, ns = ...
 
-ns.VERSION = "0.38.0"
+ns.VERSION = "0.39.0"
 ns.PREFIX = "TitanBoard"     -- board sync channel (unchanged, so it stays compatible)
 ns.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 ns.U = 4095            -- board coordinates run 0..4095 on both axes
@@ -1019,6 +1019,8 @@ SlashCmdList.TITANUP = function(msg)
     elseif cmd == "timer" and arg == "debug" then
         ns.Timer.debug = not ns.Timer.debug
         ns.Print("Combat Timer debug " .. (ns.Timer.debug and "ON - each combat / boss event and what the timer did will be printed." or "OFF."))
+    elseif cmd == "timer" then
+        ns.TweaksUI:Open("timer")           -- the Combat Timer is a UI tweak now
     elseif cmd == "games" or cmd == "reports" or cmd == "macros" then
         ns.Nav:OpenRail(cmd)                -- a rail entry with several pages
     elseif ns.Nav.sectionByKey[cmd] then

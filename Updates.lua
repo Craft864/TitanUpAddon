@@ -17,6 +17,12 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.39.0", {
+        "The rail's sections are now Raid Info, Tools and Guild. Macro Workstation moved to Tools, next to UI Tweaks and Keystone Roulette.",
+        "Combat Timer is now part of UI Tweaks (first in the list, with its own switch). Its page has Move, Reset position and a Timer settings button; the font, size, colour and chat line options are in Settings > Combat Timer.",
+        "Recent fights: click one to see its details. A raid boss pull from tonight shows the result, deaths, who died first and to what, with a button to open it in Reports.",
+        "UI Tweaks is shorter: one line per tweak, click it for its options. /tu timer opens the Combat Timer there.",
+    } },
     { "0.38.0", {
         "A shorter rail: Death Roll, Wheel of Fortune, Wowdle and Chess are now one Games entry, under Guild with Crafters.",
         "Pages are easier to find: Games, Loot, Reports and Macro Workstation show big tabs across the top of the window, and list their pages under the entry on the rail. Click either to switch.",
