@@ -4,7 +4,7 @@
 -- permissions and slash commands; every module hangs off the shared `ns`.
 local ADDON, ns = ...
 
-ns.VERSION = "0.39.0"
+ns.VERSION = "0.40.0"
 ns.PREFIX = "TitanBoard"     -- board sync channel (unchanged, so it stays compatible)
 ns.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 ns.U = 4095            -- board coordinates run 0..4095 on both axes
@@ -877,6 +877,7 @@ local SUITE_DEFAULTS = {
     alts = { share = true, chars = {}, links = {} },          -- your characters (this account), guildmates' alt lists
     crafters = { share = true, oldTiers = false, mine = {}, people = {} },   -- mine[character] = professions, outside crafters
     wishlist = { share = true, mine = {}, people = {} },      -- mine[character] = { [itemID] = tags }
+    consumables = { remind = false, chars = {}, learned = {} },  -- 0.40.0: chars[character] = { want, mine }; the raid reminder is off
 }
 
 ns.On("ADDON_LOADED", function(name)
@@ -897,7 +898,7 @@ local function startModules()
     for _, name in ipairs({ "Updates", "Content", "Model", "Comms", "Sync", "Presence",
                             "Board", "Laser", "Invite", "ImportExport",
                             "Hub", "DeathRoll", "DRLedger", "DeathRollUI", "Wheel", "WheelUI", "Loot", "LootUI", "LootRolls",
-                            "RaidCheck", "RaidCheckUI", "PullReport", "PullReportUI", "RaidScorecard", "RaidScorecardUI", "MacroShare", "MacroShareUI", "MacroBuilder", "Timer", "TimerUI", "Tweaks", "TweaksUI", "DeathAlerts", "StackSplitter", "BattleRez", "BonusRollGuard", "Keys", "KeysUI", "Wowdle", "WowdleUI", "Chess",
+                            "RaidCheck", "RaidCheckUI", "PullReport", "PullReportUI", "RaidScorecard", "RaidScorecardUI", "MacroShare", "MacroShareUI", "MacroBuilder", "Timer", "TimerUI", "Tweaks", "TweaksUI", "DeathAlerts", "StackSplitter", "BattleRez", "BonusRollGuard", "Keys", "KeysUI", "Consumables", "ConsumablesUI", "Wowdle", "WowdleUI", "Chess",
                             "Alts", "Crafters", "CraftersUI", "Wishlist", "WishlistUI" }) do
         -- each module starts on its own: one failing can't stop the rest
         local m = ns[name]

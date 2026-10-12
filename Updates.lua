@@ -17,6 +17,12 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.40.0", {
+        "New under Tools: Consumables, your raid shopping list. Type how many of each flask, potion and food you want to carry, and it shows what's in your bags and what you're short on. Each quality rank has its own line.",
+        "Add anything else you bring (oils, Vantus Runes, augment runes...): shift-click it into the Add box, drag it in, or type its name.",
+        "Each character has its own list. Copy from... copies another character's list onto this one.",
+        "Optional (off unless you turn it on in Settings > Consumables): a reminder when you zone into a raid and you're short on something.",
+    } },
     { "0.39.0", {
         "The rail's sections are now Raid Info, Tools and Guild. Macro Workstation moved to Tools, next to UI Tweaks and Keystone Roulette.",
         "Combat Timer is now part of UI Tweaks (first in the list, with its own switch). Its page has Move, Reset position and a Timer settings button; the font, size, colour and chat line options are in Settings > Combat Timer.",

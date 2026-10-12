@@ -1,4 +1,4 @@
-# Titan Up v0.39.0
+# Titan Up v0.40.0
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -11,6 +11,7 @@ The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up o
   - **UI Tweaks**: Combat Timer (move it, and click a recent fight for its details; its look and chat line are in Settings), Release protection, Death alerts, Stack splitter and Battle rez tracker. One line each with a switch; click one for its options.
   - **Keystone Roulette**: a wheel or a vote over the group's keys, then teleport.
   - **Macro Workstation**: the **Builder** helps anyone make a macro step by step (pick an ability, choose where it lands, add trinkets, then save it or share it), and **Share** lets the leader or an assist send macros to the raid, a role or a class, and anyone send one to a person in their group.
+  - **Consumables**: your raid shopping list. Set how many of each flask, potion and food you want to carry; it shows what's in your bags (each quality rank on its own line) and what you're short on. Add any item of your own. One list per character; an optional reminder when you zone into a raid short.
 - **Guild**
   - **Games** (one entry, with a tab per game):
     - **Death Roll**: challenge a guildmate to a gold death roll with real /rolls, spectators and a tamper-proof guild ledger.
@@ -164,6 +165,16 @@ Crafters, the wishlist and alt links share lists with a light, change-driven syn
 ## Planned
 
 - Fury of the Dead is still matched by its English name (Raid Check); no spell number for it is known yet.
+
+## Changes in 0.40.0
+
+- **Consumables** (Ryan, 2026-10-12): a new Tools rail entry (`key = "consumables"`, `group = "uitweaks"`, order 8, icon `Media\Consumables`), files `Consumables/Consumables.lua` (`ns.Consumables`) and `Consumables/ConsumablesUI.lua` (`ns.ConsumablesUI`). `/tu consumables` opens it. Personal only: nothing is sent.
+  - Saved in `TitanUpDB.consumables` = `{ remind = false, chars = { [Name-Realm] = { want = { [itemID] = n }, mine = { { id, group } } } }, learned = { [spellID] = { itemIDs } } }`. Lists are per character; **Copy from...** replaces this character's list with another's (confirmation prompt).
+  - Built-in list `CO.BUILTIN` (item numbers from the 12.1.0 SimulationCraft data): the four flasks and four combat potions Raid Check knows, each as two lines (`ranks = { rank 1, rank 2 }`), the Void-Touched Augment Rune, and the 42 Hearty foods and feasts. Health potions have no known item number: they're listed by the spell they use (`1234768`, `1295247`) and their item numbers are learned (`CO:Learn`, account-wide) the first time one is in your bags; until then a placeholder row says so. Weapon oils and Vantus Runes have no known item numbers, so players add them under My items.
+  - **Have** counts your bags only (bags 0-5, not bank or warband bank), each item number (so each quality rank) separately. **Want** is typed per row (0-999; 0 = not tracked). **Short** = Want - Have, red, or a green tick. The summary reads "Stocked for raid" / "Short on N things" / "Nothing on your list yet". **My list** shows tracked rows, **All items** everything (the default until something is tracked).
+  - **Add an item**: shift-click (`ns.AcceptLinks`), drag from bags (`GetCursorInfo`), an item number, or a name (matched against listed items, your bags, then `C_Item.GetItemInfoInstant`). A group can be picked (default My items). Up to 60 own items; own items have an x to remove them. Items you add show their crafted rank when the game gives one (`C_TradeSkillUI.GetItemCraftedQualityByItemInfo`).
+  - **Raid reminder** (Settings > Consumables, off by default): on `PLAYER_ENTERING_WORLD` / `ZONE_CHANGED_NEW_AREA` inside a raid instance, if anything is short, one `ns.Dock:Notice` ("Consumables: short on N - ...", **Open list**). Once per instance entry; waits for the end of combat.
+  - Tests: `testConsumables0400.lua` (46 checks); `testBuild0390` rail check updated for the new entry.
 
 ## Changes in 0.39.0
 

@@ -91,6 +91,13 @@ function S:Pages()
     if u.timer and ns.TimerUI then
         pages[#pages + 1] = { key = "timer", title = "Combat Timer", group = "TOOLS", mod = ns.TimerUI }
     end
+    if u.consumables and ns.Consumables then
+        pages[#pages + 1] = { key = "consumables", title = "Consumables", group = "TOOLS", rows = {
+            { toggle = "Remind me when I enter a raid", tip = "When you zone into a raid and you're short on anything on your Consumables list, a small notice says what (never in combat). Once each time you zone in.",
+              get = function() return ns.Consumables:Reminds() end, set = function(on) ns.Consumables:SetRemind(on) end },
+            { text = "Each character has its own list. Only your bags are counted, not your bank." },
+        } }
+    end
     if u.crafters then
         pages[#pages + 1] = { key = "crafters", title = "Crafters", group = "GUILD", rows = {
             { toggle = "Share my recipes", tip = "Let the guild see what this character can craft (read when you open a profession window). Off: the guild forgets this character's recipes.",
@@ -108,7 +115,7 @@ end
 -- so a change in one place shows everywhere at once.
 function ns.SettingsChanged()
     if S.frame and S.frame:IsShown() then S:RefreshPage() end
-    for _, name in ipairs({ "TweaksUI", "LootUI", "RaidCheckUI", "PullReportUI", "DeathRollUI", "WowdleUI", "CraftersUI", "WishlistUI" }) do
+    for _, name in ipairs({ "TweaksUI", "LootUI", "RaidCheckUI", "PullReportUI", "DeathRollUI", "WowdleUI", "CraftersUI", "WishlistUI", "ConsumablesUI" }) do
         local v = ns[name]
         if v and v.frame and v.frame:IsShown() and v.Refresh then pcall(v.Refresh, v) end
     end
