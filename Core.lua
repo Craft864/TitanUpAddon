@@ -4,7 +4,7 @@
 -- permissions and slash commands; every module hangs off the shared `ns`.
 local ADDON, ns = ...
 
-ns.VERSION = "0.40.1"
+ns.VERSION = "0.41.0"
 ns.PREFIX = "TitanBoard"     -- board sync channel (unchanged, so it stays compatible)
 ns.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 ns.U = 4095            -- board coordinates run 0..4095 on both axes
@@ -899,7 +899,7 @@ local function startModules()
                             "Board", "Laser", "Invite", "ImportExport",
                             "Hub", "DeathRoll", "DRLedger", "DeathRollUI", "Wheel", "WheelUI", "Loot", "LootUI", "LootRolls",
                             "RaidCheck", "RaidCheckUI", "PullReport", "PullReportUI", "RaidScorecard", "RaidScorecardUI", "MacroShare", "MacroShareUI", "MacroBuilder", "Timer", "TimerUI", "Tweaks", "TweaksUI", "DeathAlerts", "StackSplitter", "BattleRez", "BonusRollGuard", "Keys", "KeysUI", "Consumables", "ConsumablesUI", "Wowdle", "WowdleUI", "Chess",
-                            "Alts", "Crafters", "CraftersUI", "Wishlist", "WishlistUI" }) do
+                            "Alts", "MainPicker", "Crafters", "CraftersUI", "Wishlist", "WishlistUI" }) do
         -- each module starts on its own: one failing can't stop the rest
         local m = ns[name]
         if m and m.Init then

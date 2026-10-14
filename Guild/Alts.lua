@@ -56,7 +56,16 @@ function AL:Seen()
     local c = db().chars[ns.me] or { first = ns.Now() }
     c.seen = ns.Now()
     if ns.guildName then c.guild = ns.guildName end
+    local class = UnitClass and select(2, UnitClass("player"))
+    if type(class) == "string" and not ns.IsSecret(class) then c.class = class end
     db().chars[ns.me] = c
+    -- the main picked from the guild roster (0.41.0) logs in: it's yours now
+    if db().pendingMain == ns.me then
+        db().pendingMain = nil
+        db().main = ns.me
+        self:Changed()
+        ns.Print(("%s is now your main - your other characters are listed under it."):format(ns.Short(ns.me)))
+    end
 end
 
 function AL:IsMine(name)
@@ -88,9 +97,39 @@ end
 
 function AL:SetMain(name)
     db().main = name
+    db().pendingMain = nil
+    db().confirmed = true
     self:Changed()
     self:Announce()
 end
+
+-- "Pick your main" (0.41.0): asked until answered, once per account. Someone
+-- who already picked a main in Settings (with linking on) has answered.
+function AL:NeedsMain()
+    local d = db()
+    if d.confirmed then return false end
+    return not (d.main and self:Enabled())
+end
+
+-- picked in the pop-up: one of your characters (linking turns on)
+function AL:PickMain(name)
+    db().share = true
+    self:SetMain(name)
+end
+
+-- picked from the guild roster: a character this account hasn't logged into
+-- with Titan Up yet. It becomes your main when it logs in (Seen); until then
+-- your characters stay under the oldest one. Nothing is claimed for it
+-- before then, so a wrong pick can't merge you with someone else.
+function AL:PickPending(name)
+    local d = db()
+    d.share = true
+    d.pendingMain = name
+    d.confirmed = true
+    self:Changed()
+    self:Announce()
+end
+function AL:PendingMain() return db().pendingMain end
 
 function AL:SetEnabled(on)
     db().share = on and true or false

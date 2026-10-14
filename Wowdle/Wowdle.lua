@@ -7,6 +7,9 @@
 --     packed string (Words.lua) - no word table is ever built.
 --   * Standings: each player shares only their own totals and today's guess
 --     count over the guild channel (never the guesses), out of combat.
+--   * Seasons (0.41.0): the board was cleared once. Each account wipes its
+--     own totals on its first login with 0.41.0, and shares carry the season
+--     number, so totals from versions before the clear are never taken in.
 -- Nothing is built until the window is first opened.
 local ADDON, ns = ...
 
@@ -20,6 +23,7 @@ local PREFIX = "TitanUpWD"
 local LAUNCH = 1791126000          -- the US daily reset that starts Wowdle #1
 local DAY = 86400
 WD.MAX_GUESSES = 6
+WD.SEASON = 1                      -- 0.41.0: the one-time clear (Ryan, 2026-10-14)
 
 local function db() return ns.udb.wowdle end
 
@@ -99,7 +103,18 @@ function WD:Prune()
     end
 end
 
+-- The one-time clear: your totals and everyone's rows start over (today's
+-- guesses stay, so today's word can't be played again).
+function WD:NewSeason()
+    local d = db()
+    if (d.season or 0) >= WD.SEASON then return end
+    d.season = WD.SEASON
+    d.stats = { played = 0, wins = 0, streak = 0, best = 0, sum = 0, dist = { 0, 0, 0, 0, 0, 0 } }
+    d.standings = {}
+end
+
 function WD:Init()
+    self:NewSeason()
     self:Prune()
     ns.Listen(PREFIX, "guild", function(msg, sender) WD:OnMessage(msg, sender) end)
     ns.On("PLAYER_REGEN_ENABLED", function() if WD.pendingShare then C_Timer.After(2, function() WD:ShareMine() end) end end)
@@ -164,7 +179,7 @@ function WD:ShareMine()
     self.pendingShare = nil
     local r = self:MyRecord()
     db().standings[ns.me] = r
-    ns.Send(PREFIX, ("R^%d^%d^%d^%d^%d^%d^%d"):format(r.day, r.n, r.played, r.wins, r.streak, r.best, r.sum), ch)
+    ns.Send(PREFIX, ("R^%d^%d^%d^%d^%d^%d^%d^%d"):format(r.day, r.n, r.played, r.wins, r.streak, r.best, r.sum, WD.SEASON), ch)
 end
 
 function WD:RequestStandings()
@@ -184,6 +199,8 @@ end
 function WD:OnMessage(msg, sender)
     local f = ns.Split(msg, "^")
     if f[1] == "R" then
+        -- totals from before the clear (no season: an older version) aren't taken in
+        if (int(f[9], 0, 1000) or 0) < WD.SEASON then return end
         -- every number checked: a day near today (so it's pruned in time), counts that add up
         local today = WD.Today()
         local r = { day = int(f[2], today - WD.PRUNE_DAYS, today + 1), n = int(f[3], -1, WD.MAX_GUESSES), played = int(f[4], 0, 100000) }
