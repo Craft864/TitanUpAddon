@@ -50,6 +50,7 @@ function S:Pages()
               return out
           end)(),
           get = function() return ns.Alts:MyMain() end, set = function(v) ns.Alts:SetMain(v) end },
+        { button = "Pick my main", tip = "Choose your main from your characters, or from the guild roster if you haven't logged into it with Titan Up yet", run = function() ns.MainPicker:Show() end },
         { notes = true },                       -- what's new, every version, newest first
     } }
     -- the raid tools' pages, keyed by module (shown in the tools' own order)

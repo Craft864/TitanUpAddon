@@ -17,6 +17,11 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.41.0", {
+        "The Wowdle standings start over: everyone's totals and streaks were cleared once. Death Roll standings, debts and history are unchanged.",
+        "New: Titan Up asks which character is your main. Pick it from your characters, or choose \"My main isn't listed\" to find it in the guild roster - it becomes your main the next time you log into it. Your other characters show under your main in the guild games.",
+        "Not now? Press Later and it asks again next login. You can also pick your main any time in Settings > Titan Up.",
+    } },
     { "0.40.1", {
         "Keystone Roulette is now for 5-player groups only: in a raid group, Spin and Vote are greyed out and the window explains why. Leave the raid (or convert back to a party) and it works again.",
     } },

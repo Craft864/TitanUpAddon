@@ -1,4 +1,4 @@
-# Titan Up v0.40.1
+# Titan Up v0.41.0
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -165,6 +165,15 @@ Crafters, the wishlist and alt links share lists with a light, change-driven syn
 ## Planned
 
 - Fury of the Dead is still matched by its English name (Raid Check); no spell number for it is known yet.
+
+## Changes in 0.41.0
+
+- **Wowdle board cleared, once** (Ryan, 2026-10-14; Death Roll standings, ledger and records are not touched). `WD.SEASON = 1`; `WD:NewSeason()` (first thing in `WD:Init`) wipes `udb.wowdle.stats` and `standings` once per account and sets `udb.wowdle.season = 1`. Today's guesses stay, so today's word can't be played again. The `R` share gets a 9th field, the season (`R^day^n^played^wins^streak^best^sum^season`); older versions ignore it. A received `R` without season >= 1 is dropped, so players who haven't updated drop off the board instead of syncing their old totals back; they reappear (from zero) once they update.
+- **"Pick your main" pop-up** (Ryan, 2026-10-14; asked for as forced, so it shows without a setting). New file `Guild/MainPicker.lua` (`ns.MainPicker`). Shown 15 s after login (then checked every 30 s for an hour) while `ns.Alts:NeedsMain()`: not answered yet on this account (`udb.alts.confirmed`) and no main already picked in Settings with linking on. Never in combat, encounter lockdown or any instance (`ns.Busy()`, `IsInInstance()`), and only in a guild.
+  - Lists `AL:MyChars()` (every character this account has logged into with Titan Up in this guild, oldest first, class coloured from the new `chars[name].class`). Clicking one = `AL:PickMain` (sets `alts.main`, turns `alts.share` on, `confirmed`).
+  - **My main isn't listed** switches to the guild roster (`ns.GuildRoster().inGuild`, minus your own characters) with a search box; clicking a name = `AL:PickPending`: `alts.pendingMain` is set and nothing is claimed for it yet (your characters stay under the oldest one), so a wrong pick can't merge you with another player. When that character logs in, `AL:Seen` makes it the main and prints "X is now your main".
+  - **Later** (or Escape) closes it until the next login. Settings > Titan Up has a new **Pick my main** button that opens it any time.
+  - Tests: `testMain0410.lua` (25 checks); `testGamesFixes` and `flows.lua` Wowdle shares carry the season.
 
 ## Changes in 0.40.1
 
