@@ -17,6 +17,9 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.43.0", {
+        "Chess: your games now follow you across your characters. Swap to an alt and you can keep playing every game you started on another character (needs \"Link my characters\" on, which it is unless you turned it off).",
+    } },
     { "0.42.0", {
         "Loot Rolls window: closing it (X or Escape) now gives any roll you haven't made back to Blizzard's normal roll pop-ups, as it was meant to. Chat reminds you that /tu rolls opens the window again.",
         "The roll buttons are now the same ones Blizzard shows: Need, then Greed or Transmog (Transmog takes Greed's place when you can collect the look), then Pass, in one line. Hover a greyed-out button to see the game's reason.",

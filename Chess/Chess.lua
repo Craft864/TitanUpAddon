@@ -1,10 +1,16 @@
 -- Titan Up - Chess/Chess.lua
 -- Chess between two guildmates, saved until the game ends.
 --
---   * Each game is saved on your character (TitanUpDB.chess.games) until
+--   * Each game is saved for your account (TitanUpDB.chess.games) until
 --     it's won, drawn or resigned - through /reload, logout and patches.
 --     You can have several games going, each against a different guildmate
 --     or the same one.
+--   * Your characters (0.43.0): a game is named after the character that
+--     started or accepted it, but any of your characters can play it while
+--     "Link my characters" is on. Other players accept a move, answer or
+--     game from a character linked to the player (ns.Alts:Linked - both
+--     characters list each other, and WoW stamps every message with its
+--     real sender), so nobody else can play your side.
 --   * Both online: moves go straight over the guild's addon channel.
 --   * Not online together: guild couriers. Everything goes over the guild
 --     channel, so every guildmate running Titan Up quietly keeps a copy of
@@ -115,9 +121,35 @@ local function validId(id, by)
     return by == nil or id:sub(1, #ns.Short(by) + 1) == ns.Short(by) .. "-"
 end
 
-function CH:IsPlayer(g, name) name = name or ns.me return g.w == name or g.b == name end
-function CH:Opponent(g) return g.w == ns.me and g.b or g.w end
-function CH:ColorOf(g, name) name = name or ns.me return g.w == name and "w" or (g.b == name and "b" or nil) end
+-- One of your characters? (the one you're on, or - with linking on - any
+-- other character on this account)
+function CH:IsMe(name)
+    if not name then return false end
+    if name == ns.me then return true end
+    local AL = ns.Alts
+    return AL and AL:Enabled() and AL:IsMine(name) and true or false
+end
+
+-- Does `sender` speak for the player `seat`? (the same character, or one linked to it)
+function CH:Plays(seat, sender)
+    if not (seat and sender) then return false end
+    if seat == sender then return true end
+    if self:IsMe(seat) and sender == ns.me then return true end
+    local AL = ns.Alts
+    return AL and AL:Linked(seat, sender) or false
+end
+
+-- name nil = you. With a name: is that character (or one linked to it) playing?
+function CH:IsPlayer(g, name)
+    if name then return self:Plays(g.w, name) or self:Plays(g.b, name) end
+    return self:IsMe(g.w) or self:IsMe(g.b)
+end
+function CH:Me(g) return self:IsMe(g.w) and g.w or g.b end
+function CH:Opponent(g) return self:IsMe(g.w) and g.b or g.w end
+function CH:ColorOf(g, name)
+    if name then return self:Plays(g.w, name) and "w" or (self:Plays(g.b, name) and "b" or nil) end
+    return self:IsMe(g.w) and "w" or (self:IsMe(g.b) and "b" or nil)
+end
 
 -- Who moves next: White when an even number of moves have been made.
 function CH:ToMove(g)
@@ -130,8 +162,8 @@ local function moverOf(g, i) return (i % 2 == 1) and g.w or g.b end
 
 -- Waiting on you: your move, or a challenge to answer.
 function CH:NeedsMe(g)
-    if g.status == "active" then return select(2, self:ToMove(g)) == ns.me end
-    return g.status == "invited" and g.by ~= ns.me
+    if g.status == "active" then return self:IsMe(select(2, self:ToMove(g))) end
+    return g.status == "invited" and not self:IsMe(g.by)
 end
 
 -- The rules game for a saved game (replayed once, then kept up to date).
@@ -227,7 +259,7 @@ function CH:KnownPlayers()
     local out = {}
     local r = self:Roster()
     for name, at in pairs(db().known or {}) do
-        if name ~= ns.me and (not r.loaded or r.inGuild[name]) then
+        if not self:IsMe(name) and not (ns.Alts and ns.Alts:IsMine(name)) and (not r.loaded or r.inGuild[name]) then
             out[#out + 1] = { name = name, at = at, online = self:IsOnline(name) == true, class = r.class[name] }
         end
     end
@@ -268,12 +300,24 @@ function CH:Roster()
     return r
 end
 
--- true / false, or nil when the roster isn't known
+-- true / false, or nil when the roster isn't known. A player counts as
+-- online on any of their linked characters.
 function CH:IsOnline(name)
-    if self.heard and self.heard[name] and GetTime() - self.heard[name] < 120 then return true end
     local r = self:Roster()
-    if not r.loaded then return nil end
-    return r.online[name] == true
+    local function one(n)
+        if self.heard and self.heard[n] and GetTime() - self.heard[n] < 120 then return true end
+        if not r.loaded then return nil end
+        return r.online[n] == true
+    end
+    local v = one(name)
+    if v then return true end
+    local AL = ns.Alts
+    if AL and name then
+        for _, n in ipairs(AL:CharsOf(AL:Main(name))) do
+            if n ~= name and AL:Linked(n, name) and one(n) then return true end
+        end
+    end
+    return v
 end
 
 -- What a player typed -> a guildmate's full name, or nil + why not.
@@ -419,6 +463,7 @@ function CH:Challenge(text, tc)
     local name, err = self:ResolveName(text)
     if not name then return false, err end
     if name == ns.me then return false, "You can't challenge yourself." end
+    if self:IsMe(name) or (ns.Alts and ns.Alts:IsMine(name)) then return false, "That's one of your own characters." end
     local active = 0
     for _, g in pairs(db().games) do if self:IsPlayer(g) and g.status ~= "over" then active = active + 1 end end
     if active >= self.MAX_GAMES then return false, ("You already have %d games going - finish one first."):format(active) end
@@ -437,7 +482,7 @@ end
 
 function CH:Accept(id)
     local g = self:Get(id)
-    if not g or g.status ~= "invited" or g.by == ns.me then return false end
+    if not g or g.status ~= "invited" or self:IsMe(g.by) then return false end
     g.status = "active"
     g.startAt = ns.Now()
     touch(g)
@@ -450,7 +495,7 @@ end
 function CH:Decline(id)
     local g = self:Get(id)
     if not g or g.status ~= "invited" then return false end
-    finish(g, nil, g.by == ns.me and "cancelled" or "declined")
+    finish(g, nil, self:IsMe(g.by) and "cancelled" or "declined")
     self:Send("D", id)
     changed(g, "state")
     return true
@@ -460,7 +505,7 @@ function CH:Move(id, uci)
     local g = self:Get(id)
     if not g or g.status ~= "active" then return false, "This game isn't in progress." end
     local _, who = self:ToMove(g)
-    if who ~= ns.me then return false, "It's not your move." end
+    if not self:IsMe(who) then return false, "It's not your move." end
     local game = self:Live(g)
     if not R.Step(game, uci) then return false, "That move isn't legal." end
     local list = split(g.moves)
@@ -516,7 +561,7 @@ function CH:OfferDraw(id)
     local g = self:Get(id)
     if not g or g.status ~= "active" then return false end
     local n = count(g.moves)
-    g.offer = { by = ns.me, n = n }
+    g.offer = { by = self:Me(g), n = n }
     self:Send("E", id, "O", n)
     changed(g, "offer")
     return true
@@ -525,7 +570,7 @@ end
 function CH:AcceptDraw(id)
     local g = self:Get(id)
     local n = g and count(g.moves)
-    if not g or g.status ~= "active" or not g.offer or g.offer.by == ns.me or g.offer.n ~= n then return false end
+    if not g or g.status ~= "active" or not g.offer or self:IsMe(g.offer.by) or g.offer.n ~= n then return false end
     finish(g, "d", "agreed")
     self:Send("E", id, "Y", n)
     changed(g, "state")
@@ -598,7 +643,7 @@ function CH:OnChallenge(id, w, b, sender, tc)
     local t = { id = id, w = w, b = b, by = sender, status = "invited", moves = "" }
     if tc and tc ~= "" and TIMER_OK[tc] then t.tc, t.at = tc, {} end
     local target = (sender == w) and b or w
-    if target == ns.me then
+    if self:IsMe(target) then
         if db().games[id] then return end
         t.created, t.via = ns.Now(), {}
         touch(t)
@@ -616,15 +661,16 @@ function CH:OnAnswer(kind, id, sender, at)
     local t = mine and g or carryCopy(id)
     if not t or t.status ~= "invited" or not self:IsPlayer(t, sender) then return end
     if kind == "A" then
-        if sender == t.by then return end                -- only the challenged player accepts
+        if self:Plays(t.by, sender) then return end      -- only the challenged player accepts
         t.status = "active"
         t.startAt = clampTime(at, t.created)
         touch(t)
         if mine then notify(("%s accepted your challenge. %s"):format(ns.Short(sender),
             self:ColorOf(g) == "w" and "You play White - your move." or "You play Black."), g) end
     else
-        finish(t, nil, sender == t.by and "cancelled" or "declined")
-        if mine then notify(sender == t.by and ("%s took back their challenge."):format(ns.Short(sender))
+        local byChallenger = self:Plays(t.by, sender)
+        finish(t, nil, byChallenger and "cancelled" or "declined")
+        if mine then notify(byChallenger and ("%s took back their challenge."):format(ns.Short(sender))
             or ("%s declined your challenge."):format(ns.Short(sender)), g) end
     end
     if mine then changed(g, "state") else storeCarry(t) end
@@ -653,11 +699,11 @@ function CH:OnMove(id, n, uci, sender, at, clock)
     if not n or type(uci) ~= "string" or #uci < 4 or #uci > 5 then return end
     local g = self:Get(id)
     if g and self:IsPlayer(g) then
-        if g.status ~= "active" or self:Opponent(g) ~= sender then return end
+        if g.status ~= "active" or not self:Plays(self:Opponent(g), sender) then return end
         local list = split(g.moves)
         if n == #list and list[n] == uci then return end             -- already have it
         if n > #list + 1 then self:AnswerHello(sender, true) return end  -- we missed some: ask
-        if n ~= #list + 1 or moverOf(g, n) ~= sender then return end
+        if n ~= #list + 1 or not self:Plays(moverOf(g, n), sender) then return end
         local game = self:Live(g)
         if not R.Step(game, uci) then return end
         list[n] = uci
@@ -671,7 +717,7 @@ function CH:OnMove(id, n, uci, sender, at, clock)
         if g.status == "over" then
             notify(self:EndText(g), g)
         elseif ns.ChessUI and not ns.ChessUI:IsShown() then
-            ns.Print(("|cff4fc2f7Chess:|r %s played %s - your move."):format(ns.Short(sender), game.san[n] or uci))
+            ns.Print(("|cff4fc2f7Chess:|r %s played %s - your move."):format(ns.Short(self:Opponent(g)), game.san[n] or uci))
             ns.ChessUI:FlashRail()
         end
         changed(g, "move")
@@ -681,7 +727,7 @@ function CH:OnMove(id, n, uci, sender, at, clock)
     local c = carryCopy(id)
     if not c or c.status ~= "active" or not self:IsPlayer(c, sender) then return end
     local list = split(c.moves)
-    if n ~= #list + 1 or moverOf(c, n) ~= sender then return end
+    if n ~= #list + 1 or not self:Plays(moverOf(c, n), sender) then return end
     local game = self:Live(c)
     if not R.Step(game, uci) then return end
     list[n] = uci
@@ -698,19 +744,20 @@ function CH:OnEnd(id, kind, n, sender)
     local mine = g and self:IsPlayer(g)
     local t = mine and g or carryCopy(id)
     if not t or t.status ~= "active" or not self:IsPlayer(t, sender) or not n then return end
-    if mine and sender ~= self:Opponent(g) then return end
+    if mine and not self:Plays(self:Opponent(g), sender) then return end
+    local seat = self:ColorOf(t, sender) == "w" and t.w or t.b       -- the player the sender speaks for
     local moves = count(t.moves)
     if kind == "R" then
         finish(t, self:ColorOf(t, sender) == "w" and "b" or "w", "resign")
-        if mine then notify(("%s resigned. You win!"):format(ns.Short(sender)), g) end
+        if mine then notify(("%s resigned. You win!"):format(ns.Short(seat)), g) end
     elseif kind == "O" then
         if n ~= moves then return end
-        t.offer = { by = sender, n = n }
-        if mine then notify(("%s offers a draw."):format(ns.Short(sender)), g) end
+        t.offer = { by = seat, n = n }
+        if mine then notify(("%s offers a draw."):format(ns.Short(seat)), g) end
     elseif kind == "Y" then
-        if not (t.offer and t.offer.n == n and n == moves and t.offer.by ~= sender) then return end
+        if not (t.offer and t.offer.n == n and n == moves and t.offer.by ~= seat) then return end
         finish(t, "d", "agreed")
-        if mine then notify(("%s accepted your draw offer."):format(ns.Short(sender)), g) end
+        if mine then notify(("%s accepted your draw offer."):format(ns.Short(seat)), g) end
     elseif kind == "T" or kind == "F" then
         -- T: the sender claims the win on time; F: the sender's own clock ran out
         local tk = self:Timer(t)
@@ -750,13 +797,13 @@ function CH:OnHello(text, sender)
     local behind = false
     -- our own games with them
     for _, g in pairs(db().games) do
-        if self:IsPlayer(g) and self:Opponent(g) == sender then
+        if self:IsPlayer(g) and self:Plays(self:Opponent(g), sender) then
             local r = reported[g.id]
             local list = split(g.moves)
             local recent = g.status ~= "over" or now - (g.updated or 0) < self.OVER_DAYS * DAY
             if not r then
                 -- they don't have it: a challenge they never got, or a game they lost track of
-                if recent and not (g.status == "over" and g.by ~= ns.me and g.reason == "declined") then self:SendState(g) end
+                if recent and not (g.status == "over" and not self:IsMe(g.by) and g.reason == "declined") then self:SendState(g) end
             else
                 if r.n <= #list and r.hash == CH.Hash(prefixText(list, r.n)) then
                     -- their copy matches ours up to their last move: confirmed
@@ -784,7 +831,7 @@ function CH:OnHello(text, sender)
             if not r then need = recent and c.status ~= "over"
             else need = n > r.n or (n == r.n and rank > (r.rank or 0)) end
             -- (an unanswered challenge goes only to the player it's for)
-            if need and c.status == "invited" and sender == c.by then need = false end
+            if need and c.status == "invited" and self:Plays(c.by, sender) then need = false end
             if need then self:Deliver(c, n, rank) end
         end
     end
@@ -833,7 +880,7 @@ function CH:OnState(f, sender)
         if cw then t.clk = { w = tonumber(cw), b = tonumber(cb) } end
     end
 
-    if w == ns.me or b == ns.me then
+    if self:IsMe(w) or self:IsMe(b) then
         self:MergeMine(t, theirs, sender)
         return
     end
@@ -854,12 +901,12 @@ end
 
 -- A whole game for one of OUR games arrived.
 function CH:MergeMine(t, theirs, sender)
-    local opp = (t.w == ns.me) and t.b or t.w
-    local fromOpp = sender == opp
+    local opp = self:IsMe(t.w) and t.b or t.w
+    local fromOpp = self:Plays(opp, sender)
     local g = self:Get(t.id)
     if not g then
         -- a challenge (or a game) we never heard about, delivered by a courier
-        if t.status == "over" or t.by == ns.me then return end
+        if t.status == "over" or self:IsMe(t.by) then return end
         g = { id = t.id, w = t.w, b = t.b, by = t.by, status = t.status, moves = t.moves, created = ns.Now(), via = {},
               tc = t.tc, at = t.at, startAt = t.startAt, clk = t.clk }
         if not fromOpp then for i = 1, #theirs do g.via[i] = sender end end
@@ -884,7 +931,7 @@ function CH:MergeMine(t, theirs, sender)
     -- first move of ours we don't already have
     local base = d and d - 1 or #mine
     for i = base + 1, #theirs do
-        if moverOf(g, i) == ns.me then
+        if self:IsMe(moverOf(g, i)) then
             for j = #theirs, i, -1 do theirs[j] = nil end
             t.moves = table.concat(theirs, ",")
             break
@@ -894,7 +941,7 @@ function CH:MergeMine(t, theirs, sender)
     local beforeStatus = g.status
     local adoptFrom                                -- first ply taken from their copy
     if d then
-        if moverOf(g, d) == ns.me then
+        if self:IsMe(moverOf(g, d)) then
             -- our own move: ours stands; tell them
             if fromOpp then self:SendState(g, true) end
             return
@@ -972,7 +1019,7 @@ local REASONS = {
 }
 
 function CH:EndText(g)
-    if g.reason == "declined" then return (g.by == ns.me and ns.Short(self:Opponent(g)) or "You") .. " declined the challenge." end
+    if g.reason == "declined" then return (self:IsMe(g.by) and ns.Short(self:Opponent(g)) or "You") .. " declined the challenge." end
     if g.reason == "cancelled" then return "The challenge was taken back." end
     if g.result == "d" then return "Draw by " .. (REASONS[g.reason] or "agreement") .. "." end
     local me = self:ColorOf(g)

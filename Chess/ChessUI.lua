@@ -261,7 +261,7 @@ function V:Select(id)
 end
 
 function V:OnChange(g, what)
-    if what == "new" and g and g.by == ns.me then self.sel = g.id end
+    if what == "new" and g and CH:IsMe(g.by) then self.sel = g.id end
     if g and g.id == self.sel and what ~= "offer" then self.pick, self.promoMove = nil, nil; self.follow = true end
     if not self:IsShown() then return end
     -- a new move in the game on screen slides into place
@@ -328,7 +328,7 @@ end
 
 local function statusLine(g)
     if g.status == "invited" then
-        if g.by == ns.me then return col(MUTED, "Waiting for them to accept") end
+        if CH:IsMe(g.by) then return col(MUTED, "Waiting for them to accept") end
         return col(WARN, "Challenged you!")
     end
     if g.status == "over" then
@@ -352,7 +352,8 @@ function V:Refresh()
         if g then
             r.id = g.id
             local n = #CH.SplitMoves(g.moves)
-            r.text:SetText("vs " .. ns.Short(CH:Opponent(g)))
+            local as = CH:Me(g) ~= ns.me and col(MUTED, "  as " .. ns.Short(CH:Me(g))) or ""     -- started on another of your characters
+            r.text:SetText("vs " .. ns.Short(CH:Opponent(g)) .. as)
             r.sub:SetText(statusLine(g) .. (n > 0 and col(MUTED, ("  -  move %d"):format(math.floor((n + 1) / 2))) or ""))
             r.hl:SetShown(g.id == self.sel)
         end
@@ -438,7 +439,7 @@ function V:RefreshPlayers(g)
         return
     end
     local game = CH:Live(g)
-    local me, opp = ns.me, CH:Opponent(g)
+    local me, opp = CH:Me(g), CH:Opponent(g)
     local mine = CH:ColorOf(g)
     local theirs = mine == "w" and "b" or "w"
     local turn = g.status == "active" and CH:ToMove(g)
@@ -504,7 +505,7 @@ function V:RefreshSide(g)
         local online = CH:IsOnline(CH:Opponent(g))
         local game = CH:Live(g)
         if g.status == "invited" then
-            if g.by == ns.me then
+            if CH:IsMe(g.by) then
                 status = ("Waiting for %s to accept."):format(opp)
                 note = online == false and ("%s is offline - the challenge reaches them through a guildmate."):format(opp) or ""
                 b = { "Take back the challenge", nil, false, "decline" }
@@ -522,7 +523,7 @@ function V:RefreshSide(g)
             b = { "Remove from list", "Take this finished game off your list", false, "remove" }
         else
             local _, who = CH:ToMove(g)
-            if who == ns.me then
+            if CH:IsMe(who) then
                 status = R.InCheck(game.pos) and col(WARN, "Check!") .. " Your move." or "Your move."
                 note = "Click a piece, then where it goes."
             else
@@ -530,7 +531,7 @@ function V:RefreshSide(g)
                 note = online == false and ("%s is offline - your move reaches them through a guildmate."):format(opp) or ""
             end
             if g.offer and g.offer.n == #CH.SplitMoves(g.moves) then
-                if g.offer.by == ns.me then
+                if CH:IsMe(g.offer.by) then
                     note = note .. "\nYou offered a draw."
                     a = { "Draw offered", nil, false, "none" }
                 else
@@ -584,7 +585,7 @@ end
 -- ---------------------------------------------------------------------
 function V:ClickSquare(sq)
     local g = self.game
-    if not g or g.status ~= "active" or select(2, CH:ToMove(g)) ~= ns.me or self.promoMove then return end
+    if not g or g.status ~= "active" or not CH:IsMe(select(2, CH:ToMove(g))) or self.promoMove then return end
     local game = CH:Live(g)
     local p = game.pos.b[sq]
     local mine = p and R.ColorOf(p) == CH:ColorOf(g)
