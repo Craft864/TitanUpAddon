@@ -168,6 +168,7 @@ function UI.Window(name, w, h, o)
     return f
 end
 
+-- (b.edge / b.textColor: a button's own border and label colour at rest)
 function UI.Paint(b)
     local bg, bd
     if b.disabled then
@@ -177,12 +178,12 @@ function UI.Paint(b)
     elseif b.hover then
         bg, bd = C.btnHover, C.accent
     else
-        bg, bd = C.btn, C.line
+        bg, bd = C.btn, b.edge or C.line
     end
     b:SetBackdropColor(bg[1], bg[2], bg[3], bg[4] or 1)
     b:SetBackdropBorderColor(bd[1], bd[2], bd[3], bd[4] or 1)
     if b.label then
-        local t = b.disabled and C.muted or C.text
+        local t = b.disabled and C.muted or b.textColor or C.text
         b.label:SetTextColor(t[1], t[2], t[3])
     end
 end

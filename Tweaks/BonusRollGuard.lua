@@ -2,15 +2,19 @@
 -- Bonus roll protection (a UI Tweak, off until turned on): no more spending
 -- or passing a bonus roll by accident.
 --   * Blizzard's bonus roll Roll and Pass buttons get a cover each. Clicking
---     Roll opens a green "Spend a bonus roll?" panel (with your loot spec and
---     how many coins you have); clicking Pass opens a red "Give up this bonus
---     roll?" panel with a big "Keep my roll" button.
---   * Confirming means clicking the real button: its cover steps aside and
---     the button glows. The game only lets its own buttons spend or pass a
---     bonus roll (an addon's click is blocked), so the real button is always
---     the one that does it - Blizzard's frame and buttons are never modified
---     (no taint), same as Release protection.
---   * Nothing clicked within 15 seconds: the covers come back.
+--     Roll opens a green "Spend your bonus roll?" panel (boss, loot spec,
+--     coins now and after); clicking Pass opens a red "Pass on your bonus
+--     roll?" panel ("Nevermind, I'm still thinking" backs out).
+--   * (0.42.0) The panel's own big Yes button does it: a secure "click"
+--     button (SecureActionButtonTemplate, type "click") that clicks
+--     Blizzard's real Roll / Pass button, exactly like a /click macro - the
+--     game only lets its own button spend or pass a bonus roll, and this way
+--     its own button still does. Blizzard's frame and buttons are never
+--     modified (no taint).
+--   * In combat a secure button can't be shown or set up, and if the click
+--     ever doesn't go through, the panel falls back to the old way: the real
+--     button's cover steps aside, it glows, and the panel says to click it.
+--   * Nothing clicked within 30 seconds: the covers come back.
 --   * The roll result goes to the Loot list ("Bonus roll") - see Loot.lua.
 --
 -- Docked in the Loot Rolls window (0.30.1): while that window is open (out
@@ -27,7 +31,8 @@ local C = UI.C
 local BG = {}
 ns.BonusRollGuard = BG
 
-BG.ARM_SECONDS = 15
+BG.ARM_SECONDS = 30
+BG.CHECK_AFTER = 1.5              -- a Yes that did nothing by then: fall back to the glowing button
 local BONUS_ROLL_PROMPT = (Enum and Enum.SpellConfirmationPromptType and Enum.SpellConfirmationPromptType.BonusRoll)
     or LE_SPELL_CONFIRMATION_PROMPT_TYPE_BONUS_ROLL or 1
 
@@ -36,14 +41,17 @@ local function inCombat() return InCombatLockdown and InCombatLockdown() end
 function BG:Enabled() return db().bonusGuard and true or false end
 
 function BG:Init()
-    ns.On("SPELL_CONFIRMATION_PROMPT", function(_, confirmType, _, _, currencyID)
+    ns.On("SPELL_CONFIRMATION_PROMPT", function(_, confirmType, _, _, currencyID, currencyCost)
         if ns.IsSecret(confirmType) or confirmType ~= BONUS_ROLL_PROMPT then return end
         BG.currencyID = not ns.IsSecret(currencyID) and currencyID or nil
+        BG.cost = ns.Safe.Num(currencyCost)
         if C_Timer then C_Timer.After(0, function() BG:Check() end) end
     end)
     ns.On("SPELL_CONFIRMATION_TIMEOUT", function() BG:Check() end)
     ns.On("BONUS_ROLL_STARTED", function() BG:Off() end)
     ns.On("BONUS_ROLL_RESULT", function() BG:Off() end)
+    -- the secure Yes can't be hidden once combat starts: hide it just before
+    ns.On("PLAYER_REGEN_DISABLED", function() BG:CombatStarts() end)
     ns.On("PLAYER_REGEN_ENABLED", function() BG:Dock() end)
     self:Watch()
 end
@@ -94,6 +102,16 @@ function BG.LootSpec()
     return "unknown"
 end
 
+-- the boss the bonus roll is for ("this boss" if the journal doesn't say)
+function BG.Boss()
+    local id = BonusRollFrame and ns.Safe.Num(BonusRollFrame.encounterID)
+    if id and EJ_GetEncounterInfo then
+        local ok, name = pcall(EJ_GetEncounterInfo, id)
+        if ok and ns.Safe.Text(name) then return name end
+    end
+    return "this boss"
+end
+
 function BG.Coins()
     if not (BG.currencyID and C_CurrencyInfo and C_CurrencyInfo.GetCurrencyInfo) then return nil end
     local ok, info = pcall(C_CurrencyInfo.GetCurrencyInfo, BG.currencyID)
@@ -134,21 +152,52 @@ function BG:Build()
     end)
     self.glow = g
 
-    local p = UI.Window("TitanUpBonusRollGuard", 320, 112, { strata = "FULLSCREEN_DIALOG", noTop = true, noEsc = true })
-    p.title = UI.Text(p, "GameFontNormalLarge", C.good, nil, "TOP", 0, -12)
-    p.line1 = UI.Text(p, "GameFontHighlight", C.text, nil, "TOP", p.title, "BOTTOM", 0, -6)
-    p.line2 = UI.Text(p, "GameFontHighlightSmall", C.muted, nil, "TOP", p.line1, "BOTTOM", 0, -4)
-    p.line1:SetWidth(296); p.line2:SetWidth(296)
-    p.keep = UI.Button(p, 200, 28, "", nil, function() BG:Cover() end)
-    p.keep:SetPoint("BOTTOM", 0, 10)
+    local p = UI.Window("TitanUpBonusRollGuard", 380, 236, { strata = "FULLSCREEN_DIALOG", noTop = true, noEsc = true })
+    p.title = UI.Text(p, "GameFontNormalLarge", C.good, nil, "TOP", 0, -14)
+    p.what = UI.Text(p, "GameFontHighlight", C.text, nil, "TOP", p.title, "BOTTOM", 0, -10)
+    p.facts = UI.Text(p, "GameFontHighlightSmall", C.text, nil, "TOP", p.what, "BOTTOM", 0, -10)
+    for _, t in ipairs({ p.what, p.facts }) do t:SetWidth(344); t:SetJustifyH("CENTER") end
+    -- (where the Yes goes; this one only shows when the secure one can't)
+    p.yes = UI.Button(p, 344, 32, "", nil, nil)
+    p.yes:SetPoint("BOTTOM", 0, 60)
+    p.yes.label:SetFontObject("GameFontNormal")
+    p.no = UI.Button(p, 344, 26, "", nil, function() BG:Cover() end)
+    p.no:SetPoint("BOTTOM", 0, 28)
+    p.fine = UI.Text(p, "GameFontHighlightSmall", C.muted, nil, "BOTTOM", 0, 10)
+    p.fine:SetWidth(344)
     p:ClearAllPoints()
     p:SetPoint("BOTTOM", BonusRollFrame, "TOP", 0, 8)             -- just above Blizzard's frame
     self.panel = p
+
+    -- The real Yes: a secure button that clicks Blizzard's own Roll / Pass
+    -- button (like a /click macro). Its own frame, not the panel's child:
+    -- a secure child would lock the panel in combat.
+    local y = CreateFrame("Button", "TitanUpBonusRollYes", UIParent, "SecureActionButtonTemplate,BackdropTemplate")
+    y:SetFrameStrata("FULLSCREEN_DIALOG")
+    y:SetFrameLevel((p:GetFrameLevel() or 1) + 10)
+    y:RegisterForClicks("AnyUp")
+    y:SetAttribute("type", "click")
+    y:SetAttribute("useOnKeyDown", false)
+    y:SetAllPoints(p.yes)
+    y:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+    y.label = y:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    y.label:SetPoint("CENTER")
+    y:HookScript("OnEnter", function(s) s:SetBackdropColor(s.color[1] * 0.45, s.color[2] * 0.45, s.color[3] * 0.45, 1) end)
+    y:HookScript("OnLeave", function(s) s:SetBackdropColor(s.color[1] * 0.25, s.color[2] * 0.25, s.color[3] * 0.25, 1) end)
+    y:HookScript("OnClick", function() BG:Clicked() end)
+    y.color = C.good
+    y:Hide()
+    self.yes = y
+end
+
+-- the secure Yes can only be shown, hidden or pointed at a button out of combat
+local function hideYes()
+    if BG.yes and BG.yes:IsShown() and not inCombat() then BG.yes:Hide() end
 end
 
 -- Show the covers (the safe state)
 function BG:Cover()
-    self.armed, self.armedUntil = nil, nil
+    self.armed, self.armedUntil, self.glowing = nil, nil, nil
     local roll, pass = BG.Buttons()
     if not roll or not self:Enabled() or not (BonusRollFrame and BonusRollFrame:IsShown()) then return self:Off() end
     self:Build()
@@ -157,46 +206,128 @@ function BG:Cover()
     self.covers.roll:SetShown(roll:IsVisible())
     self.covers.pass:SetShown(pass:IsVisible())
     self.glow:Hide()
+    hideYes()
     self.panel:Hide()
 end
 
--- Clicked a cover: explain, lift that cover, make the real button glow
+-- the words on the panel, spelled out
+local TEXT = {
+    roll = function()
+        local coins, coinName = BG.Coins()
+        local cost = BG.cost or 1
+        local coin = cost == 1 and "coin" or "coins"
+        return {
+            title = "SPEND YOUR BONUS ROLL?",
+            what = ("This uses |cffffd94d%d %s|r for a chance at extra loot from |cffffffff%s|r."):format(cost, coinName or coin, BG.Boss()),
+            facts = "Loot spec: |cffffd94d" .. BG.LootSpec() .. "|r"
+                .. (coins and ("\nCoins: |cffffd94d" .. coins .. " now, " .. math.max(0, coins - cost) .. " after this roll|r") or ""),
+            yes = ("YES - SPEND %d %s AND ROLL"):format(cost, coin:upper()),
+            no = "No, go back",
+            fine = "Nothing is spent until you click the green button.",
+            button = "Roll",
+        }
+    end,
+    pass = function()
+        local coins = BG.Coins()
+        return {
+            title = "PASS ON YOUR BONUS ROLL?",
+            what = ("You will |cfff25959NOT|r roll for extra loot from |cffffffff%s|r.\nThis can't be undone."):format(BG.Boss()),
+            facts = (coins and ("Coins: |cffffd94d" .. coins .. " - none spent if you pass|r\n") or "") .. "Loot spec: |cffffd94d" .. BG.LootSpec() .. "|r",
+            yes = "YES - PASS, NO BONUS ROLL",
+            no = "|cff66e08cNevermind, I'm still thinking|r",
+            fine = "Your roll is safe until you click the red button.",
+            button = "Pass",
+        }
+    end,
+}
+
+-- Clicked a cover: the panel, with its own Yes
 function BG:Ask(kind)
     local roll, pass = BG.Buttons()
     if not roll then return self:Off() end
     self:Build()
-    self.armed = kind
+    self.armed, self.glowing = kind, nil
     self.armedUntil = GetTime() + BG.ARM_SECONDS
     local token = {}
     self.token = token
     C_Timer.After(BG.ARM_SECONDS, function() if BG.token == token and BG.armed then BG:Check() end end)
     local p, real = self.panel, kind == "roll" and roll or pass
-    self.covers[kind]:Hide()
-    self.covers[kind == "roll" and "pass" or "roll"]:Show()
+    local t = TEXT[kind]()
+    self.text = t
+    -- both stay covered: the Yes clicks the real button
+    self.covers.roll:Show(); self.covers.pass:Show()
+    self.glow:Hide()
     local color = kind == "roll" and C.good or C.bad
     UI.Skin(p, C.bg, color)
     p.title:SetTextColor(color[1], color[2], color[3])
-    if kind == "roll" then
-        local coins, coinName = BG.Coins()
-        p.title:SetText("Spend a bonus roll?")
-        p.line1:SetText("Loot spec: |cffffd94d" .. BG.LootSpec() .. "|r" .. (coins and ("   " .. (coinName or "Coins") .. " left: " .. coins) or ""))
-        p.line2:SetText("Click the glowing Roll button to spend it.")
-        p.keep.label:SetText("Cancel")
+    p.title:SetText(t.title)
+    p.what:SetText(t.what)
+    p.facts:SetText(t.facts)
+    p.no.label:SetText(t.no)
+    p.fine:SetText(t.fine)
+    p.yes.textColor, p.yes.edge = color, color
+    p:Show()
+    if inCombat() then
+        self:Glow(kind)
     else
-        p.title:SetText("Give up this bonus roll?")
-        p.line1:SetText("You won't get it back.")
-        p.line2:SetText("Click the glowing Pass button to give it up.")
-        p.keep.label:SetText("|cff66e08cKeep my roll|r")
+        local y = self.yes
+        y:SetAttribute("clickbutton", real)
+        y.color = color
+        y:SetBackdropColor(color[1] * 0.25, color[2] * 0.25, color[3] * 0.25, 1)
+        y:SetBackdropBorderColor(color[1], color[2], color[3], 1)
+        y.label:SetText(t.yes)
+        y.label:SetTextColor(color[1], color[2], color[3])
+        y:Show()
+        p.yes:Hide()
     end
-    p.keep.tip = nil
+    if PlaySound and SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON then PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON) end
+end
+
+-- The old way (in combat, or a Yes that didn't go through): lift the real
+-- button's cover and make it glow; the panel says to click it.
+function BG:Glow(kind, why)
+    local roll, pass = BG.Buttons()
+    if not roll or not self.panel then return end
+    local p, real, t = self.panel, kind == "roll" and roll or pass, self.text or TEXT[kind]()
+    local color = kind == "roll" and C.good or C.bad
+    self.glowing = true
+    hideYes()
+    self.covers[kind]:Hide()
+    self.covers[kind == "roll" and "pass" or "roll"]:Show()
+    p.yes.label:SetText("CLICK THE GLOWING " .. t.button:upper() .. " BUTTON")
+    p.yes.textColor, p.yes.edge = color, color
+    UI.Paint(p.yes)
+    p.yes:Show()
+    p.fine:SetText(why or ("In combat only Blizzard's own button can do this - click its glowing " .. t.button .. " button."))
     self.glow:ClearAllPoints()
     self.glow:SetPoint("TOPLEFT", real, "TOPLEFT", -4, 4)
     self.glow:SetPoint("BOTTOMRIGHT", real, "BOTTOMRIGHT", 4, -4)
     UI.Skin(self.glow, { 0, 0, 0, 0 }, color)
     self.glow.color = color
     self.glow:Show()
-    p:Show()
-    if PlaySound and SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON then PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON) end
+end
+
+-- The secure Yes was clicked: if the bonus roll is still waiting a moment
+-- later, the click didn't go through - fall back to the glowing button.
+function BG:Clicked()
+    local kind, token = self.armed, self.token
+    if not kind then return end
+    self.armedUntil = GetTime() + BG.ARM_SECONDS
+    C_Timer.After(BG.CHECK_AFTER, function()
+        if BG.token ~= token or BG.armed ~= kind or BG.glowing then return end
+        local f = BonusRollFrame
+        local state = f and ns.Safe.Text(f.state)
+        if f and f:IsShown() and (state == nil or state == "prompt") then
+            BG:Glow(kind, "That didn't go through - click Blizzard's glowing " .. (BG.text and BG.text.button or "") .. " button instead.")
+        end
+    end)
+end
+
+function BG:CombatStarts()
+    if self.yes and self.yes:IsShown() then
+        self.yes:Hide()
+        if self.armed then self:Glow(self.armed) end
+    end
 end
 
 function BG:Check()
@@ -210,11 +341,12 @@ function BG:Check()
 end
 
 function BG:Off()
-    self.armed, self.armedUntil = nil, nil
+    self.armed, self.armedUntil, self.glowing = nil, nil, nil
     if not self.panel then return end
     self.covers.roll:Hide()
     self.covers.pass:Hide()
     self.glow:Hide()
+    hideYes()
     self.panel:Hide()
 end
 
