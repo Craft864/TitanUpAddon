@@ -23,6 +23,8 @@ local PREFIX = "TitanUpKR"
 local VOTE_SECONDS = 20
 local VOTE_MIN, VOTE_MAX, VOTE_GRACE = 5, 60, 10      -- a vote someone else started ends by itself after its time + grace
 local SPIN_SECONDS = 3.6
+-- Keystones are for 5-player groups: no spins or votes while in a raid group.
+local RAID_BLOCKED = "Keystone Roulette is for 5-player groups - leave the raid to spin."
 
 local function db() return ns.udb.keys end
 
@@ -62,6 +64,8 @@ function KR:Init()
     end)
     -- the spellbook changed: look the teleports up again
     ns.On("SPELLS_CHANGED", function() wipe(KR.tpCache) end)
+    -- joining or leaving a raid turns Spin and Vote off or back on
+    ns.On("GROUP_ROSTER_UPDATE", function() if ns.KeysUI and ns.KeysUI:IsShown() then ns.KeysUI:Refresh() end end)
     -- spell buttons must be hidden before combat locks them
     ns.On("PLAYER_REGEN_DISABLED", function() if ns.KeysUI then ns.KeysUI:HideIconTeleports(true) end end)
     -- other addons' keystone libraries (read locally)
@@ -229,7 +233,7 @@ function KR:OnMessage(msg, sender)
             local m, l, o = entry:match("^(%d+):(%d+):(.+)$")
             if m then list[#list + 1] = { mapID = tonumber(m), level = tonumber(l), owner = o, short = short(o) } end
         end
-        if #list >= 2 then
+        if #list >= 2 and not IsInRaid() then
             local secs = tonumber(f[3]) or VOTE_SECONDS
             secs = (secs == secs) and math.max(VOTE_MIN, math.min(VOTE_MAX, secs)) or VOTE_SECONDS
             local v = { id = f[2], keys = list, votes = {}, endsAt = GetTime() + secs, host = sender }
@@ -270,6 +274,7 @@ function KR:OnChatVote(text, sender)
 end
 
 function KR:StartVote(list)
+    if IsInRaid() then return false, RAID_BLOCKED end
     if #list < 2 then return false, "A vote needs at least two eligible keys." end
     local parts, chat = {}, {}
     for i, k in ipairs(list) do
@@ -693,6 +698,7 @@ end
 
 function V:Spin()
     if self.spinning then return end
+    if IsInRaid() then self:Refresh() return end           -- the status line says why
     local list = KR:Eligible((KR:Collect()))
     if #list == 0 then self.flash = "No eligible keys - check the level range and left-out dungeons."; self:Refresh() return end
     self:SpinTo(list, KR:Pick(list), "spin")
@@ -854,11 +860,13 @@ function V:Refresh()
     if not self.minText:HasFocus() then self.minText:SetText(d.min == 0 and "any" or tostring(d.min)) end
     if not self.maxText:HasFocus() then self.maxText:SetText(d.max == 0 and "any" or tostring(d.max)) end
     self.weightBtn.label:SetText(d.weight == "higher" and "Favor higher keys" or "Equal chances")
-    UI.SetDisabled(self.spinBtn, self.spinning ~= nil or vote ~= nil)
-    UI.SetDisabled(self.voteBtn, self.spinning ~= nil or vote ~= nil or #eligible < 2)
+    local inRaid = IsInRaid()
+    UI.SetDisabled(self.spinBtn, inRaid or self.spinning ~= nil or vote ~= nil)
+    UI.SetDisabled(self.voteBtn, inRaid or self.spinning ~= nil or vote ~= nil or #eligible < 2)
     -- status
     local st
-    if self.flash then st = "|cffffa340" .. self.flash .. "|r"
+    if inRaid and not self.spinning and not vote then st = "|cffffa340" .. RAID_BLOCKED .. "|r"
+    elseif self.flash then st = "|cffffa340" .. self.flash .. "|r"
     elseif vote then st = ("Voting... %ds left%s"):format(math.max(0, math.ceil(vote.endsAt - GetTime())), vote.host ~= ns.me and ("  (started by " .. short(vote.host) .. ")") or "")
     elseif self.spinning then st = "Spinning..."
     elseif self.landed then st = ("|cff66e08c%s +%d|r it is!"):format(KR.MapInfo(self.landed.mapID), self.landed.level)
