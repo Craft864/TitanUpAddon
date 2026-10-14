@@ -1,4 +1,4 @@
-# Titan Up v0.40.0
+# Titan Up v0.40.1
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -165,6 +165,10 @@ Crafters, the wishlist and alt links share lists with a light, change-driven syn
 ## Planned
 
 - Fury of the Dead is still matched by its English name (Raid Check); no spell number for it is known yet.
+
+## Changes in 0.40.1
+
+- **Keystone Roulette off in raid groups** (Ryan, 2026-10-14): while `IsInRaid()`, the Spin and Vote buttons are disabled and the status line reads "Keystone Roulette is for 5-player groups - leave the raid to spin." (`RAID_BLOCKED` in `Keys/Keys.lua`). `V:Spin` and `KR:StartVote` refuse in a raid too, and an incoming `V` (vote started by someone else) is ignored while in a raid, so the window no longer pops up for it. Solo and 5-player parties are unchanged. A `GROUP_ROSTER_UPDATE` handler refreshes the open window so the buttons switch as soon as the group becomes (or stops being) a raid. Before this, a raid listed only your own key and Spin still announced it in raid chat.
 
 ## Changes in 0.40.0
 

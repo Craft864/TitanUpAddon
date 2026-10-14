@@ -17,6 +17,9 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.40.1", {
+        "Keystone Roulette is now for 5-player groups only: in a raid group, Spin and Vote are greyed out and the window explains why. Leave the raid (or convert back to a party) and it works again.",
+    } },
     { "0.40.0", {
         "New under Tools: Consumables, your raid shopping list. Type how many of each flask, potion and food you want to carry, and it shows what's in your bags and what you're short on. Each quality rank has its own line.",
         "Add anything else you bring (oils, Vantus Runes, augment runes...): shift-click it into the Add box, drag it in, or type its name.",
