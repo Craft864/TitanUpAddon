@@ -1,4 +1,4 @@
-# Titan Up v0.42.0
+# Titan Up v0.43.0
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -110,19 +110,12 @@ The host's addon is the referee: it spins, checks letters and only ever sends th
 
 `/tu chess` (or Chess on the rail).
 
-**Starting:** **Challenge a guildmate** and pick them from the list of guildmates who have Titan Up's Chess (online first, then by when they were last seen; class colours), or type a name if they aren't listed yet (your target is picked or filled in). They don't need to be online: the challenge waits for them. Colours are picked at random. You can have up to 20 games going at once.
-
-**Timer (optional, off by default):** pick one in the challenge window. **Days per move** (1, 3 or 7 days): if your opponent hasn't moved in time, a **Claim the win on time** button appears. **Live clock** (5, 10 or 30 minutes each): a normal chess clock that only runs while you're both online, and pauses while either of you is offline. It also waits while a move slides across the board, so the animation never costs either of you time. Run out and you lose on time.
-
-**Playing:** click one of your pieces and the squares it can reach are marked (a dot, or a ring around a piece you can take); click one to move. A pawn reaching the last rank asks what to promote to. Each move slides across the board so you can see what just happened, and if your opponent moves while you're in another Titan Up window, the Chess entry on the rail blinks. Pieces each side has taken show next to their names (with who's ahead on material), and the move list shows which piece each capture took. Your pieces are always at the bottom. **Offer a draw** (it stands until the next move), **Accept the draw**, and **Resign** (click twice) are on the right with the move list. A finished game stays in your list until you **Remove** it (the newest 20 are kept).
-
-**Rules:** the full rules, checked on both players' computers: castling, en passant, promotion, check and checkmate, stalemate. Threefold repetition, the 50-move rule and positions where nobody can mate are automatic draws. An illegal move is never accepted.
-
-**Saved:** every game is saved until it's won, drawn or resigned, through /reload, logout and patches.
-
-**When you're not on together:** everything goes over the guild's private addon channel, so every guildmate running Titan Up quietly keeps a small copy of the guild's games (a few hundred bytes each). When your opponent logs in, whoever has the newest copy (you, or any guildmate who's online) hands it over, so your move, challenge, resignation or draw reaches them even if you two are never online at the same time. As long as one guildmate with Titan Up overlaps with each of you, moves get through.
-
-**Honesty:** a guildmate passing a game on can't slip in a move for you: your own moves always win, and your opponent's moves can only be replaced by your opponent. If a guildmate ever hands over a move your opponent didn't make, it's put back to the real move when your opponent's own game arrives, and you're told who delivered it. Nothing can stop someone asking a chess engine for help.
+- **Start:** **Challenge a guildmate** and pick them from the list (or type a name). They don't need to be online. Up to 20 games at once.
+- **Timer (optional):** days per move (1, 3 or 7 days; claim the win when they run out), or a live clock (5, 10 or 30 minutes each) that only runs while you're both online.
+- **Play:** click a piece, then where it goes. Moves slide across the board, taken pieces show beside each name, and you can offer a draw or resign.
+- **Your characters:** with "Link my characters" on, all your characters share your games, so you can move on whichever one you're playing.
+- **Rules:** the full rules are checked on both computers, and draws by repetition, the 50-move rule and too few pieces are automatic.
+- **Offline play:** guildmates running Titan Up quietly pass moves along, so your move reaches your opponent even if you're never online together. Nobody else can make or change your moves.
 
 ## TitanBoard quick reference
 
@@ -165,6 +158,11 @@ Crafters, the wishlist and alt links share lists with a light, change-driven syn
 ## Planned
 
 - Fury of the Dead is still matched by its English name (Raid Check); no spell number for it is known yet.
+
+## Changes in 0.43.0
+
+- Chess: your games now follow you across your characters. With "Link my characters" on, any of your characters can see and play every game you started on another one.
+- Your opponent sees your moves as yours, whichever character you make them on.
 
 ## Changes in 0.42.0
 
