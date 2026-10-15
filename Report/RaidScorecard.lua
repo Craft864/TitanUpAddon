@@ -484,7 +484,7 @@ function V:Create()
     self.bossBtn = UI.Button(c1, 160, 22, "", "Show one boss, or all of them", function() V:BossMenu() end)
     self.bossBtn:SetPoint("LEFT", clear, "RIGHT", 6, 0)
     self.clearBtn = clear
-    self.shortText = UI.Text(c1, "GameFontHighlightSmall", C.muted, nil, "BOTTOMLEFT", 16, 14)
+    self.shortText = UI.Text(c1, "GameFontHighlightSmall", C.muted, nil, "BOTTOMLEFT", 16, 26)   -- its own line, above the note
     -- table
     -- headers: Player / Pulls on the bottom line; the stats on two lines,
     -- centred over their columns so none crowd or run off the edge
