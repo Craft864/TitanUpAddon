@@ -17,6 +17,10 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.47.1", {
+        "Reports: This week can be filtered by difficulty (Heroic or Mythic) as well as by boss.",
+        "Reports: the short-pull count no longer overlaps the note at the bottom of This week.",
+    } },
     { "0.47.0", {
         "Bonus roll protection: the green Yes button works properly when combat starts.",
         "Loot Rolls: if you close the window mid-fight, Blizzard's roll pop-ups come back as soon as combat ends.",
