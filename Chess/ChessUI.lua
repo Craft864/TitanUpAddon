@@ -1,6 +1,8 @@
 -- Titan Up - Chess/ChessUI.lua
 -- The Chess window: your games on the left, the board in the middle (your
--- pieces always at the bottom), the moves and buttons on the right.
+-- pieces always at the bottom), the moves and buttons on the right. The
+-- Watch tab (0.45.0) lists the guild's other games instead; watching one
+-- shows its board (White at the bottom) with no buttons, live.
 -- Click a piece, then the square to move it to; the squares it can reach
 -- are marked. A move slides across the board; the pieces each side has
 -- taken show beside their names, and the move list marks every capture.
@@ -28,6 +30,7 @@ local MOVE_ROWS = 13
 -- High-contrast board (Ryan): near-white and deep blue squares.
 local LIGHT = { 0.91, 0.93, 0.95 }
 local DARK = { 0.25, 0.30, 0.42 }
+local LAST_MOVE = { 1.00, 0.84, 0.10, 0.55 }   -- the latest move's two squares: yellow (Ryan, 0.45.0)
 local PIECES = ns.MEDIA .. "Chess\\"
 
 local function hex(c) return ("%02x%02x%02x"):format(c[1] * 255, c[2] * 255, c[3] * 255) end
@@ -85,10 +88,16 @@ end
 -- ---------------------------------------------------------------------
 function V:Create()
     local f = ns.Nav:Window(self, "TitanUpChess", "chess", "CHESS", W, H, { mark = false,
+        cog = { "Chess settings", function() ns.Settings:Open("chess") end },
         onShow = function() V:OnShow() end })
 
-    -- your games
-    UI.Text(f, "GameFontNormalSmall", C.accent, "YOUR GAMES", "TOPLEFT", 16, -16)
+    -- your games / watch
+    self.mode = self.mode or "mine"
+    local half = (LIST_W - 4) / 2
+    self.tabMine = UI.Button(f, half, 22, "Your games", "Your own games", function() V:SetMode("mine") end)
+    self.tabMine:SetPoint("TOPLEFT", 12, -8)
+    self.tabWatch = UI.Button(f, half, 22, "Watch", "Watch the guild's other games, live", function() V:SetMode("watch") end)
+    self.tabWatch:SetPoint("LEFT", self.tabMine, "RIGHT", 4, 0)
     local list = CreateFrame("Frame", nil, f)
     list:SetPoint("TOPLEFT", 12, -36)
     list:SetSize(LIST_W, ROWS * ROW_H)
@@ -111,8 +120,7 @@ function V:Create()
         r:SetScript("OnClick", function(s) V:Select(s.id) end)
         self.rows[i] = r
     end
-    self.listEmpty = UI.Text(list, "GameFontHighlightSmall", C.muted,
-        "No games yet. Challenge a guildmate - they don't have to be online.", "TOPLEFT", 4, -6)
+    self.listEmpty = UI.Text(list, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", 4, -6)
     self.listEmpty:SetWidth(LIST_W - 8)
     self.listEmpty:SetJustifyH("LEFT")
     local challenge = UI.Button(f, LIST_W, 26, "Challenge a guildmate", "Start a game with anyone in your guild. If they're offline, it reaches them through a guildmate running Titan Up.", function() V:AskChallenge() end)
@@ -238,6 +246,7 @@ function V:OnShow()
     if C_GuildInfo and C_GuildInfo.GuildRoster then pcall(C_GuildInfo.GuildRoster) end
     CH.roster = nil
     CH:Hello()
+    if self.mode == "watch" then CH:AskGames() end
     if not (self.sel and CH:Get(self.sel)) then
         local first = CH:Games()[1]
         self.sel = first and first.id
@@ -247,13 +256,28 @@ function V:OnShow()
 end
 
 function V:Open(id)
-    if id then self.sel = id end
+    if id then self.sel = id; self.mode = "mine" end
     self.pick, self.promoMove = nil, nil
     self:Show()
     if self.frame and self.frame:IsShown() then self.follow = true; self:Refresh() end
 end
 
+function V:SetMode(mode)
+    if self.mode == mode then return end
+    self.mode = mode
+    self.pick, self.promoMove, self.confirm = nil, nil, nil
+    if mode == "watch" then CH:AskGames() end
+    self.follow = true
+    self:Refresh()
+end
+
 function V:Select(id)
+    if self.mode == "watch" then
+        self.watchSel = id
+        self.follow = true
+        self:Refresh()
+        return
+    end
     if self.sel ~= id then self.pick, self.promoMove, self.confirm = nil, nil, nil end
     self.sel = id
     self.follow = true
@@ -265,9 +289,23 @@ function V:OnChange(g, what)
     if g and g.id == self.sel and what ~= "offer" then self.pick, self.promoMove = nil, nil; self.follow = true end
     if not self:IsShown() then return end
     -- a new move in the game on screen slides into place
-    if g and g.id == self.sel and (what == "move" or what == "state") then
+    if self.mode ~= "watch" and g and g.id == self.sel and (what == "move" or what == "state") then
         local n = #CH.SplitMoves(g.moves)
         if self.slidN and self.slidN[g.id] and n > self.slidN[g.id] then self:StartSlide(g) end
+    end
+    self:Refresh()
+end
+
+-- A game we carry changed (a move went past): live for whoever's watching it.
+function V:OnCarry(c)
+    if not (self:IsShown() and self.mode == "watch") then return end
+    if c.id == self.watchSel then
+        local n = #CH.SplitMoves(c.moves)
+        if self.slidN and self.slidN[c.id] and n > self.slidN[c.id] then
+            self.game = c
+            self:StartSlide(c)
+        end
+        self.follow = true
     end
     self:Refresh()
 end
@@ -340,26 +378,55 @@ local function statusLine(g)
     return col(MUTED, "Their move")
 end
 
+local function watchLine(g)
+    if g.status == "over" then
+        if g.result == "d" then return col(MUTED, "Draw") end
+        return col(MUTED, ns.Short(g.result == "w" and g.w or g.b) .. " won")
+    end
+    local _, who = CH:ToMove(g)
+    return col(ACCENT, ns.Short(who) .. " to move")
+end
+
 function V:Refresh()
     if not self.frame then return end
-    local games = CH:Games()
+    local watching = self.mode == "watch"
+    UI.SetActive(self.tabMine, not watching)
+    UI.SetActive(self.tabWatch, watching)
+    self.challengeBtn:SetShown(not watching)
+    local games = watching and CH:Watchable() or CH:Games()
+    local sel = watching and self.watchSel or self.sel
     -- the list
     self.listOffset = math.max(0, math.min(#games - ROWS, self.listOffset or 0))
     self.listEmpty:SetShown(#games == 0)
+    self.listEmpty:SetText(watching and "No guild games to watch right now. Games show up here as guildmates play them."
+        or "No games yet. Challenge a guildmate - they don't have to be online.")
     for i, r in ipairs(self.rows) do
         local g = games[i + self.listOffset]
         r:SetShown(g ~= nil)
         if g then
             r.id = g.id
             local n = #CH.SplitMoves(g.moves)
-            local as = CH:Me(g) ~= ns.me and col(MUTED, "  as " .. ns.Short(CH:Me(g))) or ""     -- started on another of your characters
-            r.text:SetText("vs " .. ns.Short(CH:Opponent(g)) .. as)
-            r.sub:SetText(statusLine(g) .. (n > 0 and col(MUTED, ("  -  move %d"):format(math.floor((n + 1) / 2))) or ""))
-            r.hl:SetShown(g.id == self.sel)
+            local moveNo = n > 0 and col(MUTED, ("  -  move %d"):format(math.floor((n + 1) / 2))) or ""
+            if watching then
+                r.text:SetText(ns.Short(g.w) .. " vs " .. ns.Short(g.b))
+                r.sub:SetText(watchLine(g) .. moveNo)
+            else
+                local as = CH:Me(g) ~= ns.me and col(MUTED, "  as " .. ns.Short(CH:Me(g))) or ""     -- started on another of your characters
+                r.text:SetText("vs " .. ns.Short(CH:Opponent(g)) .. as)
+                r.sub:SetText(statusLine(g) .. moveNo)
+            end
+            r.hl:SetShown(g.id == sel)
         end
     end
-    local g = self.sel and CH:Get(self.sel)
-    if g and not CH:IsPlayer(g) then g = nil end
+    local g
+    if watching then
+        g = sel and CH:GetAny(sel)
+        if g and (CH:IsPlayer(g) or not CH:Live(g)) then g = nil end
+    else
+        g = sel and CH:Get(sel)
+        if g and not CH:IsPlayer(g) then g = nil end
+    end
+    self.watching = watching and g ~= nil
     if self.game ~= g then self.slide = nil; self.slider:Hide(); self.board:SetScript("OnUpdate", nil) end
     self.game = g
     self.slidN = self.slidN or {}
@@ -394,7 +461,7 @@ function V:RefreshBoard(g)
         local tint
         if sq == self.pick then tint = { C.accent[1], C.accent[2], C.accent[3], 0.55 }
         elseif sq == checkSq then tint = { C.bad[1], C.bad[2], C.bad[3], 0.6 }
-        elseif last and (sq == last.from or sq == last.to) then tint = { C.accent[1], C.accent[2], C.accent[3], 0.3 } end
+        elseif last and (sq == last.from or sq == last.to) then tint = LAST_MOVE end
         if tint then s.tint:SetColorTexture(tint[1], tint[2], tint[3], tint[4]); s.tint:Show() else s.tint:Hide() end
         local p = pos.b[sq]
         local tex = texFor(p)
@@ -439,12 +506,16 @@ function V:RefreshPlayers(g)
         return
     end
     local game = CH:Live(g)
+    local watching = self.watching
     local me, opp = CH:Me(g), CH:Opponent(g)
     local mine = CH:ColorOf(g)
+    if watching then me, opp, mine = g.w, g.b, "w" end       -- White at the bottom
     local theirs = mine == "w" and "b" or "w"
     local turn = g.status == "active" and CH:ToMove(g)
     local kind = CH:Timer(g)
+    if watching and kind == "live" then kind = nil end      -- (a carried copy's clock only moves with the moves)
     local online = CH:IsOnline(opp)
+    local onlineMe = watching and CH:IsOnline(me)
     local function strip(name, color)
         local taken, lead = V.Captures(game, color)
         return UI.Named(name) .. "  " .. taken .. (lead and col(MUTED, " +" .. lead) or "")
@@ -459,9 +530,10 @@ function V:RefreshPlayers(g)
             local left = CH:DaysLeft(g)
             bits[#bits + 1] = col(left < 6 * 3600 and WARN or MUTED, daysText(left))
         end
-        if turn == color then bits[#bits + 1] = col(ACCENT, isMe and "your move" or "to move") end
-        if not isMe then
-            bits[#bits + 1] = online == true and col(GOOD, "online") or (online == false and col(MUTED, "offline") or nil)
+        if turn == color then bits[#bits + 1] = col(ACCENT, (isMe and not watching) and "your move" or "to move") end
+        if not isMe or watching then
+            local on = (watching and isMe) and onlineMe or online
+            bits[#bits + 1] = on == true and col(GOOD, "online") or (on == false and col(MUTED, "offline") or nil)
         end
         return table.concat(bits, "  ")
     end
@@ -497,9 +569,15 @@ function V:RefreshSide(g)
     local status, note
     local a, b = nil, nil                -- { label, tip, active }
     self.actions = {}
-    if not g then
+    if not g and self.mode == "watch" then
+        status = "Watch the guild play"
+        note = "Pick a game on the left to watch it live. Every guild game your Titan Up has seen go past is listed."
+    elseif not g then
         status = "Chess with your guild"
         note = "Pick a game on the left, or challenge a guildmate. Games are saved until they end, and moves reach offline players through any guildmate running Titan Up."
+    elseif self.watching then
+        status = ("%s vs %s"):format(ns.Short(g.w), ns.Short(g.b))
+        note = CH:WatchText(g) .. (g.status == "active" and ("\n" .. col(MUTED, "Watching - moves show up as they're played.")) or "")
     else
         local opp = ns.Short(CH:Opponent(g))
         local online = CH:IsOnline(CH:Opponent(g))
@@ -762,7 +840,7 @@ function V:SendChallenge()
     local ok, res = CH:Challenge(who, d.tc)
     if not ok then d.err:SetText(res) return end
     d:Hide()
-    self.sel = res.id
+    self.sel, self.mode = res.id, "mine"
     self.follow = true
     if self:IsShown() then self:Refresh() end
 end
