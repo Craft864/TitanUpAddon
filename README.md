@@ -1,4 +1,4 @@
-# Titan Up v0.45.2
+# Titan Up v0.46.0
 
 A guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US.
 
@@ -69,6 +69,7 @@ A guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US
 - Optional timers: days per move, or a live clock that only runs while you're both online.
 - Full chess rules. Games are saved until they end, and follow you to your other characters.
 - The **Watch** tab lets you follow the guild's other games.
+- The **History** tab shows your win/loss record and your last 200 games. Click one to replay it.
 
 ## TitanBoard
 
@@ -93,6 +94,10 @@ A guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US
 ## Planned
 
 - Fury of the Dead is still matched by its English name in Raid Check.
+
+## Changes in 0.46.0
+
+- Chess: new History tab with your win/loss record and past games. Click a game to step through its moves.
 
 ## Changes in 0.45.2
 
