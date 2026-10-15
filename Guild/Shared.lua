@@ -177,7 +177,7 @@ local function int(v, lo, hi)
     if n and n == n and n % 1 == 0 and n >= lo and n <= hi then return n end
 end
 
-local function validOwner(s) return type(s) == "string" and s:match("^[^%-,;:%s]+%-[^,;:%s]+$") ~= nil and #s <= 60 end
+local function validOwner(s) return type(s) == "string" and s:match("^[^%-,;:%s|]+%-[^,;:%s|]+$") ~= nil and #s <= 60 end
 
 function Shared:OnMessage(msg, sender)
     local f = ns.Split(msg, "^")
@@ -187,7 +187,8 @@ function Shared:OnMessage(msg, sender)
         local h, t = f[2], int(f[3], 0, now() + DAY)
         if not h or h == "" or not t then return end
         local e = store[sender]
-        if e and (e.h == h or (e.t or 0) >= t) then return end
+        -- (a copy someone else gave us doesn't outrank the owner's own word)
+        if e and (e.h == h or ((e.t or 0) >= t and not e.via)) then return end
         -- someone else will probably ask: wait a moment, then ask only if nobody has
         local heard = GetTime()
         C_Timer.After(1 + math.random() * 5, function()
@@ -218,6 +219,7 @@ function Shared:OnMessage(msg, sender)
         local owner, t, h = f[2], int(f[3], 0, now() + DAY), f[4]
         if not (validOwner(owner) and t and h and h ~= "") then return end
         if owner == ns.me then return end                 -- your own list is yours
+        if sender ~= owner and t > now() + 300 then return end   -- a copy dated in the future would stick
         self.seenD[owner] = GetTime()
         -- someone else is already sending this list: drop our copy
         if sender ~= ns.me and ns.BulkQueued(key(self, "D", owner)) > 0 then ns.BulkDrop(key(self, "D", owner)) end
@@ -236,16 +238,22 @@ function Shared:OnMessage(msg, sender)
         if not nonce or nonce == "" or not next(store) then return end
         self.seenL = self.seenL or {}
         C_Timer.After(2 + math.random() * 8, function()
-            if self.seenL[nonce] then return end
+            -- (paused: it would go out long after they stopped listening)
+            if self.seenL[nonce] or ns.BulkPaused() then return end
             self.seenL[nonce] = true
             local parts = ns.Chunks(self:Digest(), CHUNK + 20)
-            for i, chunk in ipairs(parts) do ns.BulkSend(self.prefix, ns.Join("L", nonce, i, #parts, chunk), key(self, "L")) end
+            self.lParts = self.lParts or {}
+            self.lParts[nonce] = #parts
+            for i, chunk in ipairs(parts) do ns.BulkSend(self.prefix, ns.Join("L", nonce, i, #parts, chunk), key(self, "L", nonce)) end
         end)
     elseif kind == "L" then
         local nonce = f[2]
         if not nonce then return end
         self.seenL = self.seenL or {}
         self.seenL[nonce] = true
+        -- someone else is answering: drop ours if none of it has gone out yet
+        local mine = self.lParts and self.lParts[nonce]
+        if mine and ns.BulkQueued(key(self, "L", nonce)) >= mine then ns.BulkDrop(key(self, "L", nonce)) end
         if nonce ~= self.nonce then return end
         local whole = ns.Reassemble(self.inbox, "L:" .. nonce .. ":" .. sender, f[3], f[4], f[5] or "", 60)
         if not whole then return end

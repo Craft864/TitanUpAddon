@@ -79,7 +79,13 @@ function LR:Init()
         hooksecurefunc("ConfirmLootRoll", function(rollID, rollType) LR:OnConfirmed(rollID, rollType) end)
     end
     ns.On("LOOT_HISTORY_UPDATE_DROP", function(encounterID, lootListID) LR:OnHistory(encounterID, lootListID) end)
-    ns.On("PLAYER_REGEN_ENABLED", function() LR:FreeSlots() end)
+    ns.On("PLAYER_REGEN_ENABLED", function()
+        LR:FreeSlots()
+        if LR.handBackLater then
+            LR.handBackLater = nil
+            if not (LR.V.frame and LR.V.frame:IsShown()) then LR:HandBack() end
+        end
+    end)
     ns.Listen(PREFIX, "group", function(text, sender) LR:OnMessage(text, sender) end)
     -- Blizzard opens a pop-up per roll: hide the ones this window is showing
     -- (GroupLootContainer_OpenNewFrame since 10.1.5; the old name as fallback)
@@ -626,7 +632,14 @@ function V:Create()
         -- the bonus roll goes back first, so Blizzard's re-layout for the
         -- handed-back rolls places it too
         if ns.BonusRollGuard then ns.BonusRollGuard:Undock() end
-        LR:HandBack()
+        -- Blizzard's container can't be driven from here in combat (see
+        -- takeOut): the pop-ups come back as soon as combat ends
+        if InCombatLockdown() then
+            LR.handBackLater = true
+            ns.Print("Rolls you haven't made come back as Blizzard's pop-ups when combat ends - /tu rolls opens this window again.")
+        else
+            LR:HandBack()
+        end
     end)
 
     -- left: the items

@@ -182,8 +182,8 @@ local function applySnapshot(payload, sender)
     local slides = Model.DecodeSlides(fields[3], fields, sender, 4)
     if not slides then return end
     ns.Board:ApplyRemoteContext(tonumber(inst), tonumber(enc), tonumber(map), 1, true)
-    Model.plan.page = tonumber(page)
-    Model:SetSlides(fields[2] ~= "" and fields[2] or nil, slides, false)
+    Model.plan.page = math.max(1, math.min(tonumber(page), math.max(1, #slides)))
+    Model:SetSlides(fields[2] ~= "" and Model.CleanName(fields[2]) or nil, slides, false)
     Model.plan.remote = sender          -- the leader's plan: never saved over one of yours
     wipe(ns.Board._undo)                -- slide numbers may have moved under the history
     ns.Board:ApplySlideView()
@@ -231,7 +231,7 @@ function Sync:Init()
             return
         end
         local inst, enc, map, page = p:match("^(%d+),(%d+),(%d+),(%d+)$")
-        if not inst then return end
+        if not inst or tonumber(page) < 1 then return end
         ns.Board:ApplyRemoteContext(tonumber(inst), tonumber(enc), tonumber(map), tonumber(page))
     end)
 

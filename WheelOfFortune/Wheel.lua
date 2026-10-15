@@ -431,6 +431,9 @@ function WF:OnMessage(text, sender)
     if not g then
         -- a game we never saw opened (we /reloaded, or joined the group late):
         -- picked up from its host's own seat list or state
+        -- someone asking us about a game of ours we no longer have (we
+        -- /reloaded): tell them it's over so it stops showing
+        if (kind == "J" or kind == "Q" or kind == "A") and hostsId(id, ns.me) then return self:Send("X", id) end
         if (kind ~= "S" and kind ~= "P") or not hostsId(id, sender) then return end
         g = self:NewGame(id, sender, int(f[5], 1, WF.MAX_ROUNDS) or 1)
     end
@@ -646,6 +649,12 @@ function WF:HostLeave(g, name)
         self:BroadcastSeats(g)
     else
         g.gone[name] = true
+        if g.state == "playing" and not WF.Leader(g) then
+            -- everyone has left: end it rather than timing out turns forever
+            g.state, g.msg = "cancelled", "ended"
+            self:Send("X", g.id)
+            return ui("state", g)
+        end
         if g.turn == seat and g.state == "bonus" then return self:BonusEnd(g, false) end
         if g.turn == seat and g.state == "playing" then self:NextTurn(g) end
         self:Broadcast(g)

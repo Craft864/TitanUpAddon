@@ -109,8 +109,8 @@ end
 -- ---------------------------------------------------------------------
 -- Sending
 -- ---------------------------------------------------------------------
-function MS.CleanName(s) return (tostring(s or ""):gsub("[%c|\t]", ""):gsub("^%s+", ""):gsub("%s+$", "")):sub(1, MS.NAME_MAX) end
-function MS.CleanBody(s) return (tostring(s or ""):gsub("\r", ""):gsub("[\t%z]", " ")):sub(1, MS.BODY_MAX) end
+function MS.CleanName(s) return ns.Truncate((tostring(s or ""):gsub("[%c|\t]", ""):gsub("^%s+", ""):gsub("%s+$", "")), MS.NAME_MAX) end
+function MS.CleanBody(s) return ns.Truncate((tostring(s or ""):gsub("\r", ""):gsub("[\t%z]", " ")), MS.BODY_MAX) end
 
 -- Macro text to show on screen: escape codes ("|c", "|T", ...) shown as
 -- typed instead of rendered, so nothing in it can hide or draw over.

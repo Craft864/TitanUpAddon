@@ -101,7 +101,7 @@ function Model.Deserialize(s, sender)
         w = math.min(16, math.max(1, tonumber(w))),   -- 1-8 when drawing; stamps/text can be resized up to 16
         k = tonumber(k), pts = pts,
     }
-    if text ~= "" then op.text = text end
+    if text ~= "" then op.text = Model.CleanText(text) end     -- (shown as the author sees it; Serialize cleans the same way)
     return op
 end
 
@@ -382,7 +382,7 @@ function Model.DecodeSlides(meta, opFields, sender, first)
     for i, m in ipairs(metas) do
         local name, z, cx, cy, bg = m:match("^([^:]*):(%d+):(%d+):(%d+):?(%w*)$")
         if not name then return nil end
-        local sl = { name = (name ~= "" and name) or ("Slide " .. i), ops = {}, bg = (bg ~= "" and bg) or nil }
+        local sl = { name = (name ~= "" and Model.CleanName(name)) or ("Slide " .. i), ops = {}, bg = (bg ~= "" and bg) or nil }
         z = tonumber(z)
         if z and z >= 100 then sl.view = { z = z / 100, cx = tonumber(cx), cy = tonumber(cy) } end
         local list = opFields[(first or 1) + i - 1]

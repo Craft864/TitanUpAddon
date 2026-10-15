@@ -428,7 +428,14 @@ function SS:StepInner()
         amount = job.moves[job.done + 1]
         if not amount then return self:Finish() end
         local src = SS.Slot(loc, loc.bag, loc.slot)
-        if not src or src.locked then return end
+        if not src then return self:Stop("Stopped: the stack moved or is gone.") end
+        if src.locked then
+            -- locked for good (picked up, mailed...): don't wait forever
+            job.lockedAt = job.lockedAt or GetTime()
+            if GetTime() - job.lockedAt > 10 then return self:Stop("Stopped: the stack stayed locked.") end
+            return
+        end
+        job.lockedAt = nil
         local empty = self:EmptySlots(loc, job.used)[1]
         if not empty then return self:Stop("Stopped: no more free slots.") end
         sb, ss, db_, ds = loc.bag, loc.slot, empty[1], empty[2]

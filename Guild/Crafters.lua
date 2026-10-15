@@ -185,6 +185,8 @@ local function parse(p)
     for item in (b or ""):gmatch("[^;]+") do
         local it, crafter, text, note, t = item:match("^(%w*)~([^~]*)~([^~]*)~([^~]*)~(%w*)$")
         if crafter and crafter:match("^[^%-]+%-.+$") then
+            -- (other players' text: no escape codes)
+            crafter, text, note = crafter:gsub("|", ""), text:gsub("|", ""), (note:gsub("|", ""))
             out.outside[#out.outside + 1] = { item = FromB36(it) or 0, crafter = crafter, text = text, note = note, t = FromB36(t) or 0 }
         end
     end
@@ -480,8 +482,9 @@ end
 
 -- { recipes = { [id] = { id, crafters = { { name, base, skill, max, q } } } }, outside = { ... }, profs = { [base] = true } }
 function CR:Catalog()
-    if self.catalog then return self.catalog end
-    local cat = { recipes = {}, outside = {}, profs = {} }
+    -- (built before the guild roster loaded: officer removals were skipped)
+    if self.catalog and (self.catalog.rosterLoaded or not ns.GuildRoster().loaded) then return self.catalog end
+    local cat = { recipes = {}, outside = {}, profs = {}, rosterLoaded = ns.GuildRoster().loaded }
     local removed = {}
     local lists = {}
     for owner, e in pairs(db().people) do
