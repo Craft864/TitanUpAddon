@@ -26,6 +26,10 @@
 --     opponent's moves are only replaced by your opponent, so when the two
 --     of you next meet (or one's game reaches the other), a made-up move
 --     is rolled back and the courier who delivered it is named.
+--   * Your record (0.46.0): every game of yours that ends is copied into
+--     TitanUpDB.chess.history (who, colours, result, how it ended, the
+--     moves), your last 200 games across your linked characters, so the
+--     History tab keeps them after they drop off your list. Nothing is sent.
 --   * Timers (0.35.0, chosen with the challenge, none by default):
 --     days per move - your opponent can claim the win once your time for a
 --     move has run out (moves carry the time they were made, so this works
@@ -63,6 +67,7 @@ CH.MAX_GAMES = 20               -- games in progress (yours)
 CH.KEEP_OVER = 20               -- finished games kept in your list
 CH.CARRY_MAX = 60               -- other people's games a courier holds
 CH.OVER_DAYS = 3                -- couriers deliver a finished game's result this long
+CH.HISTORY_MAX = 200            -- your finished games kept in History
 local DAY = 86400
 
 local RANK = { invited = 1, active = 2, over = 3 }
@@ -386,9 +391,76 @@ local function checkEnd(g)
     if game.over then finish(g, game.winner or "d", game.over) end
 end
 
+-- ---------------------------------------------------------------------
+-- History (0.46.0): your finished games, kept after they leave your list
+-- ---------------------------------------------------------------------
+local function hist()
+    local d = db()
+    d.history = d.history or {}
+    return d.history
+end
+
+-- Copy a finished game of yours into History (once). Declined and
+-- taken-back challenges aren't games.
+function CH:Record(g)
+    if g.status ~= "over" or not (g.result == "w" or g.result == "b" or g.result == "d") then return end
+    local h = hist()
+    if h[g.id] then return end
+    local color = self:ColorOf(g)
+    if not color then return end
+    h[g.id] = {
+        id = g.id, w = g.w, b = g.b, color = color,
+        r = g.result == "d" and "d" or (g.result == color and "w" or "l"),
+        reason = g.reason, moves = g.moves or "", tc = g.tc, at = g.updated or ns.Now(),
+    }
+end
+
+-- Your past games, newest first; `opp` = only those against that player
+-- (any of their linked characters).
+function CH:History(opp)
+    local AL = ns.Alts
+    local key = opp and (AL and AL:Main(opp) or opp)
+    local out = {}
+    for _, e in pairs(hist()) do
+        local them = e.color == "w" and e.b or e.w
+        if not key or them == opp or (AL and AL:Main(them) == key) then out[#out + 1] = e end
+    end
+    table.sort(out, function(a, b)
+        if (a.at or 0) ~= (b.at or 0) then return (a.at or 0) > (b.at or 0) end
+        return a.id > b.id
+    end)
+    return out
+end
+
+-- wins, losses, draws in a list of past games
+function CH:Tally(list)
+    local w, l, d = 0, 0, 0
+    for _, e in ipairs(list) do
+        if e.r == "w" then w = w + 1 elseif e.r == "l" then l = l + 1 else d = d + 1 end
+    end
+    return w, l, d
+end
+
+function CH:RecordText(list)
+    return ("%d W - %d L - %d D"):format(self:Tally(list))
+end
+
+function CH:HistOpponent(e) return e.color == "w" and e.b or e.w end
+
 -- Old finished games drop off the list; so do old courier copies.
 function CH:Prune()
     local now = ns.Now()
+    -- finished games of yours go into History first (also fills it from
+    -- games that ended before 0.46.0)
+    for _, g in pairs(db().games) do
+        if g.status == "over" and self:IsPlayer(g) then self:Record(g) end
+    end
+    local h, past = hist(), {}
+    for _, e in pairs(h) do past[#past + 1] = e end
+    if #past > self.HISTORY_MAX then
+        table.sort(past, function(a, b) return (a.at or 0) > (b.at or 0) end)
+        for i = self.HISTORY_MAX + 1, #past do h[past[i].id] = nil end
+    end
     local over = {}
     for id, g in pairs(db().games) do
         if g.status == "over" then over[#over + 1] = g end
@@ -1116,6 +1188,16 @@ function CH:EndText(g)
     if g.reason == "resign" then return won and (opp .. " resigned. You win!") or "You resigned." end
     if g.reason == "time" then return won and (opp .. " ran out of time. You win!") or "You ran out of time." end
     return (won and "You beat " .. opp or opp .. " won") .. " by " .. (REASONS[g.reason] or "checkmate") .. "."
+end
+
+-- A past game from History, in words.
+function CH:HistText(e)
+    local opp = ns.Short(self:HistOpponent(e))
+    if e.r == "d" then return "Draw by " .. (REASONS[e.reason] or "agreement") .. "." end
+    local won = e.r == "w"
+    if e.reason == "resign" then return won and (opp .. " resigned. You won.") or "You resigned." end
+    if e.reason == "time" then return won and (opp .. " ran out of time. You won.") or "You ran out of time." end
+    return (won and "You beat " .. opp or opp .. " won") .. " by " .. (REASONS[e.reason] or "checkmate") .. "."
 end
 
 -- A game you're watching, in words.

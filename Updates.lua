@@ -17,6 +17,9 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.46.0", {
+        "Chess: the new History tab shows your win/loss record and your last 200 games, across all your characters. Pick one to see how it ended and step back through its moves.",
+    } },
     { "0.45.2", {
         "Fixed a thin line under rail pages that ran down to the bottom of the screen.",
     } },

@@ -4,7 +4,7 @@
 -- permissions and slash commands; every module hangs off the shared `ns`.
 local ADDON, ns = ...
 
-ns.VERSION = "0.45.2"
+ns.VERSION = "0.46.0"
 ns.PREFIX = "TitanBoard"     -- board sync channel (unchanged, so it stays compatible)
 ns.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 ns.U = 4095            -- board coordinates run 0..4095 on both axes
@@ -873,7 +873,8 @@ local SUITE_DEFAULTS = {
     wowdle = { guesses = {}, standings = {}, stats = { played = 0, wins = 0, streak = 0, best = 0, sum = 0, dist = { 0, 0, 0, 0, 0, 0 } } },
     wheel = { bonus = false },                   -- Wheel of Fortune: play a bonus round (ticked in the lobby)
     chess = { games = {}, carry = {}, known = {},    -- your games, guildmates' games you carry, who has Chess
-              toast = { on = false, sound = "None" } },  -- the "your move" pop-up (0.45.0): off until turned on
+              toast = { on = false, sound = "None" },    -- the "your move" pop-up (0.45.0): off until turned on
+              history = {} },                            -- your finished games (0.46.0), your last 200
     -- 0.37.0 (Ryan: these three are on by default)
     alts = { share = true, chars = {}, links = {} },          -- your characters (this account), guildmates' alt lists
     crafters = { share = true, oldTiers = false, mine = {}, people = {} },   -- mine[character] = professions, outside crafters

@@ -2,7 +2,9 @@
 -- The Chess window: your games on the left, the board in the middle (your
 -- pieces always at the bottom), the moves and buttons on the right. The
 -- Watch tab (0.45.0) lists the guild's other games instead; watching one
--- shows its board (White at the bottom) with no buttons, live.
+-- shows its board (White at the bottom) with no buttons, live. The History
+-- tab (0.46.0) has your record and your past games; click one to see how it
+-- ended and step back through its moves.
 -- Click a piece, then the square to move it to; the squares it can reach
 -- are marked. A move slides across the board; the pieces each side has
 -- taken show beside their names, and the move list marks every capture.
@@ -91,13 +93,15 @@ function V:Create()
         cog = { "Chess settings", function() ns.Settings:Open("chess") end },
         onShow = function() V:OnShow() end })
 
-    -- your games / watch
+    -- your games / watch / history
     self.mode = self.mode or "mine"
-    local half = (LIST_W - 4) / 2
-    self.tabMine = UI.Button(f, half, 22, "Your games", "Your own games", function() V:SetMode("mine") end)
+    local third = (LIST_W - 8) / 3
+    self.tabMine = UI.Button(f, third, 22, "Games", "Your games in progress", function() V:SetMode("mine") end)
     self.tabMine:SetPoint("TOPLEFT", 12, -8)
-    self.tabWatch = UI.Button(f, half, 22, "Watch", "Watch the guild's other games, live", function() V:SetMode("watch") end)
+    self.tabWatch = UI.Button(f, third, 22, "Watch", "Watch the guild's other games, live", function() V:SetMode("watch") end)
     self.tabWatch:SetPoint("LEFT", self.tabMine, "RIGHT", 4, 0)
+    self.tabHist = UI.Button(f, third, 22, "History", "Your record and past games", function() V:SetMode("history") end)
+    self.tabHist:SetPoint("LEFT", self.tabWatch, "RIGHT", 4, 0)
     local list = CreateFrame("Frame", nil, f)
     list:SetPoint("TOPLEFT", 12, -36)
     list:SetSize(LIST_W, ROWS * ROW_H)
@@ -127,6 +131,9 @@ function V:Create()
     challenge:SetPoint("BOTTOMLEFT", 12, 14)
     UI.SetActive(challenge, true)
     self.challengeBtn = challenge
+    self.recordText = UI.Text(f, "GameFontHighlight", C.text, nil, "BOTTOMLEFT", 14, 20)
+    self.recordText:SetWidth(LIST_W - 4)
+    self.recordText:SetJustifyH("LEFT")
 
     local sep = f:CreateTexture(nil, "ARTWORK")
     sep:SetColorTexture(C.line[1], C.line[2], C.line[3], 1)
@@ -272,6 +279,12 @@ function V:SetMode(mode)
 end
 
 function V:Select(id)
+    if self.mode == "history" then
+        self.histSel, self.ply = id, nil
+        self.follow = true
+        self:Refresh()
+        return
+    end
     if self.mode == "watch" then
         self.watchSel = id
         self.follow = true
@@ -289,7 +302,7 @@ function V:OnChange(g, what)
     if g and g.id == self.sel and what ~= "offer" then self.pick, self.promoMove = nil, nil; self.follow = true end
     if not self:IsShown() then return end
     -- a new move in the game on screen slides into place
-    if self.mode ~= "watch" and g and g.id == self.sel and (what == "move" or what == "state") then
+    if self.mode == "mine" and g and g.id == self.sel and (what == "move" or what == "state") then
         local n = #CH.SplitMoves(g.moves)
         if self.slidN and self.slidN[g.id] and n > self.slidN[g.id] then self:StartSlide(g) end
     end
@@ -387,18 +400,35 @@ local function watchLine(g)
     return col(ACCENT, ns.Short(who) .. " to move")
 end
 
+local HOW = {
+    mate = "checkmate", resign = "resigned", time = "on time", agreed = "agreed", stalemate = "stalemate",
+    repetition = "repetition", fifty = "50 moves", material = "no mate possible",
+}
+local function histLine(e)
+    local res = e.r == "w" and col(GOOD, "Won") or (e.r == "l" and col(BAD, "Lost") or col(MUTED, "Draw"))
+    local how = HOW[e.reason]
+    return res .. col(MUTED, (how and ("  -  " .. how) or "") .. "  -  " .. date("%b %d", e.at or 0))
+end
+
 function V:Refresh()
     if not self.frame then return end
     local watching = self.mode == "watch"
-    UI.SetActive(self.tabMine, not watching)
+    local history = self.mode == "history"
+    UI.SetActive(self.tabMine, self.mode == "mine")
     UI.SetActive(self.tabWatch, watching)
-    self.challengeBtn:SetShown(not watching)
-    local games = watching and CH:Watchable() or CH:Games()
-    local sel = watching and self.watchSel or self.sel
+    UI.SetActive(self.tabHist, history)
+    self.challengeBtn:SetShown(self.mode == "mine")
+    local games, sel
+    if history then games, sel = CH:History(), self.histSel
+    elseif watching then games, sel = CH:Watchable(), self.watchSel
+    else games, sel = CH:Games(), self.sel end
+    self.recordText:SetShown(history and #games > 0)
+    if history then self.recordText:SetText("Record:  " .. CH:RecordText(games)) end
     -- the list
     self.listOffset = math.max(0, math.min(#games - ROWS, self.listOffset or 0))
     self.listEmpty:SetShown(#games == 0)
-    self.listEmpty:SetText(watching and "No guild games to watch right now. Games show up here as guildmates play them."
+    self.listEmpty:SetText(history and "No finished games yet. Your games show up here when they end."
+        or watching and "No guild games to watch right now. Games show up here as guildmates play them."
         or "No games yet. Challenge a guildmate - they don't have to be online.")
     for i, r in ipairs(self.rows) do
         local g = games[i + self.listOffset]
@@ -407,7 +437,10 @@ function V:Refresh()
             r.id = g.id
             local n = #CH.SplitMoves(g.moves)
             local moveNo = n > 0 and col(MUTED, ("  -  move %d"):format(math.floor((n + 1) / 2))) or ""
-            if watching then
+            if history then
+                r.text:SetText("vs " .. ns.Short(CH:HistOpponent(g)))
+                r.sub:SetText(histLine(g) .. moveNo)
+            elseif watching then
                 r.text:SetText(ns.Short(g.w) .. " vs " .. ns.Short(g.b))
                 r.sub:SetText(watchLine(g) .. moveNo)
             else
@@ -419,7 +452,9 @@ function V:Refresh()
         end
     end
     local g
-    if watching then
+    if history then
+        g = sel and (ns.udb.chess.history or {})[sel]
+    elseif watching then
         g = sel and CH:GetAny(sel)
         if g and (CH:IsPlayer(g) or not CH:Live(g)) then g = nil end
     else
@@ -427,19 +462,41 @@ function V:Refresh()
         if g and not CH:IsPlayer(g) then g = nil end
     end
     self.watching = watching and g ~= nil
+    self.reviewing = history and g ~= nil
     if self.game ~= g then self.slide = nil; self.slider:Hide(); self.board:SetScript("OnUpdate", nil) end
     self.game = g
     self.slidN = self.slidN or {}
-    if g then self.slidN[g.id] = #CH.SplitMoves(g.moves) end
+    if g and not history then self.slidN[g.id] = #CH.SplitMoves(g.moves) end
     self:RefreshBoard(g)
     self:RefreshSide(g)
     self:RefreshMoves()
 end
 
+-- A past game (History) at the move you've stepped back to.
+function V:Ply(g)
+    local n = #CH.SplitMoves(g.moves)
+    return math.max(0, math.min(n, self.ply or n)), n
+end
+
+-- The position on the board: the game as it stands, or a past game at the
+-- move you've stepped to.
+function V:BoardGame(g)
+    if not self.reviewing then return CH:Live(g) end
+    local ply = self:Ply(g)
+    local key = g.id .. ":" .. ply
+    if self.reviewKey ~= key then
+        local list = CH.SplitMoves(g.moves)
+        self.reviewKey = key
+        self.reviewGame = R.Play({ unpack(list, 1, ply) }) or R.Begin()
+    end
+    return self.reviewGame
+end
+
 function V:RefreshBoard(g)
-    local game = g and CH:Live(g)
+    local game = g and self:BoardGame(g)
     local pos = game and game.pos or R.New()
-    local flip = g and CH:ColorOf(g) == "b"
+    local flip
+    if self.reviewing then flip = g.color == "b" else flip = g and CH:ColorOf(g) == "b" end
     self.flip = flip
     -- squares the picked piece can go to
     local targets = {}
@@ -505,14 +562,19 @@ function V:RefreshPlayers(g)
         self.topName:SetText(""); self.topInfo:SetText(""); self.botName:SetText(""); self.botInfo:SetText("")
         return
     end
-    local game = CH:Live(g)
+    local game = self:BoardGame(g)
     local watching = self.watching
-    local me, opp = CH:Me(g), CH:Opponent(g)
-    local mine = CH:ColorOf(g)
+    local me, opp, mine
+    if self.reviewing then
+        mine = g.color
+        me, opp = mine == "w" and g.w or g.b, mine == "w" and g.b or g.w
+    else
+        me, opp, mine = CH:Me(g), CH:Opponent(g), CH:ColorOf(g)
+    end
     if watching then me, opp, mine = g.w, g.b, "w" end       -- White at the bottom
     local theirs = mine == "w" and "b" or "w"
     local turn = g.status == "active" and CH:ToMove(g)
-    local kind = CH:Timer(g)
+    local kind = not self.reviewing and CH:Timer(g)
     if watching and kind == "live" then kind = nil end      -- (a carried copy's clock only moves with the moves)
     local online = CH:IsOnline(opp)
     local onlineMe = watching and CH:IsOnline(me)
@@ -531,6 +593,7 @@ function V:RefreshPlayers(g)
             bits[#bits + 1] = col(left < 6 * 3600 and WARN or MUTED, daysText(left))
         end
         if turn == color then bits[#bits + 1] = col(ACCENT, (isMe and not watching) and "your move" or "to move") end
+        if self.reviewing then return table.concat(bits, "  ") end
         if not isMe or watching then
             local on = (watching and isMe) and onlineMe or online
             bits[#bits + 1] = on == true and col(GOOD, "online") or (on == false and col(MUTED, "offline") or nil)
@@ -547,7 +610,7 @@ end
 -- appearing when your opponent runs out of time.
 function V:Tick()
     local g = self.game
-    if not (self:IsShown() and g and CH:Timer(g)) then return end
+    if self.reviewing or not (self:IsShown() and g and CH:Timer(g)) then return end
     self:RefreshPlayers(g)
     local can = CH:CanClaimTime(g)
     local key = g.id .. (can and "+" or "-") .. g.status
@@ -569,7 +632,26 @@ function V:RefreshSide(g)
     local status, note
     local a, b = nil, nil                -- { label, tip, active }
     self.actions = {}
-    if not g and self.mode == "watch" then
+    if not g and self.mode == "history" then
+        local all = CH:History()
+        status = "Your record"
+        note = #all > 0 and (CH:RecordText(all) .. "\n" .. col(MUTED, "Pick a past game to see how it went."))
+            or "Your finished games are kept here, with how each one ended."
+    elseif self.reviewing then
+        local ply, n = self:Ply(g)
+        local opp = CH:HistOpponent(g)
+        status = CH:HistText(g)
+        note = date("%a %b %d, %Y", g.at or 0) .. ("  -  %d moves"):format(math.floor((n + 1) / 2))
+            .. "\n" .. col(MUTED, "You played " .. (g.color == "w" and "White" or "Black") .. (g.tc and (", " .. CH.TIMER_LABEL[g.tc]:lower()) or "") .. ".")
+            .. "\n" .. ("Against %s: %s"):format(ns.Short(opp), CH:RecordText(CH:History(opp)))
+        if ply == 0 then note = note .. "\n" .. col(ACCENT, "Showing the starting position.")
+        elseif ply < n then
+            local san = CH:Live(g).san[ply] or ""
+            note = note .. "\n" .. col(ACCENT, ("Showing after %d%s %s"):format(math.floor((ply + 1) / 2), ply % 2 == 1 and "." or "...", san))
+        end
+        a = { "Back a move", "Step back through the game", false, "back" }
+        b = { "Forward a move", "Step forward again", false, "forward" }
+    elseif not g and self.mode == "watch" then
         status = "Watch the guild play"
         note = "Pick a game on the left to watch it live. Every guild game your Titan Up has seen go past is listed."
     elseif not g then
@@ -635,7 +717,10 @@ function V:RefreshSide(g)
     self.note:SetText(note)
     setBtn(self.btnA, a and a[1], a and a[2], a and a[3])
     setBtn(self.btnB, b and b[1], b and b[2], b and b[3])
-    if a then UI.SetDisabled(self.btnA, a[4] == "none") end
+    local ply, n = 0, 0
+    if self.reviewing then ply, n = self:Ply(g) end
+    if a then UI.SetDisabled(self.btnA, a[4] == "none" or (a[4] == "back" and ply == 0)) end
+    if b then UI.SetDisabled(self.btnB, b[4] == "forward" and ply == n) end
     self.actions.a, self.actions.b = a and a[4], b and b[4]
 end
 
@@ -645,7 +730,8 @@ function V:RefreshMoves()
     local san = g and CH:Live(g).san or {}
     local taken = g and CH:Live(g).taken or {}
     local lines = math.ceil(#san / 2)
-    if self.follow then self.moveOffset = lines - MOVE_ROWS end
+    local ply = (self.reviewing and g) and self:Ply(g) or #san
+    if self.follow then self.moveOffset = math.ceil(ply / 2) - MOVE_ROWS end
     self.moveOffset = math.max(0, math.min(lines - MOVE_ROWS, self.moveOffset or 0))
     for i, r in ipairs(self.moveRows) do
         local line = i + self.moveOffset
@@ -653,6 +739,9 @@ function V:RefreshMoves()
         -- each capture shows the piece it took
         local tw, tb = taken[line * 2 - 1], taken[line * 2]
         r.n:SetText(w and (line .. ".") or "")
+        -- (History: the moves after the one on the board are greyed)
+        if w and line * 2 - 1 > ply then w = col(MUTED, w) elseif w and line * 2 - 1 == ply and ply < #san then w = col(ACCENT, w) end
+        if b and line * 2 > ply then b = col(MUTED, b) elseif b and line * 2 == ply and ply < #san then b = col(ACCENT, b) end
         r.w:SetText(w and (w .. (tw and (" " .. icon(tw, 13)) or "")) or "")
         r.b:SetText(b and (b .. (tb and (" " .. icon(tb, 13)) or "")) or "")
     end
@@ -701,6 +790,13 @@ end
 
 function V:Action(which)
     local act = self.actions and self.actions[which]
+    if (act == "back" or act == "forward") and self.reviewing then
+        local ply, n = self:Ply(self.game)
+        self.ply = math.max(0, math.min(n, ply + (act == "back" and -1 or 1)))
+        self.follow = true
+        self:Refresh()
+        return
+    end
     local id = self.sel
     if not act or not id then return end
     if act ~= "resign" then self.confirm = nil end
