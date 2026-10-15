@@ -559,7 +559,7 @@ function Nav:BuildRail(h)
                     h.railButtons[#h.railButtons + 1] = sb
                     y = y - SUB_H
                 end
-                guide:SetPoint("BOTTOMLEFT", 14, y + 2)
+                guide:SetPoint("BOTTOMLEFT", rail, "TOPLEFT", 14, y + 2)
                 h.railGuide = guide
             end
         end
