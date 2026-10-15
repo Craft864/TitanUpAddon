@@ -365,7 +365,8 @@ function PR.ReadRecap(window)
     local hits, last = {}, nil
     for _, e in ipairs(events) do
         local ts, amt = e.timestamp, e.amount
-        if type(ts) == "number" and not ns.IsSecret(ts) then last = math.max(last or ts, ts) end
+        if type(ts) ~= "number" or ns.IsSecret(ts) then ts = nil end      -- (sorted and subtracted below)
+        if ts then last = math.max(last or ts, ts) end
         if type(amt) == "number" and not ns.IsSecret(amt) and amt > 0 then
             local spell = (type(e.spellName) == "string" and not ns.IsSecret(e.spellName)) and e.spellName or "Melee"
             local src = (type(e.sourceName) == "string" and not ns.IsSecret(e.sourceName)) and e.sourceName or ""

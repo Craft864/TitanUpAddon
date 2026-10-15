@@ -826,6 +826,11 @@ function DR:Expire()
     local now = GetTime()
     for id, room in pairs(self.rooms) do
         if room.state == "open" and now - room.created > self.OPEN_TIMEOUT then cancel(room, "expired") end
+        -- a seat taken but never started (someone walked away) closes too
+        if room.state == "seated" and not room.sim then
+            room.seatedAt = room.seatedAt or now
+            if now - room.seatedAt > self.OPEN_TIMEOUT then cancel(room, "unstarted") end
+        end
         if room.state == "rolling" and not room.sim and now - (room.lastRollAt or room.created) > self.STALE_TIMEOUT then cancel(room, "stale") end
         if (room.state == "open" or room.state == "seated" or room.state == "rolling") and not room.sim and self:Offline(room, now) then
             cancel(room, "offline")

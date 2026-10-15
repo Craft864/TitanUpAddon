@@ -365,20 +365,24 @@ local function makeLaserTex()
 end
 local function makeLaserFS() return overlay:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall") end
 
+-- (file-level, not a new closure every frame while a pointer shows)
+local nt = 0
+local function tex(x, y, size, r, g, b, a)
+    nt = nt + 1
+    local t = slot(laserTex, nt, makeLaserTex)
+    t:ClearAllPoints()
+    t:SetSize(size, size)
+    t:SetPoint("CENTER", overlay, "TOPLEFT", x, -y)
+    t:SetVertexColor(r, g, b, a)
+    t:Show()
+end
+
 function Board:RenderLasers()
     if not overlay or not self:IsShown() then return end
     for _, t in ipairs(laserTex) do t:Hide() end
     for _, f in ipairs(laserFS) do f:Hide() end
-    local nt, nf = 0, 0
-    local function tex(x, y, size, r, g, b, a)
-        nt = nt + 1
-        local t = slot(laserTex, nt, makeLaserTex)
-        t:ClearAllPoints()
-        t:SetSize(size, size)
-        t:SetPoint("CENTER", overlay, "TOPLEFT", x, -y)
-        t:SetVertexColor(r, g, b, a)
-        t:Show()
-    end
+    nt = 0
+    local nf = 0
     for name, p in pairs(ns.Laser.pointers) do
         local alpha = p.alpha or 1
         if alpha > 0.02 then

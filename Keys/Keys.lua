@@ -242,13 +242,17 @@ function KR:OnMessage(msg, sender)
             C_Timer.After(secs + VOTE_GRACE, function()
                 if KR.vote == v then KR.vote = nil; if ns.KeysUI then ns.KeysUI:Refresh() end end
             end)
-            if ns.KeysUI then ns.KeysUI:Show(); ns.KeysUI:Refresh() end
+            if ns.KeysUI then
+                if not ns.Busy() then ns.KeysUI:Show() end      -- (never pops a window open mid-fight)
+                ns.KeysUI:Refresh()
+            end
         end
     elseif f[1] == "B" then
         local v, i = self.vote, tonumber(f[3])
         if v and v.id == f[2] and i and v.keys[i] then v.votes[sender] = i; if ns.KeysUI then ns.KeysUI:Refresh() end end
     elseif f[1] == "W" then
         local mapID, level = tonumber(f[2]), tonumber(f[3])
+        if self.vote and self.vote.host ~= sender then return end    -- only the vote's starter announces its result
         if mapID and level then
             self.vote = nil
             self:Remember(mapID, level, f[4])
@@ -440,7 +444,7 @@ function KR:EnsurePopup()
     UI.SetDisabled(p.fake, true)
     -- the secure Teleport button hangs off the popup: in combat it can't move
     p:SetScript("OnDragStart", function(s)
-        if InCombatLockdown() and KR.tp and KR.tp:IsShown() then return end
+        if InCombatLockdown() and (KR.tp and KR.tp:IsShown() or (s.IsAnchoringRestricted and s:IsAnchoringRestricted())) then return end
         s:StartMoving()
     end)
     local close = UI.Button(p, 22, 20, "X", "Close", function() KR:HidePopup() end)
@@ -467,7 +471,7 @@ function KR:SetupTeleport()
     local p = self.popup
     if not (p and p:IsShown()) then
         -- the popup was closed (maybe in combat): its button goes too
-        if self.tp and not InCombatLockdown() then self.tp:Hide() end
+        if self.tp and not InCombatLockdown() then self.tp:Hide(); self.tp:ClearAllPoints() end
         self.popupPending = nil
         return
     end
@@ -519,7 +523,7 @@ end
 function KR:HidePopup()
     if self.popup then self.popup:Hide() end
     if self.tp then
-        if InCombatLockdown() then self.popupPending = true else self.tp:Hide() end
+        if InCombatLockdown() then self.popupPending = true else self.tp:Hide(); self.tp:ClearAllPoints() end
     end
 end
 
@@ -533,6 +537,7 @@ local WHEEL = 250
 
 function V:Create()
     local f = ns.Nav:Window(self, "TitanUpKeys", "keys", "KEYSTONE ROULETTE", W, H, { mark = false,
+        canDrag = function() local w = V.frame; return not (InCombatLockdown() and w and w.IsAnchoringRestricted and w:IsAnchoringRestricted()) end,
         onShow = function() KR:RequestKeys(); V:Refresh() end })
     f:SetScript("OnHide", function() V:HideIconTeleports() end)
     local refresh = UI.Button(f, 90, 22, "Refresh", "Ask the group for their keys again", function() KR.lastRequest = nil; KR:RequestKeys(); V:Refresh() end)
@@ -799,7 +804,7 @@ function V:SetupIconTeleports()
             if start and dur and dur > 1.5 then sweep:SetCooldown(start, dur) else sweep:Clear() end
             b:Show()
         elseif b then
-            b:Hide()
+            if not InCombatLockdown() then b:Hide(); b:ClearAllPoints() end
             if self.rowCD and self.rowCD[i] then self.rowCD[i]:Clear() end      -- no teleport on this row now: no sweep either
         end
         -- a plain tooltip for icons that can't teleport
@@ -809,7 +814,9 @@ end
 
 function V:HideIconTeleports(combatStarting)
     for _, b in pairs(self.iconTP or {}) do
-        if combatStarting or not InCombatLockdown() then b:Hide() end
+        -- clear the anchor too: a protected button hung off the window
+        -- would stop the window being dragged in combat
+        if combatStarting or not InCombatLockdown() then b:Hide(); b:ClearAllPoints() end
     end
 end
 

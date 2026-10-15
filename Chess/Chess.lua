@@ -476,12 +476,17 @@ function CH:Prune()
     local carry, list = db().carry, {}
     for id, c in pairs(carry) do
         local age = now - (c.updated or 0)
-        if (c.status == "over" and age > self.OVER_DAYS * DAY) or age > 60 * DAY then carry[id] = nil
+        -- (a challenge older than 30 days: its challenger's client has dropped it)
+        if (c.status == "over" and age > self.OVER_DAYS * DAY) or (c.status == "invited" and age > 30 * DAY) or age > 60 * DAY then carry[id] = nil
         else list[#list + 1] = c end
     end
     if #list > self.CARRY_MAX then
         table.sort(list, function(a, b) return (a.updated or 0) > (b.updated or 0) end)
         for i = self.CARRY_MAX + 1, #list do carry[list[i].id] = nil end
+    end
+    -- replayed positions of games that are gone (History rebuilds its own)
+    for id in pairs(self.live) do
+        if not (db().games[id] or carry[id]) then self.live[id] = nil end
     end
 end
 
@@ -703,6 +708,7 @@ end
 local function carryCopy(id) return db().carry[id] end
 
 local function storeCarry(t)
+    if not db().carry[t.id] then ns.Debounce("chess-prune", 5, function() CH:Prune() end) end
     local c = db().carry[t.id] or {}
     for _, k in ipairs({ "id", "w", "b", "by", "status", "result", "reason", "moves", "offer", "tc", "at", "startAt", "clk", "created" }) do c[k] = t[k] end
     c.updated = ns.Now()
@@ -747,7 +753,7 @@ function CH:OnChallenge(id, w, b, sender, tc)
     if tc and tc ~= "" and TIMER_OK[tc] then t.tc, t.at = tc, {} end
     local target = (sender == w) and b or w
     if self:IsMe(target) then
-        if db().games[id] then return end
+        if db().games[id] or self:InviteFlood(sender) then return end
         t.created, t.via = ns.Now(), {}
         touch(t)
         db().games[id] = t
@@ -1057,14 +1063,47 @@ function CH:OnState(f, sender)
     end
 end
 
+-- An end that isn't on the board (resign, time, agreed, declined,
+-- cancelled), from a copy: only one that our side can't have made itself.
+-- Our own resignations and answers are already saved here.
+function CH:TrustEnd(g, t)
+    if RULE_END[t.reason] or not OTHER_END[t.reason] then return true end    -- checked against the moves
+    local mine = self:ColorOf(g)
+    local lose = t.result ~= "d" and t.result ~= mine
+    if t.reason == "resign" then return not lose end
+    if t.reason == "time" then
+        if not lose then return true end
+        if self:ToMove(g) ~= mine then return false end
+        local kind = self:Timer(g)
+        if kind == "days" then return self:DaysLeft(g) <= self.CLAIM_GRACE end
+        if kind == "live" then return self:ClockLeft(g, mine) <= 15 end
+        return false
+    end
+    if t.reason == "agreed" then return g.offer ~= nil and self:IsMe(g.offer.by) end
+    if t.reason == "declined" then return g.status == "invited" and self:IsMe(g.by) end
+    if t.reason == "cancelled" then return g.status == "invited" and not self:IsMe(g.by) end
+    return true
+end
+
+-- Someone with 3 challenges to you still unanswered: no more from them.
+function CH:InviteFlood(by)
+    local n = 0
+    for _, g in pairs(db().games) do
+        if g.status == "invited" and g.by == by then n = n + 1 end
+    end
+    return n >= 3
+end
+
 -- A whole game for one of OUR games arrived.
 function CH:MergeMine(t, theirs, sender)
     local opp = self:IsMe(t.w) and t.b or t.w
     local fromOpp = self:Plays(opp, sender)
     local g = self:Get(t.id)
     if not g then
-        -- a challenge (or a game) we never heard about, delivered by a courier
-        if t.status == "over" or self:IsMe(t.by) then return end
+        -- a challenge we never heard about, delivered by a courier. Only a
+        -- challenge: a game in progress we don't have would carry moves of
+        -- ours we never made
+        if t.status ~= "invited" or self:IsMe(t.by) or self:InviteFlood(t.by) then return end
         g = { id = t.id, w = t.w, b = t.b, by = t.by, status = t.status, moves = t.moves, created = ns.Now(), via = {},
               tc = t.tc, at = t.at, startAt = t.startAt, clk = t.clk }
         if not fromOpp then for i = 1, #theirs do g.via[i] = sender end end
@@ -1110,7 +1149,10 @@ function CH:MergeMine(t, theirs, sender)
         for i = d, #mine do g.via[i] = nil end
         g.moves = t.moves
         adoptFrom = d
-        if g.status == "over" and t.status ~= "over" then g.status, g.result, g.reason = "active", nil, nil end
+        if g.status == "over" and t.status ~= "over" then
+            g.status, g.result, g.reason = "active", nil, nil
+            hist()[g.id] = nil                       -- its real end goes into History later
+        end
         if courier then
             notify(("%s's move %d was wrong in the copy %s delivered - it's been put back to %s's real move."):format(
                 ns.Short(opp), math.floor((d + 1) / 2), ns.Short(courier), ns.Short(opp)), g)
@@ -1131,12 +1173,12 @@ function CH:MergeMine(t, theirs, sender)
         g.at = g.at or {}
         for i = adoptFrom, #split(g.moves) do g.at[i] = t.at and t.at[i] or ns.Now() end
         for i = #split(g.moves) + 1, #mine do g.at[i] = nil end
-        if self:Timer(g) == "live" and t.clk then
-            -- their clocks, never more time than we already had down
+        if self:Timer(g) == "live" and t.clk and fromOpp then
+            -- our opponent's own clock, never more time than we already had
+            -- down (nobody else sets clocks, and ours is ours)
             g.clk = g.clk or {}
-            for _, c in ipairs({ "w", "b" }) do
-                g.clk[c] = math.min(t.clk[c] or 0, g.clk[c] or t.clk[c] or 0)
-            end
+            local c = self:ColorOf(g) == "w" and "b" or "w"
+            g.clk[c] = math.min(t.clk[c] or 0, g.clk[c] or t.clk[c] or 0)
             g.run = 0
         end
     end
@@ -1145,8 +1187,8 @@ function CH:MergeMine(t, theirs, sender)
     local ours = split(g.moves)
     if #ours == #theirs and (RANK[t.status] or 0) > (RANK[g.status] or 0) then
         if t.status == "active" and g.status == "invited" then
-            g.status = "active"
-        elseif t.status == "over" then
+            if self:IsMe(g.by) then g.status = "active" end   -- (only the other side's accept can arrive)
+        elseif t.status == "over" and self:TrustEnd(g, t) then
             -- a resignation or agreed draw, from our opponent or carried by a courier
             g.status, g.result, g.reason = "over", t.result, t.reason
         end
@@ -1267,8 +1309,18 @@ function CH:Init()
     C_Timer.NewTicker(1, function() CH:Tick() end)
     ns.Listen(PREFIX, "guild", function(msg, sender) CH:OnMessage(msg, sender) end)
     -- say which games we have once the guild has loaded, then mention any waiting on you
-    C_Timer.After(15, function()
+    local tries = 0
+    local function hello()
+        -- (the guild can take a while to load: keep trying for a few minutes)
+        tries = tries + 1
+        if not ns.DataChannel() then
+            if tries < 20 then C_Timer.After(15, hello) end
+            return
+        end
         CH:Hello(true)
+    end
+    C_Timer.After(15, function()
+        hello()
         local n = CH:WaitingCount()
         if n > 0 then
             ns.Print(("|cff4fc2f7Chess:|r %d game%s waiting on you. |cff8a8f9c/tu chess|r"):format(n, n == 1 and " is" or "s are"))

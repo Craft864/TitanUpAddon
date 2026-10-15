@@ -525,7 +525,7 @@ function V:RefreshRoom()
         elseif room.state == "cancelled" then
             self.bigNum:SetText("-")
             self.bigNum:SetTextColor(C.muted[1], C.muted[2], C.muted[3])
-            local why = ({ expired = "Nobody joined in time.", left = "A player left the group.", offline = "A player went offline.",
+            local why = ({ expired = "Nobody joined in time.", unstarted = "The game wasn't started in time.", left = "A player left the group.", offline = "A player went offline.",
                 stale = "No rolls for half an hour - the game was closed." })[room.cancelledBy] or "Cancelled."
             self.bigLabel:SetText(why)
         else

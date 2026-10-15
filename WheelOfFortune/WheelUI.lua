@@ -562,10 +562,10 @@ function V:StatusText(g)
     elseif m == "loseturn" then lead = "|cffffa340Lose a Turn!|r"
     elseif m == "found" then
         local L, n, amount = a:match("^(%a)(%d+):(%d+)$")
-        lead = ("There %s %s %s%s!  |cff66e08c+%s|r"):format(n == "1" and "is" or "are", n, L, n == "1" and "" or "'s", money(tonumber(amount)))
+        lead = n and ("There %s %s %s%s!  |cff66e08c+%s|r"):format(n == "1" and "is" or "are", n, L, n == "1" and "" or "'s", money(tonumber(amount))) or nil
     elseif m == "foundvowel" then
         local L, n = a:match("^(%a)(%d+)$")
-        lead = ("There %s %s %s%s."):format(n == "1" and "is" or "are", n, L, n == "1" and "" or "'s")
+        lead = n and ("There %s %s %s%s."):format(n == "1" and "is" or "are", n, L, n == "1" and "" or "'s") or nil
     elseif m == "none" then lead = ("No %s's."):format(a)
     elseif m == "already" then lead = a .. " was already called."
     elseif m == "wrong" then lead = "That's not it."
@@ -809,7 +809,7 @@ function V:Toast(g)
         }, { y = -220, iconSize = 40 })
     end
     self.toast.g = g
-    self.toast:Pop(("%s is hosting Wheel of Fortune!"):format(colored(g.host)), 25)
+    if not ns.Busy() then self.toast:Pop(("%s is hosting Wheel of Fortune!"):format(colored(g.host)), 25) end
     ns.Print(("%s is hosting Wheel of Fortune  |H%s%s|h|cff4fc3f7[Open game]|r|h"):format(colored(g.host), self.LINK, g.id))
 end
 

@@ -104,7 +104,7 @@ function LT:Init()
         end
     end, function(t) LT:OnTradeComplete(t) end)
     ns.Listen(PREFIX, "guild", function(text, sender) LT:OnMessage(text, sender) end)
-    C_Timer.After(15, function() LT:SlimOld() end)                 -- once per login, after it settles
+    C_Timer.After(15, function() LT:Trim(); LT:SlimOld() end)      -- once per login, after it settles
 end
 
 local function instanceInfo()

@@ -178,7 +178,8 @@ function BG:Build()
     y:RegisterForClicks("AnyUp")
     y:SetAttribute("type", "click")
     y:SetAttribute("useOnKeyDown", false)
-    y:SetAllPoints(p.yes)
+    -- (anchored to p.yes only while shown: a protected button anchored to
+    -- the panel would lock the panel in combat too)
     y:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
     y.label = y:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     y.label:SetPoint("CENTER")
@@ -192,7 +193,7 @@ end
 
 -- the secure Yes can only be shown, hidden or pointed at a button out of combat
 local function hideYes()
-    if BG.yes and BG.yes:IsShown() and not inCombat() then BG.yes:Hide() end
+    if BG.yes and not inCombat() then BG.yes:Hide(); BG.yes:ClearAllPoints() end
 end
 
 -- Show the covers (the safe state)
@@ -277,6 +278,7 @@ function BG:Ask(kind)
         y:SetBackdropBorderColor(color[1], color[2], color[3], 1)
         y.label:SetText(t.yes)
         y.label:SetTextColor(color[1], color[2], color[3])
+        y:ClearAllPoints(); y:SetAllPoints(p.yes)
         y:Show()
         p.yes:Hide()
     end
@@ -324,10 +326,11 @@ function BG:Clicked()
 end
 
 function BG:CombatStarts()
-    if self.yes and self.yes:IsShown() then
-        self.yes:Hide()
-        if self.armed then self:Glow(self.armed) end
-    end
+    if not self.yes then return end
+    -- (PLAYER_REGEN_DISABLED comes just before the lockdown: still allowed)
+    local was = self.yes:IsShown()
+    self.yes:Hide(); self.yes:ClearAllPoints()
+    if was and self.armed then self:Glow(self.armed) end
 end
 
 function BG:Check()

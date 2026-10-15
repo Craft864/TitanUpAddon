@@ -17,6 +17,14 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.47.0", {
+        "Bonus roll protection: the green Yes button works properly when combat starts.",
+        "Loot Rolls: if you close the window mid-fight, Blizzard's roll pop-ups come back as soon as combat ends.",
+        "Chess: other players can no longer end or change your games with fake messages.",
+        "Death Roll: a seat nobody starts closes after 5 minutes, and finished games send much less guild traffic.",
+        "Stack splitter stops with a message if the stack moves while it's splitting.",
+        "Fixes for dragging Keystone Roulette in combat, Wheel of Fortune games left behind when the host reloads, and macro names on non-English clients, plus lots of smaller stability fixes.",
+    } },
     { "0.46.1", {
         "Chess: the Watch tab now lists games in progress at the top, under a green line, and finished games below them, under a grey line.",
     } },

@@ -4,7 +4,7 @@
 -- permissions and slash commands; every module hangs off the shared `ns`.
 local ADDON, ns = ...
 
-ns.VERSION = "0.46.1"
+ns.VERSION = "0.47.0"
 ns.PREFIX = "TitanBoard"     -- board sync channel (unchanged, so it stays compatible)
 ns.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 ns.U = 4095            -- board coordinates run 0..4095 on both axes
@@ -506,9 +506,9 @@ function ns.Listen(prefix, scope, fn)
         ns.On("CHAT_MSG_ADDON", function(p, msg, channel, sender)
             local list = listeners[p]
             if not list or ns.IsSecret(msg) then return end
-            ns.Tally("in", p, #msg)
             sender = ns.NormalizeSender(sender)
-            if not sender or sender == ns.me then return end
+            if not sender or sender == ns.me then return end      -- (guild messages echo back to you)
+            ns.Tally("in", p, #msg)
             for _, l in ipairs(list) do
                 local sc = l.scope
                 if type(sc) == "function" then sc = sc(msg) end
@@ -886,6 +886,12 @@ ns.On("ADDON_LOADED", function(name)
     if name ~= ADDON then return end
     TitanBoardDB = TitanBoardDB or {}
     applyDefaults(TitanBoardDB, DEFAULTS)
+    -- a send rate saved before /tb rate was range-checked
+    local bs = TitanBoardDB.settings
+    if type(bs) == "table" then
+        bs.rate = math.max(0.2, math.min(5, tonumber(bs.rate) or 1))
+        bs.burst = math.max(1, math.min(10, tonumber(bs.burst) or 10))
+    end
     ns.db = TitanBoardDB
     TitanUpDB = TitanUpDB or {}
     applyDefaults(TitanUpDB, SUITE_DEFAULTS)

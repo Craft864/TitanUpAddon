@@ -172,13 +172,15 @@ function L:RecordGame(room)
     dirty(rec)
     -- send this game straight away so the other player's copy confirms it,
     -- then the usual summary for everyone else
+    -- (the summary waits until the record is out, or everyone who hears it
+    -- first sees a mismatch and asks for your whole history)
     C_Timer.After(1, function() L:ShareGame(rec) end)
-    self:ScheduleDigest(1)
+    self:ScheduleDigest(8)
     return rec
 end
 
 function L:ShareGame(rec)
-    queue[#queue + 1] = recMsg(rec)
+    table.insert(queue, 1, recMsg(rec))          -- ahead of any older records still waiting
     self:StartPump()
 end
 
@@ -546,7 +548,11 @@ end
 function L:Trim()
     local others = {}
     for _, rec in pairs(games()) do
-        if not (ns.Alts and (ns.Alts:IsMine(rec.w) or ns.Alts:IsMine(rec.l))) and rec.w ~= ns.me and rec.l ~= ns.me then others[#others + 1] = rec end
+        -- yours only if you (or one of your characters) reported it: games
+        -- someone else claims you played don't get kept forever
+        local src = rec.src or {}
+        local function own(n) return n and (n == ns.me or (ns.Alts and ns.Alts:IsMine(n))) and src[n] end
+        if not (own(rec.w) or own(rec.l)) then others[#others + 1] = rec end
     end
     if #others <= KEEP_OTHERS then return end
     table.sort(others, function(a, b) return (a.t or 0) > (b.t or 0) end)
@@ -583,7 +589,12 @@ function L:ShareMine(asker)
         if isMine(rec) and (rec.t or 0) >= from then list[#list + 1] = rec end
     end
     table.sort(list, function(a, b) return a.t > b.t end)
-    for _, r in ipairs(list) do queue[#queue + 1] = recMsg(r) end
+    local queued = {}
+    for _, m in ipairs(queue) do queued[m] = true end
+    for _, r in ipairs(list) do
+        local m = recMsg(r)
+        if not queued[m] then queue[#queue + 1] = m end
+    end
     self:StartPump()
 end
 
