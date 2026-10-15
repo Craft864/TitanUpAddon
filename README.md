@@ -1,4 +1,4 @@
-# Titan Up v0.45.1
+# Titan Up v0.45.2
 
 A guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US.
 
@@ -93,6 +93,10 @@ A guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US
 ## Planned
 
 - Fury of the Dead is still matched by its English name in Raid Check.
+
+## Changes in 0.45.2
+
+- Fixed a thin line under rail pages that ran down to the bottom of the screen.
 
 ## Changes in 0.45.1
 
