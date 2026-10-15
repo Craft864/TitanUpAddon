@@ -1,4 +1,4 @@
-# Titan Up v0.43.0
+# Titan Up v0.44.0
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -141,6 +141,7 @@ Crafters under Guild on the rail.
 
 - Open a profession window once and Titan Up reads which recipes you know for the newest expansion (or all of them: "Include older expansions" in Crafters settings). Only recipe numbers travel; every client shows names and icons in its own language, and new recipes from a patch are picked up with no addon update.
 - Search by recipe or item (shift-click an item into the box), filter by profession, and pick a recipe to see who can make it, their skill, whether they're online, and a **Whisper** button. Only guildmates running Titan Up are listed.
+- For items with quality ranks, each crafter shows the best rank they can make (with best materials, and with Concentration) and the best they've crafted.
 - **Add outside crafter:** anyone can add a Name-Server crafter from outside the guild for an item, with a note. It shows who added it; the person who added it, or an officer, can remove it.
 - "Share my recipes" (on by default) in Crafters settings. Turning it off takes your list back from the guild.
 
@@ -158,6 +159,11 @@ Crafters, the wishlist and alt links share lists with a light, change-driven syn
 ## Planned
 
 - Fury of the Dead is still matched by its English name (Raid Check); no spell number for it is known yet.
+
+## Changes in 0.44.0
+
+- Crafters: each crafter now shows the best quality rank they can make, with and without Concentration (assumes the best materials), and the best rank they've actually crafted.
+- Ranks update when the crafter opens their profession window.
 
 ## Changes in 0.43.0
 

@@ -16,7 +16,12 @@
 --
 -- A character's list (prefix TitanUpCR):
 --   profs # outside # removed
---   profs:   base:skill:max:tier:recipes ; ...    (base36; recipes as gaps)
+--   profs:   base:skill:max:tier:recipes[,!quality] ; ...  (base36; recipes as gaps)
+--   quality: gap=MPCB . gap=MPCB ...  (0.44.0; recipes with quality ranks only;
+--            one digit each: M top rank, P best rank you can make with the
+--            best materials, C the same with Concentration, B best rank seen
+--            crafted; 0 = unknown). Older clients stop reading the recipe
+--            list at the "!" and never see it.
 --   outside: item~crafter~text~note~time ; ...    (item base36, 0 = typed text)
 --   removed: adder/time , ...                     (officer removals)
 local ADDON, ns = ...
@@ -116,7 +121,10 @@ function CR:Payload()
         local ids = {}
         for id in pairs(p.recipes or {}) do ids[#ids + 1] = id end
         if #ids > 0 then
-            profs[#profs + 1] = table.concat({ B36(base), B36(p.skill or 0), B36(p.max or 0), B36(p.tier or 0), Shared.PackIds(ids) }, ":")
+            local packed = Shared.PackIds(ids)
+            local q = CR.PackQuality(p.q, m.best, p.recipes)
+            if q ~= "" then packed = packed .. ",!" .. q end
+            profs[#profs + 1] = table.concat({ B36(base), B36(p.skill or 0), B36(p.max or 0), B36(p.tier or 0), packed }, ":")
         end
     end
     local outside = {}
@@ -131,6 +139,35 @@ function CR:Payload()
     return s
 end
 
+-- quality ranks: { [recipe] = { m, p, c, b } } <-> "gap=MPCB.gap=MPCB"
+local function digit(v) v = tonumber(v) or 0; return tostring(math.max(0, math.min(9, math.floor(v)))) end
+function CR.PackQuality(pred, best, recipes)
+    local ids = {}
+    for id in pairs(recipes or {}) do
+        if (pred and pred[id]) or (best and best[id]) then ids[#ids + 1] = id end
+    end
+    table.sort(ids)
+    local out, last = {}, 0
+    for _, id in ipairs(ids) do
+        local q = pred and pred[id] or {}
+        local b = best and best[id] or 0
+        out[#out + 1] = B36(id - last) .. "=" .. digit(q.m) .. digit(q.p) .. digit(q.c) .. digit(b)
+        last = id
+    end
+    return table.concat(out, ".")
+end
+
+function CR.UnpackQuality(s)
+    local out, last = {}, 0
+    for gap, m, p, c, b in (s or ""):gmatch("(%w+)=(%d)(%d)(%d)(%d)") do
+        local d = FromB36(gap)
+        if not d then break end
+        last = last + d
+        out[last] = { m = tonumber(m), p = tonumber(p), c = tonumber(c), b = tonumber(b) }
+    end
+    return out
+end
+
 local function parse(p)
     local out = { profs = {}, outside = {}, removed = {} }
     if not p or p == "" then return out end
@@ -139,8 +176,10 @@ local function parse(p)
         local base, skill, max, tier, ids = item:match("^(%w+):(%w*):(%w*):(%w*):(.*)$")
         base = base and FromB36(base)
         if base then
+            local list, q = (ids or ""):match("^(.-),!(.*)$")
             out.profs[#out.profs + 1] = { base = base, skill = FromB36(skill) or 0, max = FromB36(max) or 0,
-                                          tier = FromB36(tier) or 0, recipes = Shared.UnpackIds(ids) }
+                                          tier = FromB36(tier) or 0, recipes = Shared.UnpackIds(list or ids),
+                                          quality = CR.UnpackQuality(q) }
         end
     end
     for item in (b or ""):gmatch("[^;]+") do
@@ -189,26 +228,121 @@ function CR:Scan()
     local tierID = tier and ns.Safe.Num(tier.professionID) or 0
     local ids = ns.Safe.Call(T.GetAllRecipeIDs)
     if type(ids) ~= "table" or #ids == 0 then return false end
-    local recipes, n = {}, 0
+    local recipes, newest, n = {}, {}, 0
     local old = db().oldTiers
     for _, id in ipairs(ids) do
         local info = ns.Safe.Call(T.GetRecipeInfo, id)
         if type(info) == "table" and info.learned == true and not info.isDummyRecipe then
-            local keep = old or tierID == 0
-            if not keep and T.GetProfessionInfoByRecipeID then
+            local current = tierID == 0
+            if not current and T.GetProfessionInfoByRecipeID then
                 local pi = ns.Safe.Call(T.GetProfessionInfoByRecipeID, id)
-                keep = type(pi) == "table" and ns.Safe.Num(pi.professionID) == tierID
+                current = type(pi) == "table" and ns.Safe.Num(pi.professionID) == tierID
             end
-            if keep then recipes[id] = true; n = n + 1 end
+            if old or current then recipes[id] = true; n = n + 1 end
+            if current then newest[id] = true end
         end
     end
     local m = myProfs()
-    m.profs[baseID] = { recipes = recipes, tier = tierID, name = ns.Safe.Text(base.professionName),
-                        skill = tier and ns.Safe.Num(tier.skillLevel) or ns.Safe.Num(base.skillLevel) or 0,
-                        max = tier and ns.Safe.Num(tier.maxSkillLevel) or ns.Safe.Num(base.maxSkillLevel) or 0, t = ns.Now() }
+    local prev = m.profs[baseID]
+    local skill = tier and ns.Safe.Num(tier.skillLevel) or ns.Safe.Num(base.skillLevel) or 0
+    -- the window fires many list updates: work the ranks out again at most every 30 s
+    local q, qt = prev and prev.q, prev and prev.qt
+    if not q or not qt or ns.Now() - qt >= 30 or prev.skill ~= skill then
+        q, qt = self:PredictQuality(newest), ns.Now()       -- this expansion's recipes only
+    end
+    m.profs[baseID] = { recipes = recipes, tier = tierID, name = ns.Safe.Text(base.professionName), skill = skill,
+                        max = tier and ns.Safe.Num(tier.maxSkillLevel) or ns.Safe.Num(base.maxSkillLevel) or 0, t = ns.Now(),
+                        q = q, qt = qt }
     self.lastScan = { base = baseID, count = n }
     self.sync:Refresh()
     return true, n
+end
+
+-- ---------------------------------------------------------------------
+-- Quality ranks (0.44.0): the best rank you can make, worked out by the
+-- game from your skill, specialization points, tools and gear, assuming
+-- the best materials (with and without Concentration); and the best rank
+-- the addon has seen you craft.
+-- ---------------------------------------------------------------------
+local function rank(v)
+    v = ns.Safe.Num(v)
+    return (v and v >= 1 and v <= 9) and math.floor(v) or nil
+end
+
+-- the materials list for a recipe: every required basic slot filled with its
+-- best-quality material
+local function bestReagents(id)
+    local T = C_TradeSkillUI
+    local sch = T.GetRecipeSchematic and ns.Safe.Call(T.GetRecipeSchematic, id, false)
+    if type(sch) ~= "table" or type(sch.reagentSlotSchematics) ~= "table" then return nil end
+    local BASIC = Enum and Enum.CraftingReagentType and Enum.CraftingReagentType.Basic or 1
+    local qualityOf = T.GetItemReagentQualityByItemInfo
+    local out = {}
+    for _, slot in ipairs(sch.reagentSlotSchematics) do
+        if slot.reagentType == BASIC and slot.required ~= false and type(slot.reagents) == "table" and #slot.reagents > 0 then
+            local pick, pickQ
+            for i, r in ipairs(slot.reagents) do
+                local item = type(r) == "table" and ns.Safe.Num(r.itemID)
+                if item then
+                    local rq = (qualityOf and rank(ns.Safe.Call(qualityOf, item))) or i
+                    if not pick or rq >= pickQ then pick, pickQ = r, rq end
+                end
+            end
+            if pick then
+                out[#out + 1] = { reagent = { itemID = pick.itemID }, dataSlotIndex = slot.dataSlotIndex, quantity = slot.quantityRequired or 1 }
+            end
+        end
+    end
+    return out
+end
+
+-- { [recipe] = { m = top rank, p = with best materials, c = with Concentration } }
+function CR:PredictQuality(recipes)
+    local T = C_TradeSkillUI
+    local out = {}
+    if not (T and T.GetCraftingOperationInfo and T.GetRecipeInfo) then return out end
+    for id in pairs(recipes) do
+        local info = ns.Safe.Call(T.GetRecipeInfo, id)
+        local top = type(info) == "table" and info.supportsQualities == true and rank(info.maxQuality)
+        if top and top > 1 then
+            local mats = bestReagents(id)
+            if mats then
+                local a = ns.Safe.Call(T.GetCraftingOperationInfo, id, mats, nil, false)
+                local c = ns.Safe.Call(T.GetCraftingOperationInfo, id, mats, nil, true)
+                local p = type(a) == "table" and rank(a.craftingQuality)
+                local pc = type(c) == "table" and rank(c.craftingQuality)
+                if p or pc then
+                    out[id] = { m = top, p = p and math.min(p, top) or 0, c = pc and math.min(math.max(pc, p or 0), top) or 0 }
+                end
+            end
+        end
+    end
+    return out
+end
+
+-- your crafts: the cast's spell is the recipe, then the game reports the result
+function CR:OnCast(spellID)
+    spellID = ns.Safe.Num(spellID)
+    if not spellID then return end
+    for _, p in pairs(myProfs().profs) do
+        if p.recipes and p.recipes[spellID] then self.lastCraft = { id = spellID, at = GetTime() } return end
+    end
+end
+
+function CR:OnCrafted(data)
+    local last = self.lastCraft
+    if type(data) ~= "table" or not last or GetTime() - last.at > 15 then return end
+    local T = C_TradeSkillUI
+    local link = ns.Safe.Text(data.hyperlink)
+    local q = link and T and T.GetItemCraftedQualityByItemInfo and rank(ns.Safe.Call(T.GetItemCraftedQualityByItemInfo, link))
+    q = q or rank(data.craftingQuality)
+    if not q then return end
+    local m = myProfs()
+    m.best = m.best or {}
+    if (m.best[last.id] or 0) < q then
+        m.best[last.id] = q
+        self.sync:Refresh()
+    end
 end
 
 -- drop professions this character no longer has
@@ -244,6 +378,11 @@ function CR:Init()
     self.sync:Init()
     local function later() ns.Debounce("crafters-scan", 1.5, function() CR:Scan() end) end
     for _, ev in ipairs({ "TRADE_SKILL_SHOW", "TRADE_SKILL_LIST_UPDATE", "TRADE_SKILL_DATA_SOURCE_CHANGED" }) do ns.On(ev, later) end
+    self.castFrame = CreateFrame("Frame")
+    self.castFrame:SetScript("OnEvent", function(_, _, _, _, spellID) CR:OnCast(spellID) end)
+    self.castFrame:RegisterUnitEvent("UNIT_SPELLCAST_START", "player")
+    self.castFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    ns.On("TRADE_SKILL_ITEM_CRAFTED_RESULT", function(data) CR:OnCrafted(data) end)
     ns.On("SKILL_LINES_CHANGED", function() ns.Debounce("crafters-profs", 3, function() CR:CheckProfessions() end) end)
     C_Timer.After(12, function() CR:CheckProfessions() end)
 end
@@ -339,7 +478,7 @@ function CR.RecipeIcon(id)
     return f and ns.Safe.Call(f, id) or 134400
 end
 
--- { recipes = { [id] = { id, crafters = { { name, base, skill, max } } } }, outside = { ... }, profs = { [base] = true } }
+-- { recipes = { [id] = { id, crafters = { { name, base, skill, max, q } } } }, outside = { ... }, profs = { [base] = true } }
 function CR:Catalog()
     if self.catalog then return self.catalog end
     local cat = { recipes = {}, outside = {}, profs = {} }
@@ -358,7 +497,7 @@ function CR:Catalog()
             for _, id in ipairs(p.recipes) do
                 local r = cat.recipes[id]
                 if not r then r = { id = id, base = p.base, crafters = {} } cat.recipes[id] = r end
-                r.crafters[#r.crafters + 1] = { name = owner, base = p.base, skill = p.skill, max = p.max }
+                r.crafters[#r.crafters + 1] = { name = owner, base = p.base, skill = p.skill, max = p.max, q = p.quality[id] }
             end
         end
         for _, o in ipairs(l.outside) do

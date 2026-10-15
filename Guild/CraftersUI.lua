@@ -215,8 +215,25 @@ function V:Refresh()
     self:RefreshWho()
 end
 
+-- best rank someone can make (with Concentration first), for sorting
+local function bestRank(x) return x.q and math.max(x.q.c or 0, x.q.p or 0, x.q.b or 0) or 0 end
+
+-- "Rank 4 (5 with Concentration)  -  crafted 4"
+function V.RankText(q)
+    if not q then return "" end
+    local parts = {}
+    local p, c, b = q.p or 0, q.c or 0, q.b or 0
+    if p > 0 or c > 0 then
+        if c > p and p > 0 then parts[#parts + 1] = ("Rank %d (%d with Concentration)"):format(p, c)
+        else parts[#parts + 1] = ("Rank %d"):format(math.max(p, c)) end
+    end
+    if b > 0 then parts[#parts + 1] = ("crafted %d"):format(b) end
+    return table.concat(parts, "  -  ")
+end
+
 local function onlineFirst(a, b)
     if a.online ~= b.online then return a.online end
+    if bestRank(a) ~= bestRank(b) then return bestRank(a) > bestRank(b) end
     if (a.skill or 0) ~= (b.skill or 0) then return (a.skill or 0) > (b.skill or 0) end
     return a.name < b.name
 end
@@ -235,11 +252,13 @@ function V:RefreshWho()
     local list = {}
     if e.kind == "recipe" then
         self.whoTitle:SetText(e.name)
-        self.whoSub:SetText(profText(e.base))
+        local top = 0
         for _, c in ipairs(e.crafters) do
             list[#list + 1] = { name = c.name, whisper = c.name, online = roster.online[c.name] == true, skill = c.skill, max = c.max, base = c.base,
-                                class = roster.class[c.name] }
+                                class = roster.class[c.name], q = c.q }
+            top = math.max(top, c.q and c.q.m or 0)
         end
+        self.whoSub:SetText(profText(e.base) .. (top > 1 and ("  -  top rank %d, best materials assumed"):format(top) or ""))
     else
         self.whoTitle:SetText(e.name)
         self.whoSub:SetText("Crafters outside the guild, added by guildmates")
@@ -268,7 +287,9 @@ function V:RefreshWho()
                 local col = x.online and C.good or C.muted
                 r.dot:SetVertexColor(col[1], col[2], col[3], 1)
                 r.name:SetText(UI.ClassName(x.name, x.class or ns.ClassOf(x.name)) .. (x.name == ns.me and " |cff8a8f9c(you)|r" or "") .. (x.online and "" or "  |cff8a8f9coffline|r"))
-                r.sub:SetText(("%s  %s"):format(profText(x.base), (x.max or 0) > 0 and (x.skill .. " / " .. x.max) or ""))
+                local skill = (x.max or 0) > 0 and (x.skill .. " / " .. x.max) or profText(x.base)
+                local ranks = V.RankText(x.q)
+                r.sub:SetText(ranks ~= "" and (skill .. "  -  " .. ranks) or skill)
                 r.btn.remove = nil
                 r.btn.label:SetText("Whisper")
                 r.btn.tip = "Whisper " .. ns.Short(x.name) .. " (works when they're online)"
