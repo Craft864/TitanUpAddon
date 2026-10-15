@@ -4,7 +4,7 @@
 -- permissions and slash commands; every module hangs off the shared `ns`.
 local ADDON, ns = ...
 
-ns.VERSION = "0.45.0"
+ns.VERSION = "0.45.1"
 ns.PREFIX = "TitanBoard"     -- board sync channel (unchanged, so it stays compatible)
 ns.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 ns.U = 4095            -- board coordinates run 0..4095 on both axes
@@ -912,10 +912,6 @@ local function startModules()
         end
     end
     ns.Print("v" .. ns.VERSION .. " loaded. /tu opens Titan Up, /tb the board, /tu roll Death Roll.")
-    local loaded = C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("TitanBoard")
-    if ADDON ~= "TitanBoard" and loaded then
-        ns.Print("|cffff5a5aThe old standalone TitanBoard addon is also enabled.|r It's now part of Titan Up - please disable or delete the TitanBoard folder and /reload.")
-    end
 end
 ns.Started = function() return started end
 
