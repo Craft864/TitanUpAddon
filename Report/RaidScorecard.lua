@@ -117,14 +117,22 @@ function RS:CountShort(pull)
     week.short = week.short or {}
     local name = pull.name or "Encounter"
     week.short[name] = (week.short[name] or 0) + 1
+    if DIFF[pull.diff] then                       -- by difficulty too, for the difficulty filter
+        week.shortD = week.shortD or {}
+        local byD = week.shortD[pull.diff] or {}
+        week.shortD[pull.diff] = byD
+        byD[name] = (byD[name] or 0) + 1
+    end
     self:RefreshUI()
 end
 
-function RS:ShortCount(wk, boss)
+function RS:ShortCount(wk, boss, diff)
     local n = 0
     for k, w in pairs(db().weeks) do
         if not wk or k == wk then
-            for name, c in pairs(w.short or {}) do if not boss or name == boss then n = n + c end end
+            local tally = w.short
+            if diff then tally = w.shortD and w.shortD[diff] end
+            for name, c in pairs(tally or {}) do if not boss or name == boss then n = n + c end end
         end
     end
     return n
@@ -163,13 +171,13 @@ function RS.DeathOrder(p)
     return all, order
 end
 
-function RS:Pulls(wk, boss)
+function RS:Pulls(wk, boss, diff)
     local list = {}
     local weeks = wk and { db().weeks[wk] } or {}
     if not wk then for _, w in pairs(db().weeks) do weeks[#weeks + 1] = w end end
     for _, w in ipairs(weeks) do
         for _, p in pairs(w.pulls or {}) do
-            if not boss or p.name == boss then list[#list + 1] = p end
+            if (not boss or p.name == boss) and (not diff or p.diff == diff) then list[#list + 1] = p end
         end
     end
     table.sort(list, function(a, b) return a.start < b.start end)
@@ -177,14 +185,14 @@ function RS:Pulls(wk, boss)
 end
 
 -- bosses with pulls in that week (for the boss filter)
-function RS:Bosses(wk)
+function RS:Bosses(wk, diff)
     local seen, list = {}, {}
-    for _, p in ipairs(self:Pulls(wk)) do if p.name and not seen[p.name] then seen[p.name] = true; list[#list + 1] = p.name end end
+    for _, p in ipairs(self:Pulls(wk, nil, diff)) do if p.name and not seen[p.name] then seen[p.name] = true; list[#list + 1] = p.name end end
     table.sort(list)
     return list
 end
 
-function RS:Stats(wk, boss)
+function RS:Stats(wk, boss, diff)
     local by = {}
     local function row(name, class)
         local r = by[name]
@@ -195,7 +203,7 @@ function RS:Stats(wk, boss)
         r.class = r.class or class
         return r
     end
-    for _, p in ipairs(self:Pulls(wk, boss)) do
+    for _, p in ipairs(self:Pulls(wk, boss, diff)) do
         local present = {}
         for _, n in ipairs(p.roster or {}) do present[n] = true end
         for _, d in ipairs(p.deaths or {}) do present[d.o] = true end
@@ -235,9 +243,9 @@ local function csv(v)
     return v
 end
 
-function RS:CSV(wk, boss)
+function RS:CSV(wk, boss, diff)
     local lines = { "Week,Date,Boss,Difficulty,Pull,Result,Player,Time of death,Death order,Killed by,Defensive available,Potion available,Healthstone available,After wipe call" }
-    for _, p in ipairs(self:Pulls(wk, boss)) do
+    for _, p in ipairs(self:Pulls(wk, boss, diff)) do
         local all, order = RS.DeathOrder(p)
         for _, d in ipairs(all) do
             local t = math.floor(d.t or 0)
@@ -476,13 +484,15 @@ function V:Create()
     sync:SetPoint("LEFT", self.weekBtn, "RIGHT", 6, 0)
     local export = UI.Button(c1, 92, 22, "Export CSV", "One row per death - paste into a .csv file, Google Sheets or Excel", function()
         UI.Prompt({ title = "Raid Scorecard - CSV", help = "Press Ctrl+C to copy, then paste into a text file saved as .csv, or straight into Google Sheets / Excel.",
-                    text = RS:CSV(V.week, V.boss), select = true })
+                    text = RS:CSV(V.week, V.boss, V.diff), select = true })
     end)
     export:SetPoint("LEFT", sync, "RIGHT", 6, 0)
     local clear = UI.Button(c1, 70, 22, "Clear", "Clear this week, or all kept weeks", function() V:ClearMenu() end)
     clear:SetPoint("LEFT", export, "RIGHT", 6, 0)
     self.bossBtn = UI.Button(c1, 160, 22, "", "Show one boss, or all of them", function() V:BossMenu() end)
     self.bossBtn:SetPoint("LEFT", clear, "RIGHT", 6, 0)
+    self.diffBtn = UI.Button(c1, 130, 22, "", "Show Heroic, Mythic, or both", function() V:DiffMenu() end)
+    self.diffBtn:SetPoint("LEFT", self.bossBtn, "RIGHT", 6, 0)
     self.clearBtn = clear
     self.shortText = UI.Text(c1, "GameFontHighlightSmall", C.muted, nil, "BOTTOMLEFT", 16, 26)   -- its own line, above the note
     -- table
@@ -581,10 +591,18 @@ end
 
 function V:BossMenu()
     local items = { { text = "All bosses", checked = V.boss == nil, onClick = function() V.boss = nil; V.drill, V.drillPull = nil, nil; V:Refresh() end } }
-    for _, b in ipairs(RS:Bosses(V.week)) do
+    for _, b in ipairs(RS:Bosses(V.week, V.diff)) do
         items[#items + 1] = { text = b, checked = V.boss == b, onClick = function() V.boss = b; V.drill, V.drillPull = nil, nil; V:Refresh() end }
     end
     UI.Menu(self.bossBtn, items)
+end
+
+function V:DiffMenu()
+    local items = { { text = "All difficulties", checked = V.diff == nil, onClick = function() V.diff = nil; V.drill, V.drillPull = nil, nil; V:Refresh() end } }
+    for _, d in ipairs({ 15, 16 }) do
+        items[#items + 1] = { text = DIFF[d], checked = V.diff == d, onClick = function() V.diff = d; V.drill, V.drillPull = nil, nil; V:Refresh() end }
+    end
+    UI.Menu(self.diffBtn, items)
 end
 
 function V:ClearMenu()
@@ -606,13 +624,17 @@ function V:Refresh()
     if not self.frame then return end
     self.weekBtn.label:SetText(weekLabel(V.week) .. "  v")
     self.bossBtn.label:SetText((V.boss or "All bosses") .. "  v")
-    local rows = RS:Stats(V.week, V.boss)
-    local short = RS:ShortCount(V.week, V.boss)
+    self.diffBtn.label:SetText((V.diff and DIFF[V.diff] or "All difficulties") .. "  v")
+    local rows = RS:Stats(V.week, V.boss, V.diff)
+    local short = RS:ShortCount(V.week, V.boss, V.diff)
     self.shortText:SetText(short > 0 and ("%d short pull%s (under %d seconds, not a kill) not counted"):format(short, short == 1 and "" or "s", ns.PullReport and ns.PullReport.MIN_PULL or 20) or "")
     self.empty:SetShown(#rows == 0)
     if #rows == 0 then
         local when = (V.week == nil) and "" or ((V.week == RS.CurrentWeekStart()) and " this week" or " that week")
-        self.empty:SetText(V.boss and ("No data for this boss" .. when) or (V.week == nil and "No data yet" or ("No data for" .. when)))
+        local what = V.diff and (DIFF[V.diff] .. " ") or ""
+        if V.boss then self.empty:SetText("No " .. what .. "data for this boss" .. when)
+        elseif V.diff then self.empty:SetText("No " .. what .. "data" .. when)
+        else self.empty:SetText(V.week == nil and "No data yet" or ("No data for" .. when)) end
     end
     for i, r in ipairs(self.rows) do
         local e = rows[i]
