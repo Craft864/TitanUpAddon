@@ -122,6 +122,12 @@ function V:Create()
         r.sub:SetJustifyH("LEFT")
         r.sub:SetWordWrap(false)
         r:SetScript("OnClick", function(s) V:Select(s.id) end)
+        -- Watch: a section header ("In progress" / "Finished") over a coloured line
+        r.head = UI.Text(r, "GameFontNormalSmall", C.text, nil, "BOTTOMLEFT", 4, 9)
+        r.line = r:CreateTexture(nil, "ARTWORK")
+        r.line:SetHeight(2)
+        r.line:SetPoint("BOTTOMLEFT", 0, 3); r.line:SetPoint("BOTTOMRIGHT", 0, 3)
+        r.head:Hide(); r.line:Hide()
         self.rows[i] = r
     end
     self.listEmpty = UI.Text(list, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", 4, -6)
@@ -424,16 +430,38 @@ function V:Refresh()
     else games, sel = CH:Games(), self.sel end
     self.recordText:SetShown(history and #games > 0)
     if history then self.recordText:SetText("Record:  " .. CH:RecordText(games)) end
+    -- Watch: games in progress under a green line, finished ones under a grey one (Ryan)
+    local items = games
+    if watching then
+        items = {}
+        local section
+        for _, g in ipairs(games) do
+            local s = g.status == "active" and "active" or "over"
+            if s ~= section then section = s; items[#items + 1] = { header = s } end
+            items[#items + 1] = g
+        end
+    end
     -- the list
-    self.listOffset = math.max(0, math.min(#games - ROWS, self.listOffset or 0))
+    self.listOffset = math.max(0, math.min(#items - ROWS, self.listOffset or 0))
     self.listEmpty:SetShown(#games == 0)
     self.listEmpty:SetText(history and "No finished games yet. Your games show up here when they end."
         or watching and "No guild games to watch right now. Games show up here as guildmates play them."
         or "No games yet. Challenge a guildmate - they don't have to be online.")
     for i, r in ipairs(self.rows) do
-        local g = games[i + self.listOffset]
+        local g = items[i + self.listOffset]
+        local head = g and g.header
         r:SetShown(g ~= nil)
-        if g then
+        r.head:SetShown(head ~= nil); r.line:SetShown(head ~= nil)
+        r.text:SetShown(not head); r.sub:SetShown(not head)
+        r:EnableMouse(not head)
+        if head then
+            local c = head == "active" and C.good or C.muted
+            r.id = nil
+            r.head:SetText(head == "active" and "IN PROGRESS" or "FINISHED")
+            r.head:SetTextColor(c[1], c[2], c[3])
+            r.line:SetColorTexture(c[1], c[2], c[3], 0.9)
+            r.hl:Hide()
+        elseif g then
             r.id = g.id
             local n = #CH.SplitMoves(g.moves)
             local moveNo = n > 0 and col(MUTED, ("  -  move %d"):format(math.floor((n + 1) / 2))) or ""
