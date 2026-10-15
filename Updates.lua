@@ -17,6 +17,9 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.44.0", {
+        "Crafters: pick a recipe to see the best quality rank each crafter can make, with and without Concentration, and the best they've crafted. Ranks update when they open their profession window.",
+    } },
     { "0.43.0", {
         "Chess: your games now follow you across your characters. Swap to an alt and you can keep playing every game you started on another character (needs \"Link my characters\" on, which it is unless you turned it off).",
     } },
