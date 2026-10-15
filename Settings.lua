@@ -99,6 +99,9 @@ function S:Pages()
             { text = "Each character has its own list. Only your bags are counted, not your bank." },
         } }
     end
+    if u.chess and ns.ChessToast then
+        pages[#pages + 1] = { key = "chess", title = "Chess", group = "GUILD", mod = ns.ChessToast }
+    end
     if u.crafters then
         pages[#pages + 1] = { key = "crafters", title = "Crafters", group = "GUILD", rows = {
             { toggle = "Share my recipes", tip = "Let the guild see what this character can craft (read when you open a profession window). Off: the guild forgets this character's recipes.",

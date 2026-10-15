@@ -49,6 +49,8 @@
 --                             a whole game (moves comma-separated; 0.35.0 adds the timer, each move's
 --                             time, when the game started and the live clocks "white:black")
 --   U key part n chunk        an S too long for one message, in parts
+--   Q entries                 a spectator opened Watch (0.45.0): "id:n,..." the games in progress it
+--                             already has; their players send newer ones (S), each at most once a minute
 local ADDON, ns = ...
 
 local CH = {}
@@ -203,6 +205,28 @@ function CH:WaitingCount()
 end
 
 function CH:Get(id) return db().games[id] end
+
+-- A game by id: yours, or one you carry (spectating, 0.45.0).
+function CH:GetAny(id) return db().games[id] or db().carry[id] end
+
+-- Guild games you can watch: the courier copies of other people's games in
+-- progress, plus ones that ended in the last few days. Newest activity first.
+function CH:Watchable()
+    local out = {}
+    local now = ns.Now()
+    for id, c in pairs(db().carry) do
+        if not db().games[id] and not self:IsPlayer(c)
+            and (c.status == "active" or (c.status == "over" and now - (c.updated or 0) < self.OVER_DAYS * DAY and count(c.moves) > 0)) then
+            out[#out + 1] = c
+        end
+    end
+    table.sort(out, function(a, b)
+        if (a.status == "active") ~= (b.status == "active") then return a.status == "active" end
+        if (a.updated or 0) ~= (b.updated or 0) then return (a.updated or 0) > (b.updated or 0) end
+        return a.id < b.id
+    end)
+    return out
+end
 
 -- ---------------------------------------------------------------------
 -- Timers
@@ -598,6 +622,11 @@ local function notify(text, g)
     end
 end
 
+-- It's your move (or you've been challenged): the optional pop-up (0.45.0).
+local function yourTurn(g, challenged)
+    if ns.ChessToast then ns.ChessToast:YourTurn(g, challenged) end
+end
+
 -- A courier's copy of someone else's game.
 local function carryCopy(id) return db().carry[id] end
 
@@ -609,6 +638,7 @@ local function storeCarry(t)
     -- something newer went past: a queued delivery of an older copy isn't needed
     local p = CH.pending[t.id]
     if p and count(t.moves) >= p.n and (RANK[t.status] or 0) >= p.rank then CH.pending[t.id] = nil end
+    if ns.ChessUI and ns.ChessUI.OnCarry then ns.ChessUI:OnCarry(c) end
 end
 
 function CH:OnMessage(msg, sender)
@@ -623,6 +653,7 @@ function CH:OnMessage(msg, sender)
     elseif kind == "M" then self:OnMove(f[2], tonumber(f[3]), f[4], sender, f[5], f[6])
     elseif kind == "E" then self:OnEnd(f[2], f[3], tonumber(f[4]), sender)
     elseif kind == "H" then self:OnHello(f[2] or "", sender)
+    elseif kind == "Q" then self:OnAsk(f[2] or "", sender)
     elseif kind == "S" then self:OnState(f, sender)
     elseif kind == "U" then
         -- (the chunk itself holds ^ separators: take everything after the 4th)
@@ -650,6 +681,7 @@ function CH:OnChallenge(id, w, b, sender, tc)
         db().games[id] = t
         notify(("%s challenged you to a game of chess%s."):format(ns.Short(sender), t.tc and (" (" .. TIMER_OK[t.tc] .. ")") or ""), t)
         changed(t, "new")
+        yourTurn(t, true)
     elseif not db().games[id] and not carryCopy(id) then
         storeCarry(t)
     end
@@ -665,8 +697,11 @@ function CH:OnAnswer(kind, id, sender, at)
         t.status = "active"
         t.startAt = clampTime(at, t.created)
         touch(t)
-        if mine then notify(("%s accepted your challenge. %s"):format(ns.Short(sender),
-            self:ColorOf(g) == "w" and "You play White - your move." or "You play Black."), g) end
+        if mine then
+            notify(("%s accepted your challenge. %s"):format(ns.Short(sender),
+                self:ColorOf(g) == "w" and "You play White - your move." or "You play Black."), g)
+            if self:NeedsMe(g) then yourTurn(g) end
+        end
     else
         local byChallenger = self:Plays(t.by, sender)
         finish(t, nil, byChallenger and "cancelled" or "declined")
@@ -721,6 +756,7 @@ function CH:OnMove(id, n, uci, sender, at, clock)
             ns.ChessUI:FlashRail()
         end
         changed(g, "move")
+        if g.status == "active" and self:NeedsMe(g) then yourTurn(g) end
         return
     end
     -- courier: keep the copy current
@@ -851,6 +887,54 @@ function CH:Deliver(c, n, rank)
     end)
 end
 
+-- Watching (0.45.0): ask the guild's players for fresh copies of their
+-- games in progress, saying which ones (and how far) we already have.
+function CH:AskGames()
+    if not ns.DataChannel() then return false end
+    local now = GetTime()
+    if self.askedAt and now - self.askedAt < 60 then return false end
+    self.askedAt = now
+    local entries, len = {}, 0
+    for _, c in ipairs(self:Watchable()) do
+        if c.status == "active" then
+            local e = ("%s:%d"):format(c.id, count(c.moves))
+            if len + #e + 1 > 220 then break end
+            entries[#entries + 1] = e
+            len = len + #e + 1
+        end
+    end
+    self:Send("Q", table.concat(entries, ","))
+    return true
+end
+
+-- A spectator's ask: send our own games in progress they lack (or have
+-- behind), after a short wait - unless our opponent sends it first.
+function CH:OnAsk(text, sender)
+    local have = {}
+    for entry in text:gmatch("[^,]+") do
+        local id, n = entry:match("^(.+):(%d+)$")
+        if id then have[id] = tonumber(n) end
+    end
+    for _, g in pairs(db().games) do
+        if g.status == "active" and self:IsPlayer(g) and not self:IsPlayer(g, sender) then
+            local n = count(g.moves)
+            if (have[g.id] or -1) < n then
+                local last = self.lastS[g.id]
+                if not (last and last.n == n and GetTime() - last.at < 60) then
+                    local token = {}
+                    self.pending[g.id] = { n = n, rank = RANK.active, token = token, mine = true }
+                    C_Timer.After(1 + math.random() * 4, function()
+                        local p = CH.pending[g.id]
+                        if not p or p.token ~= token then return end
+                        CH.pending[g.id] = nil
+                        if CH:Get(g.id) then CH:SendState(CH:Get(g.id)) end
+                    end)
+                end
+            end
+        end
+    end
+end
+
 function CH:OnState(f, sender)
     local id, w, b, by, code, result, reason, moves = f[2], f[3], f[4], f[5], f[6], f[7], f[8], f[9] or ""
     local tc, times, startAt, clocks = f[10] or "", f[11] or "", f[12], f[13] or ""
@@ -880,6 +964,8 @@ function CH:OnState(f, sender)
         if cw then t.clk = { w = tonumber(cw), b = tonumber(cb) } end
     end
 
+    local pend = self.pending[id]
+    if pend and pend.mine and #theirs >= pend.n and (RANK[status] or 0) >= pend.rank then self.pending[id] = nil end
     if self:IsMe(w) or self:IsMe(b) then
         self:MergeMine(t, theirs, sender)
         return
@@ -918,6 +1004,7 @@ function CH:MergeMine(t, theirs, sender)
         end
         checkEnd(g)
         changed(g, "new")
+        if g.status == "invited" then yourTurn(g, true) elseif self:NeedsMe(g) then yourTurn(g) end
         return
     end
     if g.w ~= t.w or g.b ~= t.b or g.by ~= t.by then return end
@@ -1004,6 +1091,7 @@ function CH:MergeMine(t, theirs, sender)
             notify(("Your move against %s%s."):format(ns.Short(opp), fromOpp and "" or (" (delivered by " .. ns.Short(sender) .. ")")), g)
         end
         changed(g, "state")
+        if g.status == "active" and self:NeedsMe(g) and (g.moves ~= before or beforeStatus == "invited") then yourTurn(g) end
     end
     -- they're behind us: catch them up
     if fromOpp and (#ours > #theirs or (RANK[g.status] or 0) > (RANK[t.status] or 0)) then self:SendState(g) end
@@ -1028,6 +1116,22 @@ function CH:EndText(g)
     if g.reason == "resign" then return won and (opp .. " resigned. You win!") or "You resigned." end
     if g.reason == "time" then return won and (opp .. " ran out of time. You win!") or "You ran out of time." end
     return (won and "You beat " .. opp or opp .. " won") .. " by " .. (REASONS[g.reason] or "checkmate") .. "."
+end
+
+-- A game you're watching, in words.
+function CH:WatchText(g)
+    local w, b = ns.Short(g.w), ns.Short(g.b)
+    if g.status == "invited" then return ("%s challenged %s."):format(ns.Short(g.by), ns.Short(g.by == g.w and g.b or g.w)) end
+    if g.status ~= "over" then
+        local _, who = self:ToMove(g)
+        return ("%s to move."):format(ns.Short(who))
+    end
+    if g.reason == "declined" or g.reason == "cancelled" then return "The challenge wasn't taken up." end
+    if g.result == "d" then return "Draw by " .. (REASONS[g.reason] or "agreement") .. "." end
+    local winner, loser = g.result == "w" and w or b, g.result == "w" and b or w
+    if g.reason == "resign" then return ("%s resigned. %s wins."):format(loser, winner) end
+    if g.reason == "time" then return ("%s ran out of time. %s wins."):format(loser, winner) end
+    return ("%s won by %s."):format(winner, REASONS[g.reason] or "checkmate")
 end
 
 -- ---------------------------------------------------------------------

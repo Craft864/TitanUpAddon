@@ -1,4 +1,4 @@
-# Titan Up v0.44.0
+# Titan Up v0.45.0
 
 The Titan Up guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US. Modules:
 
@@ -112,7 +112,9 @@ The host's addon is the referee: it spins, checks letters and only ever sends th
 
 - **Start:** **Challenge a guildmate** and pick them from the list (or type a name). They don't need to be online. Up to 20 games at once.
 - **Timer (optional):** days per move (1, 3 or 7 days; claim the win when they run out), or a live clock (5, 10 or 30 minutes each) that only runs while you're both online.
-- **Play:** click a piece, then where it goes. Moves slide across the board, taken pieces show beside each name, and you can offer a draw or resign.
+- **Play:** click a piece, then where it goes. Moves slide across the board, the latest move's squares are yellow, taken pieces show beside each name, and you can offer a draw or resign.
+- **Watch:** the Watch tab lists the guild's other games. Click one to watch it live.
+- **Your-move pop-up (optional):** turn it on in Settings > Chess. A small pop-up when it's your move or someone challenges you, with its own movable spot and an optional sound. Never in combat or instances.
 - **Your characters:** with "Link my characters" on, all your characters share your games, so you can move on whichever one you're playing.
 - **Rules:** the full rules are checked on both computers, and draws by repetition, the 50-move rule and too few pieces are automatic.
 - **Offline play:** guildmates running Titan Up quietly pass moves along, so your move reaches your opponent even if you're never online together. Nobody else can make or change your moves.
@@ -159,6 +161,12 @@ Crafters, the wishlist and alt links share lists with a light, change-driven syn
 ## Planned
 
 - Fury of the Dead is still matched by its English name (Raid Check); no spell number for it is known yet.
+
+## Changes in 0.45.0
+
+- Chess: a Watch tab to follow the guild's other games live.
+- Chess: an optional "your move" pop-up (Settings > Chess, off by default) with its own movable spot and an optional sound.
+- Chess: the latest move's squares are now yellow, so they're easier to spot.
 
 ## Changes in 0.44.0
 

@@ -17,6 +17,11 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.45.0", {
+        "Chess: the new Watch tab lists the guild's other games. Click one to watch it live.",
+        "Chess: an optional pop-up tells you when it's your move or someone challenges you. Turn it on in Settings > Chess, drag it where you like, and pick a sound if you want one.",
+        "Chess: the latest move's squares are now yellow so they stand out.",
+    } },
     { "0.44.0", {
         "Crafters: pick a recipe to see the best quality rank each crafter can make, with and without Concentration, and the best they've crafted. Ranks update when they open their profession window.",
     } },
