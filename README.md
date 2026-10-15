@@ -1,4 +1,4 @@
-# Titan Up v0.47.0
+# Titan Up v0.47.1
 
 A guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US.
 
@@ -94,6 +94,11 @@ A guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US
 ## Planned
 
 - Fury of the Dead is still matched by its English name in Raid Check.
+
+## Changes in 0.47.1
+
+- Reports: This week can be filtered by difficulty (Heroic or Mythic) as well as by boss.
+- Reports: the short-pull count no longer overlaps the note at the bottom of This week.
 
 ## Changes in 0.47.0
 
