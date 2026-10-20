@@ -58,6 +58,8 @@ local function key(self, kind, x) return self.prefix .. ":" .. kind .. ":" .. (x
 -- ---------------------------------------------------------------------
 function Shared:Init()
     ns.Listen(self.prefix, "guild", function(msg, sender) self:OnMessage(msg, sender) end)
+    -- a friend running Titan Up showed up (0.48.0): say hello so they can ask for our list
+    if ns.Friends then ns.Friends:OnNewFriend(function() self:Hello() end) end
     self:Prune()
     self:Refresh(true)
     -- say hello once the guild channel is up (it can take a while after login)

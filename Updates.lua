@@ -17,6 +17,12 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.48.0", {
+        "Titan Up works without a guild: raid and party features work with everyone in your group, and Chess, Wowdle, Death Roll standings, Crafters and wishlists reach your friends who run Titan Up.",
+        "In a guild, everything still works with your guild, plus pugs in your group and friends outside it.",
+        "Chess: challenge anyone in your group. If the group ends mid-game, an Add friend button lets you keep playing.",
+        "The version check lists pugs in your raid too. New Settings > Friends page.",
+    } },
     { "0.47.1", {
         "Reports: This week can be filtered by difficulty (Heroic or Mythic) as well as by boss.",
         "Reports: the short-pull count no longer overlaps the note at the bottom of This week.",
@@ -254,7 +260,7 @@ function UP:Check()
             local r = { name = name, class = ns.Safe.Class(unit) }
             if name == ns.me then r.v = ns.VERSION
             elseif UnitIsConnected and UnitIsConnected(unit) == false then r.offline = true
-            elseif UnitIsInMyGuild and not UnitIsInMyGuild(unit) then r.noGuild = true end   -- the guild channel can't reach them
+            end
             roster[name] = r
         end
     end
@@ -262,7 +268,7 @@ function UP:Check()
     self.checkId = (self.checkId or 0) + 1
     local id = self.checkId
     if not ns.SendFields(PREFIX, "Q", ns.VERSION) then
-        ns.Print("The version check asks over your guild's addon channel - it needs a guild.")
+        ns.Print("The version check couldn't send anything - try again in a moment.")
         for _, r in pairs(roster) do if not r.v then r.noChannel = true end end
     end
     self:ShowResults()
@@ -295,7 +301,7 @@ function UP:OnMessage(msg, sender)
     elseif kind == "V" then
         local r = self.roster and self.roster[sender]
         if r then
-            r.v, r.offline, r.noGuild = ver, nil, nil
+            r.v, r.offline = ver, nil
             self:RefreshResults()
         end
     end
@@ -342,10 +348,8 @@ function UP:ResultLines()
             status = old and ("|cffffa340v" .. r.v .. "  (behind)|r") or ("|cff66e08cv" .. r.v .. "|r")
         elseif r.offline then
             status = "|cff8a8f9coffline|r"
-        elseif r.noGuild then
-            status = "|cff8a8f9cnot in the guild - can't check|r"
         elseif r.noChannel then
-            status = "|cff8a8f9ccan't check (you're not in a guild)|r"
+            status = "|cff8a8f9ccouldn't send the check|r"
         elseif self.timedOut then
             missing = missing + 1
             status = "|cffff5a5ano Titan Up|r"

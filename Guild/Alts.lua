@@ -11,6 +11,8 @@
 -- nobody can claim someone else's character as their alt (or put their
 -- Death Roll debts on someone else). Characters outside your guild are
 -- never listed. Turning it off tells the guild to forget your links.
+-- Without a guild (0.48.0) the list goes to your friends running Titan Up
+-- instead, and names all your characters on this account.
 --
 --   A main part n names       names: comma list; your own realm left off
 local ADDON, ns = ...
@@ -40,7 +42,8 @@ function AL:Init()
     local tries = 0
     local function go()
         tries = tries + 1
-        if ns.guildName and ns.DataChannel() then
+        -- (no guild after a minute: tell friends instead)
+        if (ns.guildName or tries > 4) and ns.DataChannel() then
             self:Seen()
             C_Timer.After(8 + math.random() * 20, function() AL:Announce() end)
         elseif tries < 20 then
@@ -48,6 +51,7 @@ function AL:Init()
         end
     end
     C_Timer.After(4, go)
+    if ns.Friends then ns.Friends:OnNewFriend(function() ns.Debounce("alts:friends", 10, function() AL:Announce() end) end) end
 end
 
 -- this character, as seen now (and which guild it's in)
@@ -73,11 +77,11 @@ function AL:IsMine(name)
     return name == ns.me or db().chars[name] ~= nil
 end
 
--- your characters in your current guild, oldest first
+-- your characters in your current guild (all of them without a guild), oldest first
 function AL:MyChars()
     local out = {}
     for name, c in pairs(db().chars) do
-        if name == ns.me or (ns.guildName and c.guild == ns.guildName) then out[#out + 1] = name end
+        if name == ns.me or not ns.guildName or c.guild == ns.guildName then out[#out + 1] = name end
     end
     table.sort(out, function(a, b)
         local x, y = db().chars[a].first or 0, db().chars[b].first or 0

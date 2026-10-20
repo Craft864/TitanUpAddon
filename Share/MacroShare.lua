@@ -79,7 +79,7 @@ function MS.CanSend(target)
         if not IsInRaid() then return false, "Macro Share works only in a raid - or pick one person in your party." end
         if not MS.IsLeadOrAssist("player") then return false, "Only the raid leader or assistants can share macros with the raid - pick one person instead." end
     end
-    if not ns.DataChannel() then return false, "Macro Share needs a guild." end
+    if not ns.DataChannel() then return false, "Macro Share needs a group." end
     if ns.InLockdown() then return false, "Can't share during an encounter." end
     return true
 end

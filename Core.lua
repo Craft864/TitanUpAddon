@@ -4,7 +4,7 @@
 -- permissions and slash commands; every module hangs off the shared `ns`.
 local ADDON, ns = ...
 
-ns.VERSION = "0.47.1"
+ns.VERSION = "0.48.0"
 ns.PREFIX = "TitanBoard"     -- board sync channel (unchanged, so it stays compatible)
 ns.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 ns.U = 4095            -- board coordinates run 0..4095 on both axes
@@ -133,13 +133,11 @@ end
 -- ---------------------------------------------------------------------
 -- Your guild
 -- ---------------------------------------------------------------------
--- Titan Up works for anyone. All of its addon data goes over the hidden
--- GUILD addon channel, which the game delivers only to members of YOUR
--- guild (and guarantees the sender is one). So each guild's Titan Up data
--- stays inside that guild: other guilds - and pugs in your raid - never
--- receive it and can't send you any. Group features (board, games, Raid
--- Check) also ignore guildmates who aren't in your current group.
--- Without a guild, everything local still works; nothing is sent or received.
+-- Titan Up works for anyone. Its addon data goes over the hidden GUILD
+-- addon channel to your guild, and (0.48.0) also to the people you play
+-- with who aren't in it: group features (board, games, Raid Check) over
+-- your party / raid channel, and guild-wide features (Chess, Wowdle,
+-- Crafters...) to your friends running Titan Up. See ns.Routes.
 ns.guildOK = false        -- in a guild (and its info has loaded)
 ns.guildName = nil
 
@@ -261,14 +259,35 @@ end
 -- ends. A timer runs only while something is waiting.
 -- ---------------------------------------------------------------------
 local SEND_BURST, SEND_RATE, QUEUE_MAX = 10, 1, 200
+local FRIEND_BURST, FRIEND_RATE = 20, 3      -- copies to friends (one per friend) have their own queue
 local sendQ = {}
 local sendTicker
 
+-- "BN" = a Battle.net friend (target = their game account id).
+local function rawSend(prefix, msg, channel, target)
+    if channel == "BN" then
+        local f = (C_BattleNet and C_BattleNet.SendGameData) or BNSendGameData
+        if not f then return false end
+        return pcall(f, target, prefix, msg)
+    end
+    return pcall(C_ChatInfo.SendAddonMessage, prefix, msg, channel, target)
+end
+
 -- ns.TrySend(prefix, msg, channel, target): one addon message straight out.
 -- true when sent, "throttle" when the server asked to slow down, false
--- when it failed for good (a bad message).
+-- when it failed for good (a bad message). Channel "TU" (ns.DataChannel)
+-- sends to everyone ns.Routes picks: the first copy right away (its result
+-- is returned), the others through the queue.
 function ns.TrySend(prefix, msg, channel, target)
-    local ok, r = pcall(C_ChatInfo.SendAddonMessage, prefix, msg, channel, target)
+    if channel == "TU" then
+        local routes = ns.Routes(prefix, msg)
+        if #routes == 0 then return false end
+        local res = ns.TrySend(prefix, msg, routes[1][1], routes[1][2])
+        if res == "throttle" then return res end
+        for i = 2, #routes do ns.Send(prefix, msg, routes[i][1], routes[i][2]) end
+        return res
+    end
+    local ok, r = rawSend(prefix, msg, channel, target)
     if not ok then return false end
     local R = Enum and Enum.SendAddonMessageResult
     if r == false or (R and type(r) == "number" and (r == R.AddonMessageThrottle or r == R.ChannelThrottle)) then return "throttle" end
@@ -302,6 +321,7 @@ ns.TRAFFIC_NAMES = {
     TitanUpWF = "Wheel of Fortune", TitanUpLT = "Loot trades", TitanUpLR = "Loot roll window", TitanUpRC = "Raid Check",
     TitanUpPR = "Pull Report", TitanUpRS = "Raid Scorecard", TitanUpMS = "Macro Share", TitanUpKR = "Keystone Roulette",
     TitanUpWD = "Wowdle", TitanUpCH = "Chess", TitanUpCR = "Crafters", TitanUpLW = "Loot wishlist", TitanUpAL = "Alt linking",
+    TitanUpFR = "Friends",
 }
 
 -- { { prefix, name, sent, sentBytes, got, gotBytes }, ... } busiest first
@@ -323,27 +343,31 @@ function ns.Traffic(minutes)
     return out
 end
 
-local function queueFor(prefix)
-    local q = sendQ[prefix]
-    if not q then q = { tokens = SEND_BURST, last = GetTime(), items = {} } sendQ[prefix] = q end
+local function queueFor(key, friend)
+    local q = sendQ[key]
+    if not q then
+        q = { friend = friend, items = {}, last = GetTime() }
+        q.tokens = friend and FRIEND_BURST or SEND_BURST
+        sendQ[key] = q
+    end
     local now = GetTime()
-    q.tokens = math.min(SEND_BURST, q.tokens + (now - q.last) * SEND_RATE)
+    q.tokens = math.min(q.friend and FRIEND_BURST or SEND_BURST, q.tokens + (now - q.last) * (q.friend and FRIEND_RATE or SEND_RATE))
     q.last = now
     return q
 end
 
 -- false only when throttled (a message that failed for good is dropped rather than retried)
-local function attempt(prefix, item) return ns.TrySend(prefix, item[1], item[2], item[3]) ~= "throttle" end
+local function attempt(item) return ns.TrySend(item[4], item[1], item[2], item[3]) ~= "throttle" end
 
 local function ready(q) return #q.items > 0 and q.tokens >= 1 and GetTime() >= (q.pauseUntil or 0) end
 
 local function pump()
     local waiting = false
     local held = ns.InLockdown()
-    for prefix, q in pairs(sendQ) do
-        queueFor(prefix)
+    for key, q in pairs(sendQ) do
+        queueFor(key)
         while not held and ready(q) do
-            if attempt(prefix, q.items[1]) then
+            if attempt(q.items[1]) then
                 table.remove(q.items, 1)
                 q.tokens = q.tokens - 1
             else
@@ -358,10 +382,16 @@ end
 
 function ns.Send(prefix, msg, channel, target)
     if not (prefix and msg and channel) then return false end
-    local q = queueFor(prefix)
-    local item = { msg, channel, target }
+    if channel == "TU" then
+        local routes = ns.Routes(prefix, msg)
+        for _, r in ipairs(routes) do ns.Send(prefix, msg, r[1], r[2]) end
+        return #routes > 0
+    end
+    local friend = channel == "BN" or channel == "WHISPER"
+    local q = queueFor(friend and (prefix .. "\1") or prefix, friend)
+    local item = { msg, channel, target, prefix }
     if #q.items == 0 and not ns.InLockdown() and q.tokens >= 1 and GetTime() >= (q.pauseUntil or 0) then
-        if attempt(prefix, item) then q.tokens = q.tokens - 1 return true end
+        if attempt(item) then q.tokens = q.tokens - 1 return true end
         q.tokens, q.pauseUntil = 0, GetTime() + 1
     end
     if #q.items >= QUEUE_MAX then table.remove(q.items, 1) end      -- never grows without limit
@@ -370,7 +400,7 @@ function ns.Send(prefix, msg, channel, target)
     return true
 end
 
--- Fields joined with "^", to your guild's channel (nothing without a guild).
+-- Fields joined with "^", to everyone ns.Routes picks (false: nobody to send to).
 -- A nil field is sent empty, so fields added at the end stay in place.
 function ns.Join(...)
     local n = select("#", ...)
@@ -500,24 +530,86 @@ function ns.Now() return (GetServerTime and GetServerTime()) or time() end
 -- (scope can also be a function of the message; nil from it ignores the
 -- message) - never your own. One event handler serves every prefix.
 local listeners = {}
+local scopes = {}            -- prefix -> the scope its listener was registered with (ns.Routes reads it)
+-- The same message can reach you twice (guild + group, guild + a friend):
+-- the copy on a second channel within a few seconds is dropped.
+local recent, recentN = {}, 0
+local function duplicate(key, channel)
+    local e = recent[key]
+    return e ~= nil and GetTime() - e.at < 3 and e.channel ~= channel
+end
+local function remember(key, channel)
+    local now = GetTime()
+    recent[key] = { at = now, channel = channel }
+    recentN = recentN + 1
+    if recentN > 200 then
+        recentN = 0
+        for k, v in pairs(recent) do
+            if now - v.at >= 3 then recent[k] = nil else recentN = recentN + 1 end
+        end
+    end
+end
+
+local function dispatch(p, msg, channel, sender)
+    local list = listeners[p]
+    if not list or ns.IsSecret(msg) then return end
+    sender = ns.NormalizeSender(sender)
+    if not sender or sender == ns.me then return end      -- (guild messages echo back to you)
+    local key = p .. "\0" .. sender .. "\0" .. msg
+    if duplicate(key, channel) then return end
+    ns.Tally("in", p, #msg)
+    for _, l in ipairs(list) do
+        local sc = l.scope
+        if type(sc) == "function" then sc = sc(msg) end
+        if sc and ns.AcceptAddon(channel, sender, sc, p) then
+            if key then remember(key, channel); key = nil end      -- (only a copy that was used counts)
+            if (channel == "BN" or channel == "WHISPER") and ns.Friends then ns.Friends:Heard(sender) end
+            ns.Try(l.fn, msg, sender, channel)
+        end
+    end
+end
+
 function ns.Listen(prefix, scope, fn)
     C_ChatInfo.RegisterAddonMessagePrefix(prefix)
     if not next(listeners) then
-        ns.On("CHAT_MSG_ADDON", function(p, msg, channel, sender)
-            local list = listeners[p]
-            if not list or ns.IsSecret(msg) then return end
-            sender = ns.NormalizeSender(sender)
-            if not sender or sender == ns.me then return end      -- (guild messages echo back to you)
-            ns.Tally("in", p, #msg)
-            for _, l in ipairs(list) do
-                local sc = l.scope
-                if type(sc) == "function" then sc = sc(msg) end
-                if sc and ns.AcceptAddon(channel, sender, sc) then ns.Try(l.fn, msg, sender, channel) end
-            end
+        ns.On("CHAT_MSG_ADDON", function(p, msg, channel, sender) dispatch(p, msg, channel, sender) end)
+        -- from a Battle.net friend: the sender is their game account, turned into their character's name
+        ns.On("BN_CHAT_MSG_ADDON", function(p, msg, _, senderID)
+            if not listeners[p] or not ns.Friends then return end
+            local name = ns.Friends:NameForBN(senderID)
+            if name then dispatch(p, msg, "BN", name) end
         end)
     end
     listeners[prefix] = listeners[prefix] or {}
+    if scopes[prefix] == nil then scopes[prefix] = scope end
     table.insert(listeners[prefix], { scope = scope, fn = fn })
+end
+
+-- Who gets a message on `prefix` (0.48.0): { { channel, target }, ... }
+--   * your guild, over GUILD, as before (older versions only listen there);
+--   * group features (scope "group") also over your party / raid channel
+--     when someone in the group isn't in your guild (or you have no guild);
+--   * guild-wide features (scope "guild") also to friends running Titan Up
+--     who aren't in your guild (ns.Friends:Targets);
+--   * Chess, the version check, loot trades and the raid scorecard
+--     (ns.ALSO_GROUP) also over your group channel, so they reach anyone
+--     you're grouped with.
+ns.ALSO_GROUP = { TitanUpCH = true, TitanUpVC = true, TitanUpLT = true, TitanUpRS = true }   -- chess, version check, loot trades, raid scorecard
+function ns.Routes(prefix, msg)
+    local out = {}
+    local guild = ns.guildOK and IsInGuild()
+    if guild then out[1] = { "GUILD" } end
+    local sc = scopes[prefix]
+    if type(sc) == "function" then sc = msg and sc(msg) end
+    sc = sc or "guild"
+    local gc = ns.GroupChannel()
+    if gc and (sc == "group" or ns.ALSO_GROUP[prefix]) and (not guild or ns.GroupHasOutsiders()) then
+        out[#out + 1] = { gc }
+    end
+    if sc == "guild" and ns.Friends then
+        for _, f in ipairs(ns.Friends:Targets()) do out[#out + 1] = { f.channel, f.target } end
+    end
+    return out
 end
 
 -- A "[Titan Up] ..." line in party / raid chat.
@@ -653,10 +745,29 @@ function ns.MemoryReport()
     end
 end
 
--- Where Titan Up addon data goes: your guild's channel, or nowhere.
+-- Where Titan Up addon data goes: "TU" (ns.Send / ns.TrySend hand it to
+-- ns.Routes) when there's anyone to share with - your guild, your group or
+-- a friend running Titan Up - or nil.
 function ns.DataChannel()
-    if ns.guildOK and IsInGuild() then return "GUILD" end
+    if (ns.guildOK and IsInGuild()) or IsInGroup() or (ns.Friends and ns.Friends:Any()) then return "TU" end
     return nil
+end
+
+-- Is this unit in your guild? (UnitIsInMyGuild, or the guild name)
+local function unitInMyGuild(unit)
+    if not ns.guildName then return false end
+    if UnitIsInMyGuild then
+        local ok, v = pcall(UnitIsInMyGuild, unit)
+        if ok and not ns.IsSecret(v) then return v == true end
+    end
+    local g = GetGuildInfo(unit)
+    return g ~= nil and not ns.IsSecret(g) and g == ns.guildName
+end
+
+-- A name on your guild roster? (false without a guild)
+function ns.IsGuildmate(name)
+    if not (ns.guildOK and name and ns.GuildRoster) then return false end
+    return ns.GuildRoster().inGuild[name] == true
 end
 
 -- The roster cache: who's in your group, which unit each name is, who
@@ -671,7 +782,7 @@ local function fresh()
     local now = GetTime()
     if now - roster.built < 2 and GetNumGroupMembers() == roster.count then return roster end
     wipe(roster.units)
-    roster.leader = nil
+    roster.leader, roster.outsiders = nil, false
     for _, unit in ipairs(ns.GroupUnits()) do
         if UnitExists(unit) then
             local n = ns.FullName(unit)
@@ -679,6 +790,7 @@ local function fresh()
                 roster.units[n] = unit
                 if not classOf[n] then classOf[n] = ns.Safe.Class(unit) end
                 if UnitIsGroupLeader(unit) then roster.leader = n end
+                if n ~= ns.me and not unitInMyGuild(unit) then roster.outsiders = true end
             end
         end
     end
@@ -691,14 +803,34 @@ function ns.InMyGroup(name)
     return fresh().units[name] ~= nil
 end
 
+-- Is anyone in your group not in your guild? (they need the group channel)
+function ns.GroupHasOutsiders()
+    return fresh().outsiders == true
+end
+
 -- Every Titan Up message handler checks this first.
---   scope "group": only from guildmates in your current group
---   scope "guild": from any guildmate
-function ns.AcceptAddon(channel, sender, scope)
-    if not ns.guildOK or channel ~= "GUILD" then return false end
-    -- same-realm senders can arrive without "-Realm": add it before the group lookup
-    if scope == "group" then return ns.InMyGroup(ns.NormalizeSender(sender)) end
-    return true
+--   scope "group": only from people in your current group (guild or
+--     party / raid channel)
+--   scope "guild": from any guildmate, any Battle.net friend, or a
+--     character friend by whisper; Chess (ns.ALSO_GROUP) also from your group
+local GROUP_CHANNELS = { RAID = true, PARTY = true, INSTANCE_CHAT = true }
+function ns.AcceptAddon(channel, sender, scope, prefix)
+    -- same-realm senders can arrive without "-Realm": add it before any lookup
+    sender = ns.NormalizeSender(sender)
+    if not sender then return false end
+    if channel == "GUILD" then
+        if not ns.guildOK then return false end
+        if scope == "group" then return ns.InMyGroup(sender) end
+        return true
+    end
+    if GROUP_CHANNELS[channel] then
+        if scope ~= "group" and not (prefix and ns.ALSO_GROUP[prefix]) then return false end
+        return ns.InMyGroup(sender)
+    end
+    if scope ~= "guild" or not ns.Friends then return false end
+    if channel == "BN" then return true end            -- Battle.net only delivers from your friends
+    if channel == "WHISPER" then return ns.Friends:IsFriend(sender) end
+    return false
 end
 
 -- Public chat lines (invites/announcements) only when the whole group is
@@ -880,6 +1012,7 @@ local SUITE_DEFAULTS = {
     crafters = { share = true, oldTiers = false, mine = {}, people = {} },   -- mine[character] = professions, outside crafters
     wishlist = { share = true, mine = {}, people = {} },      -- mine[character] = { [itemID] = tags }
     consumables = { remind = false, chars = {}, learned = {} },  -- 0.40.0: chars[character] = { want, mine }; the raid reminder is off
+    friends = { share = true },                                  -- 0.48.0: share with friends running Titan Up
 }
 
 ns.On("ADDON_LOADED", function(name)
@@ -903,7 +1036,7 @@ local started = false
 local function startModules()
     if started then return end
     started = true
-    for _, name in ipairs({ "Updates", "Content", "Model", "Comms", "Sync", "Presence",
+    for _, name in ipairs({ "Updates", "Friends", "Content", "Model", "Comms", "Sync", "Presence",
                             "Board", "Laser", "Invite", "ImportExport",
                             "Hub", "DeathRoll", "DRLedger", "DeathRollUI", "Wheel", "WheelUI", "Loot", "LootUI", "LootRolls",
                             "RaidCheck", "RaidCheckUI", "PullReport", "PullReportUI", "RaidScorecard", "RaidScorecardUI", "MacroShare", "MacroShareUI", "MacroBuilder", "Timer", "TimerUI", "Tweaks", "TweaksUI", "DeathAlerts", "StackSplitter", "BattleRez", "BonusRollGuard", "Keys", "KeysUI", "Consumables", "ConsumablesUI", "Wowdle", "WowdleUI", "Chess",
@@ -922,8 +1055,8 @@ local function startModules()
 end
 ns.Started = function() return started end
 
-ns.NEEDS_GUILD = "Playing with others needs a guild - Titan Up syncs over your guild's private addon channel. Solo and practice modes still work."
-local NO_GUILD = "You're not in a guild: Titan Up works on your own, but nothing syncs with other players until you join one."
+ns.NEEDS_GUILD = "Playing with others needs a guild, a group, or a friend running Titan Up. Solo and practice modes still work."
+local NO_GUILD = "You're not in a guild: Titan Up still syncs with your group and with friends who run it."
 local toldNoGuild = false
 local function guildCheck(final)
     local ok, name = ns.CheckGuild()

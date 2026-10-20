@@ -99,6 +99,14 @@ function S:Pages()
             { text = "Each character has its own list. Only your bags are counted, not your bank." },
         } }
     end
+    if u.friends and ns.Friends then
+        pages[#pages + 1] = { key = "friends", title = "Friends", group = "GUILD", rows = {
+            { toggle = "Share with friends who run Titan Up", tip = "Chess, Wowdle, Death Roll standings, Crafters and wishlists also reach your online friends running Titan Up, even when you're not in a guild together. Off: only your guild and your group.",
+              get = function() return ns.Friends:Enabled() end, set = function(on) ns.Friends:SetEnabled(on) end },
+            { text = "Battle.net friends work on any realm. Character friends only work on your own and connected realms." },
+            { text = "You only see your own friends, not their friends." },
+        } }
+    end
     if u.chess and ns.ChessToast then
         pages[#pages + 1] = { key = "chess", title = "Chess", group = "GUILD", mod = ns.ChessToast }
     end

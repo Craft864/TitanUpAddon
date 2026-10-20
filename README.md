@@ -1,6 +1,6 @@
-# Titan Up v0.47.1
+# Titan Up v0.48.0
 
-A guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US.
+A raid and games toolkit for World of Warcraft (Midnight). Works with your guild, your group and your friends.
 
 **Install:** get Titan Up from WoWUp or CurseForge.
 
@@ -19,6 +19,12 @@ A guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US
 - **Guild**
   - **Games**: Death Roll, Wheel of Fortune, Wowdle and Chess.
   - **Crafters**: who in the guild can craft what.
+
+## Guild, group and friends
+
+- Your guild gets everything, like always.
+- Raid and party features (TitanBoard, Raid Check, Loot Rolls, Keystone Roulette, Wheel, Macro Share) work with anyone in your group who has Titan Up, guild or not.
+- Chess, Wowdle, Death Roll standings, Crafters and wishlists also reach your online friends running Titan Up. Battle.net friends work on any realm; character friends only on your realm and connected realms. You only see your own friends. Turn it off in Settings > Friends.
 
 ## Getting around
 
@@ -65,7 +71,8 @@ A guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US
 
 `/tu chess`.
 
-- Challenge any guildmate. They don't need to be online: guildmates running Titan Up pass your moves along.
+- Challenge a guildmate, a friend or anyone in your group. Guildmates don't need to be online: other guildmates running Titan Up pass your moves along.
+- Playing someone you were only grouped with? When the group ends you get an **Add friend** button so you can keep playing.
 - Optional timers: days per move, or a live clock that only runs while you're both online.
 - Full chess rules. Games are saved until they end, and follow you to your other characters.
 - The **Watch** tab lets you follow the guild's other games, with games in progress at the top and finished ones below.
@@ -94,6 +101,14 @@ A guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US
 ## Planned
 
 - Fury of the Dead is still matched by its English name in Raid Check.
+
+## Changes in 0.48.0
+
+- Titan Up works without a guild: raid and party features work with everyone in your group, and Chess, Wowdle, Death Roll standings, Crafters and wishlists reach your friends who run Titan Up.
+- In a guild, everything still works with your guild, plus pugs in your group and friends outside it.
+- Chess: challenge anyone in your group. If the group ends mid-game, an Add friend button lets you keep playing.
+- The version check now lists pugs in your raid too.
+- New Settings > Friends page.
 
 ## Changes in 0.47.1
 
@@ -183,44 +198,8 @@ A guild toolkit for World of Warcraft (Midnight), made for Titan Up on Medivh-US
 
 - Wheel of Fortune: optional bonus round, and a faster wheel.
 
-## Changes in 0.35.0
-
-- Chess: moves slide, captured pieces show, guildmates are listed to challenge, and optional timers.
-
-## Changes in 0.34.0
-
-- New game: Chess, playable with guildmates even when you're not online together.
-
-## Changes in 0.33.0
-
-- A search box in the title bar finds any setting.
-
-## Changes in 0.32.0
-
-- A large round of bug fixes across every module.
-- TitanBoard: only the raid leader moves the view for everyone.
-
-## Changes in 0.31.1
-
-- A wider rail so long names fit.
-
-## Changes in 0.31.0
-
-- Macro Share is now Macro Workstation, with a step-by-step macro Builder.
-- Anyone can send a macro to one person in their group.
-
-## Changes in 0.30.1
-
-- Bonus rolls sit inside the Loot Rolls window while it's open.
-
-## Changes in 0.30.0
-
-- New UI Tweak: Bonus roll protection (off by default).
-- Loot shows bonus roll wins.
-- Combat Timer: choose which fights get a chat line.
-
 ## Older versions
 
-Changes before 0.30.0 are in the in-game What's new (`/tu new`, back to 0.25.0) and on CurseForge.
+Changes before 0.36.0 are in the in-game What's new (`/tu new`, back to 0.25.0) and on CurseForge.
 
 Bundled libraries: LibStub (public domain), LibSharedMedia-3.0 (LGPL 2.1), CallbackHandler-1.0 (BSD).

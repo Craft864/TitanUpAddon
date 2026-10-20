@@ -349,7 +349,7 @@ end
 
 function RS:RequestSync(wk)
     local ch = ns.DataChannel()
-    if not ch then ns.Print("Syncing needs a guild.") return end
+    if not ch then ns.Print("Syncing needs a guild or a group.") return end
     if InCombatLockdown() then ns.Print("Try again out of combat.") return end
     wk = wk or RS.CurrentWeekStart()
     local leader = self:LeaderFor(wk)
