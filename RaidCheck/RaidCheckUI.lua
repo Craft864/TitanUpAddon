@@ -98,7 +98,7 @@ function V:Create()
 
     -- buttons
     local check = UI.Button(f, 120, 26, "Check now", "Ask everyone for a fresh report (leader/assist, Heroic/Mythic raid)", function()
-        if not ns.DataChannel() then ns.Print("Raid Check needs a guild - reports travel over your guild's private addon channel.") return end
+        if not ns.DataChannel() then ns.Print("Raid Check needs a raid group.") return end
         if not RC:Active() then ns.Print("Raid Check runs in Heroic and Mythic raids.") return end
         if not RC:CanLead() then ns.Print("Only the raid leader or assists can run a check.") return end
         RC:RequestCheck("manual")
@@ -127,7 +127,7 @@ function V:Refresh()
     if not self.frame then return end
     local info = "|T" .. ns.MEDIA .. "Info:12:12:0:0|t "
     self.helpText:SetText(info .. (ns.DataChannel() and "Raid Check runs in Heroic and Mythic raids (not Normal or LFR)."
-        or "Raid Check needs a guild: everyone's reports travel over your guild's private addon channel."))
+        or "Raid Check needs a raid group: everyone's reports travel over the raid's hidden addon channel."))
 
     local check = RC.current
     if not check then

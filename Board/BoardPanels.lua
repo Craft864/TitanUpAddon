@@ -374,12 +374,9 @@ function Board:UpdateStatus()
     local mode = ns.Comms:Mode()
     local queued = ns.Comms:QueueSize()
     local locked = ns.InLockdown()
-    local noGuild = IsInGroup() and not ns.DataChannel()
     local pill, pc
     if locked then
         pill, pc = "LOCKDOWN", C.warn
-    elseif noGuild then
-        pill, pc = "NO GUILD", C.warn
     elseif mode == "group" then
         pill, pc = "LIVE", C.good
     else
@@ -392,8 +389,6 @@ function Board:UpdateStatus()
     local banner
     if locked then
         banner = ("|cffffa340Encounter lockdown|r - nothing can be sent right now. %d change(s) queued."):format(queued)
-    elseif noGuild then
-        banner = "|cffffa340Not syncing|r - the board shares through your guild, so without one nobody else sees it."
     elseif IsInGroup() and not ns.CanDraw() then
         local leader = ns.LeaderName()
         local synced = ns.Sync:InSync()

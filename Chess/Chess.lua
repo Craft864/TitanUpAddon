@@ -301,12 +301,22 @@ function CH:KnownPlayers()
 end
 
 -- ---------------------------------------------------------------------
--- Guild roster: names and who's online
+-- Who you can play: your guild roster, plus (0.48.0) your group and your
+-- online friends. (`inGuild` = any of those.)
 -- ---------------------------------------------------------------------
 function CH:Roster()
     local now = GetTime()
     if self.roster and now - self.roster.at < 10 then return self.roster end
     local r = { at = now, online = {}, list = {}, class = {}, inGuild = {} }
+    local function add(name, class)
+        if not name or self:IsMe(name) then return end
+        if not r.inGuild[name] then
+            r.list[#r.list + 1] = name
+            r.inGuild[name] = true
+        end
+        r.online[name] = true
+        if class and not r.class[name] then r.class[name] = class end
+    end
     if GetNumGuildMembers and GetGuildRosterInfo then
         local ok, total = pcall(GetNumGuildMembers)
         if ok and type(total) == "number" and not ns.IsSecret(total) then
@@ -323,6 +333,12 @@ function CH:Roster()
                 end
             end
         end
+    end
+    if IsInGroup() then
+        for _, n in ipairs(ns.GroupNames()) do add(n, ns.ClassOf and ns.ClassOf(n)) end
+    end
+    if ns.Friends then
+        for _, n in ipairs(ns.Friends:Online().names) do add(n) end
     end
     r.loaded = #r.list > 0
     self.roster = r
@@ -352,7 +368,7 @@ end
 -- What a player typed -> a guildmate's full name, or nil + why not.
 function CH:ResolveName(text)
     text = tostring(text or ""):gsub("[%s%^,:|]", "")
-    if text == "" then return nil, "Type a guildmate's name." end
+    if text == "" then return nil, "Type a name." end
     local r = self:Roster()
     if r.loaded then
         local want = text:lower()
@@ -363,11 +379,11 @@ function CH:ResolveName(text)
         end
         if exact then return exact end
         if #matches == 1 then return matches[1] end
-        if #matches > 1 then return nil, "More than one guildmate is called that - add their realm (Name-Realm)." end
-        return nil, text .. " isn't in your guild."
+        if #matches > 1 then return nil, "More than one player is called that - add their realm (Name-Realm)." end
+        return nil, text .. " isn't in your guild, your group or on your friends list."
     end
     local full = ns.NormalizeSender(text)
-    if not full then return nil, "Type a guildmate's name." end
+    if not full then return nil, "Type a name." end
     -- first letter capitalised, like the game's own names
     full = full:gsub("^(%l)", string.upper)
     return full
@@ -1303,11 +1319,57 @@ function CH:Tick()
     if ns.ChessUI and ns.ChessUI.Tick then ns.ChessUI:Tick() end
 end
 
+-- ---------------------------------------------------------------------
+-- Games with someone you were only grouped with (0.48.0): moves travel
+-- over the group channel, so when the group ends you can only carry on as
+-- friends. Say so once, with their full Name-Realm and an Add friend button.
+-- ---------------------------------------------------------------------
+function CH:Reachable(name)
+    if ns.IsGuildmate(name) or ns.InMyGroup(name) then return true end
+    return ns.Friends ~= nil and ns.Friends:IsFriend(name)
+end
+
+function CH:AddFriend(name)
+    local add = (C_FriendList and C_FriendList.AddFriend) or AddFriend
+    if not (add and name) then return false end
+    pcall(add, name)
+    ns.Print(("|cff4fc2f7Chess:|r asked to add %s to your friends list. Your game carries on once they're online. "
+        .. "If they're on another realm that isn't connected to yours, add each other as Battle.net friends instead."):format(name))
+    if ns.Friends then ns.Friends:Refresh() end
+    return true
+end
+
+function CH:CheckGroup()
+    local now = {}
+    if IsInGroup() then for _, n in ipairs(ns.GroupNames()) do now[n] = true end end
+    local before = self.grouped or {}
+    self.grouped = now
+    self.toldGroup = self.toldGroup or {}
+    for name in pairs(before) do
+        if not now[name] and not self:IsMe(name) and not self.toldGroup[name] then
+            local playing = false
+            for _, g in pairs(db().games) do
+                if (g.status == "active" or g.status == "invited") and self:IsPlayer(g) and self:Opponent(g) == name then playing = true break end
+            end
+            if playing and not self:Reachable(name) then
+                self.toldGroup[name] = true
+                local text = ("Chess: you're not grouped with %s anymore. Add them as a friend to keep playing."):format(name)
+                ns.Print("|cff4fc2f7" .. text .. "|r")
+                if ns.Dock and ns.Dock.Notice then ns.Dock:Notice(text, "Add friend", function() CH:AddFriend(name) end) end
+            end
+        end
+    end
+end
+
 function CH:Init()
     self:Prune()
     self.lastTick = GetTime()
     C_Timer.NewTicker(1, function() CH:Tick() end)
     ns.Listen(PREFIX, "guild", function(msg, sender) CH:OnMessage(msg, sender) end)
+    ns.On("GROUP_ROSTER_UPDATE", function() ns.Debounce("chess:group", 1, function() CH:CheckGroup() end) end)
+    self:CheckGroup()
+    -- a friend running Titan Up showed up: tell them which games we have
+    if ns.Friends then ns.Friends:OnNewFriend(function() CH:Hello(true) end) end
     -- say which games we have once the guild has loaded, then mention any waiting on you
     local tries = 0
     local function hello()

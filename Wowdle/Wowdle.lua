@@ -120,6 +120,8 @@ function WD:Init()
     ns.On("PLAYER_REGEN_ENABLED", function() if WD.pendingShare then C_Timer.After(2, function() WD:ShareMine() end) end end)
     -- tell the guild our standing once after login (if we've ever played)
     C_Timer.After(25, function() if (db().stats.played or 0) > 0 then WD:ShareMine() end end)
+    -- a friend running Titan Up showed up (0.48.0): tell them too
+    if ns.Friends then ns.Friends:OnNewFriend(function() if (db().stats.played or 0) > 0 then WD:ShareMine() end end) end
     self:CheckDay()
 end
 

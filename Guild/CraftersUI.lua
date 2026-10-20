@@ -254,7 +254,7 @@ function V:RefreshWho()
         self.whoTitle:SetText(e.name)
         local top = 0
         for _, c in ipairs(e.crafters) do
-            list[#list + 1] = { name = c.name, whisper = c.name, online = roster.online[c.name] == true, skill = c.skill, max = c.max, base = c.base,
+            list[#list + 1] = { name = c.name, whisper = c.name, online = roster.online[c.name] == true or (ns.Friends ~= nil and ns.Friends:IsFriend(c.name)), skill = c.skill, max = c.max, base = c.base,
                                 class = roster.class[c.name], q = c.q }
             top = math.max(top, c.q and c.q.m or 0)
         end

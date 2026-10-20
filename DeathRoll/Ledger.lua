@@ -147,6 +147,8 @@ function L:Init()
         ns.On(ev, function() C_Timer.After(delay, function() if not L:Quiet() then L:FlushDeferred() end end) end)
     end
     C_Timer.After(6, function() L:ScheduleDigest(0) end)
+    -- a friend running Titan Up showed up: compare ledgers with them too (0.48.0)
+    if ns.Friends then ns.Friends:OnNewFriend(function() L:ScheduleDigest(2) end) end
     C_Timer.After(20, function() if not L:Quiet() then L:Archive() end end)     -- fold settled games older than 3 months
     self:Trim()
     -- refresh the guild every 10 minutes (only differences cause any traffic)
@@ -274,7 +276,7 @@ function L:CheckDebt(id)
     if c and GetTime() - c.at < 5 then return end
     checks[id] = { at = GetTime(), replied = false }
     if not sendNow("C" .. SEP .. id) then
-        ns.Print("Couldn't send the check (not in the guild channel?).")
+        ns.Print("Couldn't send the check (no guild or friends to send it to?).")
         return
     end
     ns.Print(("Asking %s's addon about your %sg debt..."):format(who, ns.DeathRoll.Fmt(rec.g)))

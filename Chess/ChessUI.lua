@@ -133,7 +133,7 @@ function V:Create()
     self.listEmpty = UI.Text(list, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", 4, -6)
     self.listEmpty:SetWidth(LIST_W - 8)
     self.listEmpty:SetJustifyH("LEFT")
-    local challenge = UI.Button(f, LIST_W, 26, "Challenge a guildmate", "Start a game with anyone in your guild. If they're offline, it reaches them through a guildmate running Titan Up.", function() V:AskChallenge() end)
+    local challenge = UI.Button(f, LIST_W, 26, "Challenge someone", "Start a game with anyone in your guild, your group or on your friends list. If a guildmate is offline, it reaches them through another guildmate running Titan Up.", function() V:AskChallenge() end)
     challenge:SetPoint("BOTTOMLEFT", 12, 14)
     UI.SetActive(challenge, true)
     self.challengeBtn = challenge
@@ -446,7 +446,7 @@ function V:Refresh()
     self.listEmpty:SetShown(#games == 0)
     self.listEmpty:SetText(history and "No finished games yet. Your games show up here when they end."
         or watching and "No guild games to watch right now. Games show up here as guildmates play them."
-        or "No games yet. Challenge a guildmate - they don't have to be online.")
+        or "No games yet. Challenge someone - guildmates don't have to be online.")
     for i, r in ipairs(self.rows) do
         local g = items[i + self.listOffset]
         local head = g and g.header
@@ -683,8 +683,8 @@ function V:RefreshSide(g)
         status = "Watch the guild play"
         note = "Pick a game on the left to watch it live. Every guild game your Titan Up has seen go past is listed."
     elseif not g then
-        status = "Chess with your guild"
-        note = "Pick a game on the left, or challenge a guildmate. Games are saved until they end, and moves reach offline players through any guildmate running Titan Up."
+        status = "Chess with your guild and friends"
+        note = "Pick a game on the left, or challenge someone. Games are saved until they end. Guild moves reach offline players through any guildmate running Titan Up."
     elseif self.watching then
         status = ("%s vs %s"):format(ns.Short(g.w), ns.Short(g.b))
         note = CH:WatchText(g) .. (g.status == "active" and ("\n" .. col(MUTED, "Watching - moves show up as they're played.")) or "")
@@ -853,10 +853,10 @@ local DLG_ROWS = 9
 
 function V:BuildChallenge()
     local d = UI.Window("TitanUpChessChallenge", 340, 446, { strata = "DIALOG", border = C.accent, drag = true, y = 60 })
-    UI.Text(d, "GameFontNormal", C.accent, "CHALLENGE A GUILDMATE", "TOPLEFT", 14, -12)
+    UI.Text(d, "GameFontNormal", C.accent, "CHALLENGE SOMEONE", "TOPLEFT", 14, -12)
     local close = UI.Button(d, 22, 20, "X", "Close", function() d:Hide() end)
     close:SetPoint("TOPRIGHT", -8, -8)
-    local help = UI.Text(d, "GameFontHighlightSmall", C.muted, "Guildmates with Titan Up Chess. They don't need to be online: the challenge waits for them.", "TOPLEFT", 14, -34)
+    local help = UI.Text(d, "GameFontHighlightSmall", C.muted, "Guildmates, friends and group members with Titan Up Chess. Or type a name below.", "TOPLEFT", 14, -34)
     help:SetWidth(312); help:SetJustifyH("LEFT")
 
     local list = CreateFrame("Frame", nil, d, "BackdropTemplate")
@@ -972,7 +972,7 @@ end
 ns.RegisterModule({
     key = "chess", name = "Chess", icon = ns.MEDIA .. "Chess", group = "guild", order = 4,
     rail = "games", railName = "Games", tab = "Chess",
-    desc = "Chess with a guildmate - games are saved until they end, and moves reach offline players.",
+    desc = "Chess with guildmates, friends or your group - games are saved until they end.",
     view = V,
     badge = function() return CH:WaitingCount() end,
 })
