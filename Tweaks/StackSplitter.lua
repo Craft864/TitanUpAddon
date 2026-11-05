@@ -1,5 +1,5 @@
--- Titan Up - Tweaks/StackSplitter.lua
--- Stack Splitter (a UI Tweak): Shift-clicking a stack opens a Titan Up
+-- Eternal Table - Tweaks/StackSplitter.lua
+-- Stack Splitter (a UI Tweak): Shift-clicking a stack opens a Eternal Table
 -- dialog instead of Blizzard's little box.
 --   * Take N: put N on your cursor (the normal split).
 --   * Stacks of N: split the whole stack into stacks of N.

@@ -1,7 +1,7 @@
--- Titan Up - Search.lua
--- The settings search box in the middle of every Titan Up title bar.
+-- Eternal Table - Search.lua
+-- The settings search box in the middle of every Eternal Table title bar.
 -- Type a few letters and a list of matching settings drops down under the
--- box; pick one (click, or arrows + Enter) and Titan Up opens the window
+-- box; pick one (click, or arrows + Enter) and Eternal Table opens the window
 -- or page it lives on, scrolls to it and flashes it. Esc clears the box.
 --
 -- Nothing is kept by hand: the index is read from what already describes
@@ -322,7 +322,7 @@ function SR:Flash(region, w)
     f:Show()
 end
 
--- /tu set <words>: Settings, with the search typed in
+-- /et set <words>: Settings, with the search typed in
 function SR:OpenWith(text)
     ns.Settings:Open()
     local h = ns.Settings.header

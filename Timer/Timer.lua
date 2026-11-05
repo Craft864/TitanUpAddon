@@ -1,4 +1,4 @@
--- Titan Up - Timer/Timer.lua
+-- Eternal Table - Timer/Timer.lua
 -- Combat Timer: an on-screen timer you can place anywhere and style.
 --   * When it runs (automatic, not an option): inside a raid instance it
 --     times boss encounters (pull to kill/wipe - trash doesn't start it and
@@ -52,7 +52,7 @@ function T:Init()
     end)
 end
 
--- The automatic rules. Every decision is printed with /tu timer debug.
+-- The automatic rules. Every decision is printed with /et timer debug.
 function T:OnEvent(what, label)
     local d = db()
     local raid = ns.InRaidInstance()
@@ -238,7 +238,7 @@ function T:Render()
     f:SetAlpha((self.preview and not db().enabled and not self.startAt) and 0.4 or 1)
 end
 
--- /tu timer test: run it for 10 seconds, whatever the settings.
+-- /et timer test: run it for 10 seconds, whatever the settings.
 function T:Test()
     if self.startAt then ns.Print("The timer is already running.") return end
     self.testing = true

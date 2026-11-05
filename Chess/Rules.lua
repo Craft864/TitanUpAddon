@@ -1,4 +1,4 @@
--- Titan Up - Chess/Rules.lua
+-- Eternal Table - Chess/Rules.lua
 -- The full rules of chess, with no game or window code: every client runs
 -- this on every move it receives, so nobody can make an illegal move (the
 -- same idea as Death Roll's strict roll check).

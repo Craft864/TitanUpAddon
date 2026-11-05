@@ -1,4 +1,4 @@
--- Titan Up - Consumables/Consumables.lua
+-- Eternal Table - Consumables/Consumables.lua
 -- The consumable shopping list (0.40.0): for each consumable you bring,
 -- how many are in your bags (each quality rank on its own line), how many
 -- you want, and how many you're short. Per character, nothing is sent to

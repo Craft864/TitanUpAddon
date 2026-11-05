@@ -1,14 +1,14 @@
--- Titan Up - Report/PullReport.lua
+-- Eternal Table - Report/PullReport.lua
 -- Pull Report (Raid Tools, raids only): who died each pull, and whether
 -- they had a defensive, a health potion or a healthstone ready.
---   * Each player's own Titan Up records only its own player (all Midnight
+--   * Each player's own Eternal Table records only its own player (all Midnight
 --     lets an addon see): at death - which defensives were ready (from
 --     ReportData, talent replacements resolved, tanks skipped), potions and
 --     healthstones in the bags and off cooldown, and the last few hits from
 --     the death recap. Cheat-death saves ("close calls") are recorded too.
 --   * After the encounter, out of combat, each player sends their records
 --     over the guild channel. The raid leader's report pops up after each
---     pull (others can turn that on). Raiders without Titan Up show as
+--     pull (others can turn that on). Raiders without Eternal Table show as
 --     "no data".
 --   * Tonight's pulls are kept until the daily reset, with a scorecard and
 --     a "Copy for Discord" export.
@@ -648,7 +648,7 @@ function PR.GroupDeath(guid, fn)
     check(false)
 end
 
--- Deaths of raiders without Titan Up (shown as "no data" until a report arrives)
+-- Deaths of raiders without Eternal Table (shown as "no data" until a report arrives)
 function PR:OnUnitDied(guid)
     local pull = self.current
     if not pull then return end
@@ -884,7 +884,7 @@ PR.Clock = clock
 
 function PR:ExportText()
     local s = self:Session()
-    local lines = { ("Titan Up - Pull Report (%d pulls)"):format(#s.pulls), "", "Scorecard - deaths (with: defensive / potion / healthstone unused), close calls" }
+    local lines = { ("Eternal Table - Pull Report (%d pulls)"):format(#s.pulls), "", "Scorecard - deaths (with: defensive / potion / healthstone unused), close calls" }
     for _, r in ipairs(self:Scorecard()) do
         lines[#lines + 1] = ("  %-14s %d deaths (%d / %d / %d)%s%s"):format(short(r.owner), r.deaths, r.def, r.pot, r.hs,
             r.saves > 0 and (", " .. r.saves .. " close calls") or "", r.nodata > 0 and (", " .. r.nodata .. " without data") or "")
@@ -1068,7 +1068,7 @@ local function hitLine(fmt, h)
 end
 
 function V:Summary(d)
-    if d.nodata then return "No data - they aren't running Titan Up." end
+    if d.nodata then return "No data - they aren't running Eternal Table." end
     local out = {}
     if d.kind == "save" then out[#out + 1] = color(ORANGE) .. "Close call: saved by " .. (d.saver or "a cheat-death") .. "|r" end
     local killer = d.hits and d.hits[1]

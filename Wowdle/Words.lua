@@ -1,4 +1,4 @@
--- Titan Up - Wowdle/Words.lua (generated)
+-- Eternal Table - Wowdle/Words.lua (generated)
 -- VALID: every allowed guess, 5 letters each, sorted - from the public-domain ENABLE
 -- word list plus the WoW answers it lacks. Searched in place (binary search), so no
 -- table of words is ever built. ANSWERS: the daily words in a fixed shuffled order,

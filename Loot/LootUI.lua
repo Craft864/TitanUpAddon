@@ -1,4 +1,4 @@
--- Titan Up - Loot/LootUI.lua
+-- Eternal Table - Loot/LootUI.lua
 -- The Loot window: filters + search on top, raid nights / runs on the left,
 -- drops on the right (item, boss, winner + roll, trade/equip history).
 local ADDON, ns = ...
@@ -189,7 +189,7 @@ function V:Tooltip(row)
     if r.equipped then
         GameTooltip:AddLine(date("%H:%M", r.equipped.t or 0) .. "  equipped by " .. ns.Short(r.equipped.by), 0.4, 0.9, 0.55)
     else
-        GameTooltip:AddLine("Not equipped yet (or the owner doesn't have Titan Up).", 0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine("Not equipped yet (or the owner doesn't have Eternal Table).", 0.6, 0.6, 0.6, true)
     end
     GameTooltip:Show()
 end

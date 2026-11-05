@@ -1,12 +1,15 @@
--- Titan Up - Core.lua
--- The Titan Up guild toolkit. Modules: TitanBoard (raid strategy board),
+-- Eternal Table - Core.lua
+-- The Eternal Table guild toolkit. Modules: TitanBoard (raid strategy board),
 -- Death Roll (fun). Event dispatch, saved variables, player/group helpers,
 -- permissions and slash commands; every module hangs off the shared `ns`.
 local ADDON, ns = ...
 
-ns.VERSION = "0.48.0"
+ns.VERSION = "0.49.0"
 ns.PREFIX = "TitanBoard"     -- board sync channel (unchanged, so it stays compatible)
 ns.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
+-- WoW Forever runs the modern API on a 1.x client (interface 16001); retail is 12.x.
+-- Modules and tweaks marked retailOnly (Mythic+ keys, bonus rolls) stay hidden there.
+ns.FOREVER = ((GetBuildInfo and select(4, GetBuildInfo())) or 120000) < 20000
 ns.U = 4095            -- board coordinates run 0..4095 on both axes
 ns.acl = {}            -- [fullName] = true : players the leader allowed to draw
 
@@ -48,7 +51,7 @@ end)
 -- Output
 -- ---------------------------------------------------------------------
 function ns.Print(...)
-    print("|cff4fc3f7Titan Up|r", ...)
+    print("|cff4fc3f7Eternal Table|r", ...)
 end
 
 function ns.Debug(...)
@@ -133,11 +136,11 @@ end
 -- ---------------------------------------------------------------------
 -- Your guild
 -- ---------------------------------------------------------------------
--- Titan Up works for anyone. Its addon data goes over the hidden GUILD
+-- Eternal Table works for anyone. Its addon data goes over the hidden GUILD
 -- addon channel to your guild, and (0.48.0) also to the people you play
 -- with who aren't in it: group features (board, games, Raid Check) over
 -- your party / raid channel, and guild-wide features (Chess, Wowdle,
--- Crafters...) to your friends running Titan Up. See ns.Routes.
+-- Crafters...) to your friends running Eternal Table. See ns.Routes.
 ns.guildOK = false        -- in a guild (and its info has loaded)
 ns.guildName = nil
 
@@ -296,7 +299,7 @@ function ns.TrySend(prefix, msg, channel, target)
 end
 
 -- ---------------------------------------------------------------------
--- Traffic meter (/tu mem): addon messages sent and received per feature,
+-- Traffic meter (/et mem): addon messages sent and received per feature,
 -- in one-minute buckets for the last TRAFFIC_MIN minutes.
 -- ---------------------------------------------------------------------
 local TRAFFIC_MIN = 10
@@ -589,7 +592,7 @@ end
 --   * your guild, over GUILD, as before (older versions only listen there);
 --   * group features (scope "group") also over your party / raid channel
 --     when someone in the group isn't in your guild (or you have no guild);
---   * guild-wide features (scope "guild") also to friends running Titan Up
+--   * guild-wide features (scope "guild") also to friends running Eternal Table
 --     who aren't in your guild (ns.Friends:Targets);
 --   * Chess, the version check, loot trades and the raid scorecard
 --     (ns.ALSO_GROUP) also over your group channel, so they reach anyone
@@ -612,11 +615,11 @@ function ns.Routes(prefix, msg)
     return out
 end
 
--- A "[Titan Up] ..." line in party / raid chat.
+-- A "[Eternal Table] ..." line in party / raid chat.
 function ns.SayGroup(text)
     local channel = ns.GroupChannel()
     local send = (C_ChatInfo and C_ChatInfo.SendChatMessage) or SendChatMessage
-    if channel and send then pcall(send, "[Titan Up] " .. text, channel) end
+    if channel and send then pcall(send, "[Eternal Table] " .. text, channel) end
 end
 
 -- Encounter lockdown: the game blocks addon messages during boss fights.
@@ -662,7 +665,7 @@ function ns.InRaidInstance()
 end
 
 -- ---------------------------------------------------------------------
--- /tu mem: where Titan Up's memory goes. The total is what WoW counts for
+-- /et mem: where Eternal Table's memory goes. The total is what WoW counts for
 -- the addon (after a cleanup pass, so stale garbage doesn't inflate it);
 -- saved data is estimated per area by walking its tables; windows are
 -- listed because once opened they stay built until /reload.
@@ -720,7 +723,7 @@ function ns.MemoryReport()
     local total
     if update and get then update(); total = get(ADDON) end
     local b = ns.MemoryBreakdown()
-    if total then ns.Print(("Titan Up is using |cffffffff%.0f KB|r of memory (after a cleanup pass)."):format(total))
+    if total then ns.Print(("Eternal Table is using |cffffffff%.0f KB|r of memory (after a cleanup pass)."):format(total))
     else ns.Print("This client doesn't report addon memory; here's what can be measured.") end
     ns.Print(("  Saved data: about %.0f KB"):format(b.saved))
     for i, a in ipairs(b.areas) do
@@ -745,9 +748,9 @@ function ns.MemoryReport()
     end
 end
 
--- Where Titan Up addon data goes: "TU" (ns.Send / ns.TrySend hand it to
+-- Where Eternal Table addon data goes: "TU" (ns.Send / ns.TrySend hand it to
 -- ns.Routes) when there's anyone to share with - your guild, your group or
--- a friend running Titan Up - or nil.
+-- a friend running Eternal Table - or nil.
 function ns.DataChannel()
     if (ns.guildOK and IsInGuild()) or IsInGroup() or (ns.Friends and ns.Friends:Any()) then return "TU" end
     return nil
@@ -808,7 +811,7 @@ function ns.GroupHasOutsiders()
     return fresh().outsiders == true
 end
 
--- Every Titan Up message handler checks this first.
+-- Every Eternal Table message handler checks this first.
 --   scope "group": only from people in your current group (guild or
 --     party / raid channel)
 --   scope "guild": from any guildmate, any Battle.net friend, or a
@@ -920,7 +923,7 @@ function ns.IsOwner()
 end
 
 -- Who may draw: the leader, raid assistants, and anyone on the leader's
--- grant list. Solo, only you (plus fake raiders you granted in /tb sim).
+-- grant list. Solo, only you (plus fake raiders you granted in /etb sim).
 function ns.CanDraw(name)
     name = name or ns.me
     if not IsInGroup() then return name == ns.me end
@@ -984,7 +987,7 @@ end
 -- Suite-wide settings (TitanBoardDB above keeps the board's plans).
 local SUITE_DEFAULTS = {
     minimap = { angle = 200, hidden = false },
-    nav = { railMin = false },              -- the Titan Up window: pos (top-left, once dragged), rail narrowed to icons
+    nav = { railMin = false },              -- the Eternal Table window: pos (top-left, once dragged), rail narrowed to icons
     dock = {},                              -- the alert stack: pos once dragged
     deathroll = { announce = true, games = {} },
     loot = { drops = {}, minQuality = 4, rollWindow = false },
@@ -1012,14 +1015,14 @@ local SUITE_DEFAULTS = {
     crafters = { share = true, oldTiers = false, mine = {}, people = {} },   -- mine[character] = professions, outside crafters
     wishlist = { share = true, mine = {}, people = {} },      -- mine[character] = { [itemID] = tags }
     consumables = { remind = false, chars = {}, learned = {} },  -- 0.40.0: chars[character] = { want, mine }; the raid reminder is off
-    friends = { share = true },                                  -- 0.48.0: share with friends running Titan Up
+    friends = { share = true },                                  -- 0.48.0: share with friends running Eternal Table
 }
 
 ns.On("ADDON_LOADED", function(name)
     if name ~= ADDON then return end
     TitanBoardDB = TitanBoardDB or {}
     applyDefaults(TitanBoardDB, DEFAULTS)
-    -- a send rate saved before /tb rate was range-checked
+    -- a send rate saved before /etb rate was range-checked
     local bs = TitanBoardDB.settings
     if type(bs) == "table" then
         bs.rate = math.max(0.2, math.min(5, tonumber(bs.rate) or 1))
@@ -1051,12 +1054,12 @@ local function startModules()
             end
         end
     end
-    ns.Print("v" .. ns.VERSION .. " loaded. /tu opens Titan Up, /tb the board, /tu roll Death Roll.")
+    ns.Print("v" .. ns.VERSION .. " loaded. /et opens Eternal Table, /etb the board, /et roll Death Roll.")
 end
 ns.Started = function() return started end
 
-ns.NEEDS_GUILD = "Playing with others needs a guild, a group, or a friend running Titan Up. Solo and practice modes still work."
-local NO_GUILD = "You're not in a guild: Titan Up still syncs with your group and with friends who run it."
+ns.NEEDS_GUILD = "Playing with others needs a guild, a group, or a friend running Eternal Table. Solo and practice modes still work."
+local NO_GUILD = "You're not in a guild: Eternal Table still syncs with your group and with friends who run it."
 local toldNoGuild = false
 local function guildCheck(final)
     local ok, name = ns.CheckGuild()
@@ -1067,13 +1070,13 @@ local function guildCheck(final)
             ns.Print(("Now syncing with <%s>."):format(name))
         elseif ns._noGuildSince then
             ns._noGuildSince = nil
-            ns.Print(("Joined <%s> - Titan Up now syncs with your guild."):format(name))
+            ns.Print(("Joined <%s> - Eternal Table now syncs with your guild."):format(name))
         end
         toldNoGuild = false
         local canSpeak = C_GuildInfo and C_GuildInfo.CanSpeakInGuildChat
         if canSpeak and not ns._toldMuted and ns.Safe.Call(canSpeak) == false then
             ns._toldMuted = true
-            ns.Print("Your guild rank can't talk in guild chat, so Titan Up probably can't sync with your guild (board, games, checks). Ask an officer if that's not intended.")
+            ns.Print("Your guild rank can't talk in guild chat, so Eternal Table probably can't sync with your guild (board, games, checks). Ask an officer if that's not intended.")
         end
         return true
     end
@@ -1114,17 +1117,18 @@ ns.On("GUILD_ROSTER_UPDATE", function() if ns.me and not ns.guildOK then guildCh
 -- Slash commands
 -- ---------------------------------------------------------------------
 local HELP = {
-    "/tb - open or close the board",
-    "/tb mini - toggle combat mini view",
-    "/tb ids - print the instance/encounter IDs of the current board (for custom room images)",
-    "/tb ids all - list every boss in the current instance with its encounter ID",
-    "/tb testroom - toggle the sample custom room image on the current board",
-    "/tb rate <n> - messages per second the send queue refills (0.2 to 5, default 1)",
-    "/tb debug - toggle debug output",
+    "/etb - open or close the board",
+    "/etb mini - toggle combat mini view",
+    "/etb ids - print the instance/encounter IDs of the current board (for custom room images)",
+    "/etb ids all - list every boss in the current instance with its encounter ID",
+    "/etb testroom - toggle the sample custom room image on the current board",
+    "/etb rate <n> - messages per second the send queue refills (0.2 to 5, default 1)",
+    "/etb debug - toggle debug output",
 }
 
-SLASH_TITANUP1 = "/tu"
-SLASH_TITANUP2 = "/titanup"
+SLASH_TITANUP1 = "/et"
+SLASH_TITANUP2 = "/eternaltable"
+SLASH_TITANUP3 = "/tu"            -- the old command keeps working
 SlashCmdList.TITANUP = function(msg)
     if not ns.Started() then return end
     msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
@@ -1168,7 +1172,7 @@ SlashCmdList.TITANUP = function(msg)
         if arg == "sim" and m.sim then m.sim() else m.show() end
     elseif cmd == "rolls" then
         if ns.LootRolls:Enabled() then ns.LootRolls.V:Open()
-        else ns.Print("The loot roll window is off - turn it on in Loot settings (/tu settings).") end
+        else ns.Print("The loot roll window is off - turn it on in Loot settings (/et settings).") end
     elseif cmd == "mem" or cmd == "memory" then
         ns.MemoryReport()
     elseif cmd == "minimap" then
@@ -1176,26 +1180,26 @@ SlashCmdList.TITANUP = function(msg)
         ns.Hub:UpdateMinimapButton()
         ns.Print("Minimap button " .. (ns.udb.minimap.hidden and "hidden" or "shown") .. ".")
     else
-        ns.Print("/tu - open / close Titan Up (Home and every module on the left-hand rail)")
-        ns.Print("/tb - TitanBoard (/tb help for its commands)")
-        ns.Print("/tu raidcheck - raid readiness (also runs on ready check and /pull)")
-        ns.Print("/tu timer - Combat Timer   |   /tu timer test - run it 10 seconds   |   /tu timer debug - explain what it's doing")
-        ns.Print("/tu loot - loot tracker   |   /tu rolls - the loot roll window (if turned on in Loot settings)")
-        ns.Print("/tu games - Home (the games are on the rail)")
-        ns.Print("/tu roll - Death Roll   |   /tu roll sim - practice   |   /tu roll debug - roll-reading problems")
-        ns.Print("/tu wheel - Wheel of Fortune   |   /tu wheel sim - practice with bots")
-        ns.Print("/tu chess - Chess with a guildmate (saved until the game ends)")
-        ns.Print("/tu minimap - show/hide the minimap button")
-        ns.Print("/tu settings - every module's options on one page")
-        ns.Print("/tu set <words> - search the settings (or type in the box at the top of any Titan Up window)")
-        ns.Print("/tu versions - which Titan Up version everyone in your group runs")
-        ns.Print("/tu new - what's new in this version")
-        ns.Print("/tu mem - how much memory Titan Up is using (saved data, open windows) and how many addon messages it sent")
+        ns.Print("/et - open / close Eternal Table (Home and every module on the left-hand rail)")
+        ns.Print("/etb - TitanBoard (/etb help for its commands)")
+        ns.Print("/et raidcheck - raid readiness (also runs on ready check and /pull)")
+        ns.Print("/et timer - Combat Timer   |   /et timer test - run it 10 seconds   |   /et timer debug - explain what it's doing")
+        ns.Print("/et loot - loot tracker   |   /et rolls - the loot roll window (if turned on in Loot settings)")
+        ns.Print("/et games - Home (the games are on the rail)")
+        ns.Print("/et roll - Death Roll   |   /et roll sim - practice   |   /et roll debug - roll-reading problems")
+        ns.Print("/et wheel - Wheel of Fortune   |   /et wheel sim - practice with bots")
+        ns.Print("/et chess - Chess with a guildmate (saved until the game ends)")
+        ns.Print("/et minimap - show/hide the minimap button")
+        ns.Print("/et settings - every module's options on one page")
+        ns.Print("/et set <words> - search the settings (or type in the box at the top of any Eternal Table window)")
+        ns.Print("/et versions - which Eternal Table version everyone in your group runs")
+        ns.Print("/et new - what's new in this version")
+        ns.Print("/et mem - how much memory Eternal Table is using (saved data, open windows) and how many addon messages it sent")
     end
 end
 
-SLASH_TITANBOARD1 = "/tb"
-SLASH_TITANBOARD2 = "/titanboard"
+SLASH_TITANBOARD1 = "/etb"
+SLASH_TITANBOARD2 = "/tb"         -- the old command keeps working
 SlashCmdList.TITANBOARD = function(msg)
     if not ns.Started() then return end
     msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
@@ -1227,6 +1231,6 @@ SlashCmdList.TITANBOARD = function(msg)
         ns.db.debug = not ns.db.debug
         ns.Print("Debug " .. (ns.db.debug and "ON" or "OFF"))
     else
-        ns.Print("Unknown command. /tb help")
+        ns.Print("Unknown command. /etb help")
     end
 end

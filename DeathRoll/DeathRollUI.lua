@@ -1,4 +1,4 @@
--- Titan Up - DeathRoll/DeathRollUI.lua
+-- Eternal Table - DeathRoll/DeathRollUI.lua
 -- Lobby (new challenge, open challenges, your record) and the room view
 -- (player cards, big rolling number, roll button, history), plus the
 -- challenge pop-up and the clickable chat link.
@@ -165,7 +165,7 @@ function V:CreateLobby(p)
     end
 
     -- temporary: practice mode, tucked into the corner
-    local practice = UI.Button(p, 64, 18, "Practice", "Play against a fake opponent to try it out (/tu roll sim)", function()
+    local practice = UI.Button(p, 64, 18, "Practice", "Play against a fake opponent to try it out (/et roll sim)", function()
         DR:StartSim(tonumber(V.wager:GetText()))
     end)
     practice.label:SetFontObject("GameFontHighlightSmall")

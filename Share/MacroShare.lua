@@ -1,4 +1,4 @@
--- Titan Up - Share/MacroShare.lua
+-- Eternal Table - Share/MacroShare.lua
 -- Macro Workstation > Share (Raid Tools): the raid leader or an assistant
 -- sends a macro to the raid - everyone, a role, a class, or one person -
 -- and anyone in a party or raid can send one to a single guildmate in it
@@ -12,7 +12,7 @@
 --   * To the raid, a role or a class: only in a raid, only from its leader
 --     / assistants - checked on the sender's side AND again by every
 --     recipient. To one person: anyone in the same party or raid.
---   * Over the guild channel, to raid members running Titan Up.
+--   * Over the guild channel, to raid members running Eternal Table.
 --   * WoW doesn't let addons create macros in combat: the icon says
 --     "after combat" until the fight ends.
 --   * The received list lasts until you log out (X removes one; the newest

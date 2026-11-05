@@ -1,4 +1,4 @@
--- Titan Up - RaidCheck/RaidCheckUI.lua
+-- Eternal Table - RaidCheck/RaidCheckUI.lua
 -- Results window (raid buffs + personal checks as x/y, hover for names)
 -- and the /pull alert ("Pull anyway" / "Cancel").
 local ADDON, ns = ...
@@ -26,7 +26,7 @@ end
 
 function V:Init() RC = ns.RaidCheck end
 -- auto: opened by a ready check / pull rather than by you - if another
--- module is open in the Titan Up window, offer the results instead
+-- module is open in the Eternal Table window, offer the results instead
 function V:ShowResults(auto)
     if auto and not ns.Nav:ShellFree("raidcheck") then
         ns.Dock:Notice("Raid Check results are in.", "Open", function() V:ShowResults() end)
@@ -160,7 +160,7 @@ function V:Refresh()
         local r = result.checks[i]
         fill(row, r, r and checkIcon(r.def.key), r and r.def.label)
     end
-    self.noReply:SetText(#result.noReply > 0 and ("No report (no Titan Up, offline, or still loading): " .. nameList(result.noReply, 12)) or "")
+    self.noReply:SetText(#result.noReply > 0 and ("No report (no Eternal Table, offline, or still loading): " .. nameList(result.noReply, 12)) or "")
 end
 
 -- ---------------------------------------------------------------------

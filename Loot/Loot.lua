@@ -1,4 +1,4 @@
--- Titan Up - Loot/Loot.lua
+-- Eternal Table - Loot/Loot.lua
 -- Tracks loot from the moment it drops until someone equips it:
 --   * Raid (group loot): WoW's loot history (C_LootHistory) gives everyone in
 --     the group every drop, everyone's Need/Greed/Transmog choice and roll,
@@ -10,9 +10,9 @@
 --     killed, marked as a bonus roll.
 --   * Trades: when a tracked item changes hands in a trade, the hop is added
 --     to its history and shared with the group, so everyone's copy shows the
---     same chain (needs Titan Up on at least one side of the trade).
+--     same chain (needs Eternal Table on at least one side of the trade).
 --   * Equipped: when the current owner equips it, tracking ends (equipping
---     makes it soulbound for good). Needs Titan Up on the owner's side.
+--     makes it soulbound for good). Needs Eternal Table on the owner's side.
 --
 -- Every client builds the same id for the same drop (server date, boss or
 -- instance, winner, item), so shared trade/equip updates line up. A drop

@@ -1272,7 +1272,7 @@ function Board:Init()
         if Board._autoMini then
             Board._autoMini = nil
             -- back to the full board, unless you opened something else in the
-            -- Titan Up window during the fight (then it stays mini until you ask)
+            -- Eternal Table window during the fight (then it stays mini until you ask)
             if ns.Nav:ShellFree("board") then Board:SetMini(false) end
         end
     end)

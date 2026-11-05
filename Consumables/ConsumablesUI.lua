@@ -1,4 +1,4 @@
--- Titan Up - Consumables/ConsumablesUI.lua
+-- Eternal Table - Consumables/ConsumablesUI.lua
 -- The Consumables window (Tools): a summary on top ("Stocked for raid" /
 -- "Short on 3"), My list / All items, Copy from another character, an Add
 -- box (shift-click, drag or type an item); then one line per item and rank:
@@ -36,7 +36,7 @@ function V:Create()
     self.summary:SetWidth(380); self.summary:SetJustifyH("LEFT"); self.summary:SetWordWrap(false)
     self.copyBtn = UI.Button(f, 130, 24, "Copy from...", "Copy the list from another of your characters onto this one", function() V:CopyMenu() end)
     self.copyBtn:SetPoint("TOPRIGHT", -12, -10)
-    self.allBtn = UI.Button(f, 90, 24, "All items", "Every consumable Titan Up knows, so you can set a Want on the ones you bring", function() V.all = true; V.offset = 0; V:Refresh() end)
+    self.allBtn = UI.Button(f, 90, 24, "All items", "Every consumable Eternal Table knows, so you can set a Want on the ones you bring", function() V.all = true; V.offset = 0; V:Refresh() end)
     self.allBtn:SetPoint("RIGHT", self.copyBtn, "LEFT", -16, 0)
     self.listBtn = UI.Button(f, 90, 24, "My list", "Only what you've set a Want on", function() V.all = false; V.offset = 0; V:Refresh() end)
     self.listBtn:SetPoint("RIGHT", self.allBtn, "LEFT", -4, 0)

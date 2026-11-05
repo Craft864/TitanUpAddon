@@ -1,7 +1,7 @@
--- Titan Up - RaidCheck/RaidCheck.lua
+-- Eternal Table - RaidCheck/RaidCheck.lua
 -- Raid readiness for Heroic and Mythic raids (never Normal/LFR).
 --
--- Every Titan Up player's addon reports on its OWN character (the game
+-- Every Eternal Table player's addon reports on its OWN character (the game
 -- always lets an addon read its own buffs, bags and durability; other
 -- people's bags and durability can't be read at all):
 --   raid buffs, flask, food, weapon enchant (oil / stone / class imbue),

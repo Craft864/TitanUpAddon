@@ -1,4 +1,4 @@
--- Titan Up - Guild/CraftersUI.lua
+-- Eternal Table - Guild/CraftersUI.lua
 -- The Crafters window: search (type, or shift-click an item into the box)
 -- and a profession filter on top; what the guild can make on the left; who
 -- can make the picked one on the right (online first, a Whisper button),
@@ -45,7 +45,7 @@ function V:Create()
     search:SetScript("OnEditFocusLost", function() V.searchHint:SetShown((search:GetText() or "") == "") end)
     self.profBtn = UI.Button(f, 170, 24, "All professions", "Show one profession only", function() V:ProfMenu() end)
     self.profBtn:SetPoint("LEFT", search, "RIGHT", 8, 0)
-    self.addBtn = UI.Button(f, 160, 24, "Add outside crafter", "Someone outside the guild (another guild or server) who crafts something the guild can't. Everyone with Titan Up will see it.", function() V:ShowAdd() end)
+    self.addBtn = UI.Button(f, 160, 24, "Add outside crafter", "Someone outside the guild (another guild or server) who crafts something the guild can't. Everyone with Eternal Table will see it.", function() V:ShowAdd() end)
     self.addBtn:SetPoint("TOPRIGHT", -12, -10)
 
     -- left: what the guild can make
@@ -135,7 +135,7 @@ function V:ShowAdd()
     if not d then
         d = UI.Window("TitanUpCraftersAdd", 420, 230, { y = 120, strata = "DIALOG", border = C.accent, drag = true })
         UI.Text(d, "GameFontNormal", C.accent, "ADD AN OUTSIDE CRAFTER", "TOPLEFT", 14, -12)
-        local help = UI.Text(d, "GameFontHighlightSmall", C.muted, "Someone outside the guild who crafts something nobody here can. Everyone in the guild with Titan Up will see it.", "TOPLEFT", 14, -32)
+        local help = UI.Text(d, "GameFontHighlightSmall", C.muted, "Someone outside the guild who crafts something nobody here can. Everyone in the guild with Eternal Table will see it.", "TOPLEFT", 14, -32)
         help:SetPoint("RIGHT", -14, 0); help:SetJustifyH("LEFT")
         local function field(label, y, max)
             UI.Text(d, "GameFontHighlightSmall", C.text, label, "TOPLEFT", 14, y)
@@ -209,7 +209,7 @@ function V:Refresh()
         elseif not CR:Enabled() then
             self.empty:SetText("Recipe sharing is off for you (Crafters settings). Other guildmates' recipes show here as they share them.")
         else
-            self.empty:SetText("No crafters known yet. Recipes appear as guildmates running Titan Up open their profession windows - open yours to add your own.")
+            self.empty:SetText("No crafters known yet. Recipes appear as guildmates running Eternal Table open their profession windows - open yours to add your own.")
         end
     end
     self:RefreshWho()

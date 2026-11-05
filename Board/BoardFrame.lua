@@ -1,4 +1,4 @@
--- Titan Up - Board/BoardFrame.lua
+-- Eternal Table - Board/BoardFrame.lua
 -- TitanBoard's window: building it (Create) and laying it out - the normal
 -- board with collapsible side panels, the combat mini view and viewer mode.
 -- Split out of Board.lua; the drawing code there gets the canvas through
@@ -233,7 +233,7 @@ local function dropButton(b, labelInset, caret, caretX)
 end
 
 function Board:Create()
-    -- Standard Titan Up title bar: the tab above with the module icons, the X;
+    -- Standard Eternal Table title bar: the tab above with the module icons, the X;
     -- board-only controls line up to the left of the X.
     local f, header = ns.Nav:Window(self, "TitanBoardFrame", "board", "TITANBOARD", FW, FH, { railMin = true, mark = false,
         onShow = function() Board:_onShow() end, onClose = function() Board:Hide() end, canDrag = function() return not Board.fullscreen end })

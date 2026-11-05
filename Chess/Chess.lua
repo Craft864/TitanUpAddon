@@ -1,4 +1,4 @@
--- Titan Up - Chess/Chess.lua
+-- Eternal Table - Chess/Chess.lua
 -- Chess between two guildmates, saved until the game ends.
 --
 --   * Each game is saved for your account (TitanUpDB.chess.games) until
@@ -13,7 +13,7 @@
 --     real sender), so nobody else can play your side.
 --   * Both online: moves go straight over the guild's addon channel.
 --   * Not online together: guild couriers. Everything goes over the guild
---     channel, so every guildmate running Titan Up quietly keeps a copy of
+--     channel, so every guildmate running Eternal Table quietly keeps a copy of
 --     other people's games (TitanUpDB.chess.carry, a few hundred bytes
 --     each). When a player logs in, they say which games they have and how
 --     far along (H); whoever holds a newer copy - the opponent, or any
@@ -283,7 +283,7 @@ function CH:CanClaimTime(g)
     return false
 end
 
--- Guildmates heard running Titan Up 0.34.0+ (any chess message), newest first.
+-- Guildmates heard running Eternal Table 0.34.0+ (any chess message), newest first.
 function CH:KnownPlayers()
     local out = {}
     local r = self:Roster()
@@ -1368,7 +1368,7 @@ function CH:Init()
     ns.Listen(PREFIX, "guild", function(msg, sender) CH:OnMessage(msg, sender) end)
     ns.On("GROUP_ROSTER_UPDATE", function() ns.Debounce("chess:group", 1, function() CH:CheckGroup() end) end)
     self:CheckGroup()
-    -- a friend running Titan Up showed up: tell them which games we have
+    -- a friend running Eternal Table showed up: tell them which games we have
     if ns.Friends then ns.Friends:OnNewFriend(function() CH:Hello(true) end) end
     -- say which games we have once the guild has loaded, then mention any waiting on you
     local tries = 0
@@ -1385,7 +1385,7 @@ function CH:Init()
         hello()
         local n = CH:WaitingCount()
         if n > 0 then
-            ns.Print(("|cff4fc2f7Chess:|r %d game%s waiting on you. |cff8a8f9c/tu chess|r"):format(n, n == 1 and " is" or "s are"))
+            ns.Print(("|cff4fc2f7Chess:|r %d game%s waiting on you. |cff8a8f9c/et chess|r"):format(n, n == 1 and " is" or "s are"))
         end
     end)
 end

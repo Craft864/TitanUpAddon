@@ -1,10 +1,10 @@
--- Titan Up - Guild/MainPicker.lua
+-- Eternal Table - Guild/MainPicker.lua
 -- "Pick your main" (0.41.0, Ryan asked for it forced): a pop-up after login
 -- that asks which character is your main, until you answer (once per
 -- account). Later closes it until the next login. Never shown in combat,
 -- an encounter or an instance (raids, dungeons, M+).
 --
--- It lists every character this account has logged into with Titan Up in
+-- It lists every character this account has logged into with Eternal Table in
 -- this guild (they're already linked). If your main isn't there yet (you're
 -- on a bank alt, say), "My main isn't listed" lets you pick it from the
 -- guild roster; it becomes your main when you next log into it (Alts:Seen).
@@ -87,13 +87,13 @@ function MP:SetMode(mode)
     self.mode, self.offset = mode, 0
     if mode == "roster" then
         if C_GuildInfo and C_GuildInfo.GuildRoster then pcall(C_GuildInfo.GuildRoster) end
-        f.body:SetText("Find your main in the guild roster and click it. It becomes your main the first time you log into it with Titan Up.")
+        f.body:SetText("Find your main in the guild roster and click it. It becomes your main the first time you log into it with Eternal Table.")
         f.other.label:SetText("Back to my characters")
         f.search:SetText("")
         f.search.hint:Show()
         f.search:Show()
     else
-        f.body:SetText("Titan Up lists each player once in the guild games, under their main. These are the characters you've logged into with Titan Up - which one is your main?")
+        f.body:SetText("Eternal Table lists each player once in the guild games, under their main. These are the characters you've logged into with Eternal Table - which one is your main?")
         f.other.label:SetText("My main isn't listed")
         f.search:ClearFocus()
         f.search:Hide()
@@ -166,9 +166,9 @@ function MP:Choose(name)
     self.frame:Hide()
     if self.mode == "roster" then
         AL:PickPending(name)
-        ns.Print(("%s will be your main once you log into it with Titan Up."):format(ns.Short(name)))
+        ns.Print(("%s will be your main once you log into it with Eternal Table."):format(ns.Short(name)))
     else
         AL:PickMain(name)
-        ns.Print(("Your main is %s. Change it any time in Settings > Titan Up."):format(ns.Short(name)))
+        ns.Print(("Your main is %s. Change it any time in Settings > Eternal Table."):format(ns.Short(name)))
     end
 end

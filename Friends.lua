@@ -1,7 +1,7 @@
 local ADDON, ns = ...
 
 -- ---------------------------------------------------------------------
--- Friends (0.48.0): Titan Up also talks to your friends who run it, so
+-- Friends (0.48.0): Eternal Table also talks to your friends who run it, so
 -- Chess, Wowdle, Death Roll standings, Crafters and wishlists work without
 -- a shared guild.
 --   * Battle.net friends playing retail WoW in your region: through
@@ -9,7 +9,7 @@ local ADDON, ns = ...
 --   * Character friends (the in-game friends list): by hidden whisper,
 --     which only reaches your own and connected realms.
 -- Each friend gets one small hello per session (TitanUpFR "H"); one that
--- runs Titan Up answers "A", and from then on gets the guild-wide traffic
+-- runs Eternal Table answers "A", and from then on gets the guild-wide traffic
 -- (ns.Routes). Friends who are in your guild get it over the guild instead.
 -- There's no relaying: you only reach your own friends.
 -- ---------------------------------------------------------------------
@@ -94,7 +94,7 @@ function FR:IsFriend(name)
     return name ~= nil and self:Online().byName[name] ~= nil
 end
 
--- Does this friend run Titan Up (heard from them this session)?
+-- Does this friend run Eternal Table (heard from them this session)?
 function FR:Known(name) return self.known[name] == true end
 
 -- A Battle.net game account id -> that friend's character name
@@ -110,7 +110,7 @@ function FR:NameForBN(id)
     return nil
 end
 
--- Who gets guild-wide traffic: friends running Titan Up who aren't in
+-- Who gets guild-wide traffic: friends running Eternal Table who aren't in
 -- your guild. { { channel = "BN"|"WHISPER", target, name }, ... }
 function FR:Targets()
     local out = {}
@@ -128,10 +128,10 @@ end
 
 function FR:Any() return #self:Targets() > 0 end
 
--- run fn(name) when a friend running Titan Up is first heard (modules say hello)
+-- run fn(name) when a friend running Eternal Table is first heard (modules say hello)
 function FR:OnNewFriend(fn) self.onNew[#self.onNew + 1] = fn end
 
--- A Titan Up message from a friend: they run it.
+-- A Eternal Table message from a friend: they run it.
 function FR:Heard(name)
     if not name or self.known[name] then return end
     self.known[name] = true

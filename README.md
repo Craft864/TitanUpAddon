@@ -1,13 +1,13 @@
-# Titan Up v0.48.0
+# Eternal Table v0.49.0
 
-A raid and games toolkit for World of Warcraft (Midnight). Works with your guild, your group and your friends.
+A raid and games toolkit for the Eternal Table guild. Runs on World of Warcraft (Midnight) and WoW Forever. Works with your guild, your group and your friends.
 
-**Install:** get Titan Up from WoWUp or CurseForge.
+**Install:** get Eternal Table from WoWUp or CurseForge.
 
 ## What's in it
 
 - **Raid Info**
-  - **TitanBoard**: a live strategy board the raid can draw on together. `/tb`.
+  - **TitanBoard**: a live strategy board the raid can draw on together. `/etb`.
   - **Reports**: the Pull Report (who died each pull and what they had ready) and the weekly Raid Scorecard.
   - **Loot**: every raid drop, roll and trade, Mythic+ loot, an optional roll window, and a guild loot wishlist.
   - **Raid Check**: buffs and consumables on every ready check and typed /pull.
@@ -23,19 +23,24 @@ A raid and games toolkit for World of Warcraft (Midnight). Works with your guild
 ## Guild, group and friends
 
 - Your guild gets everything, like always.
-- Raid and party features (TitanBoard, Raid Check, Loot Rolls, Keystone Roulette, Wheel, Macro Share) work with anyone in your group who has Titan Up, guild or not.
-- Chess, Wowdle, Death Roll standings, Crafters and wishlists also reach your online friends running Titan Up. Battle.net friends work on any realm; character friends only on your realm and connected realms. You only see your own friends. Turn it off in Settings > Friends.
+- Raid and party features (TitanBoard, Raid Check, Loot Rolls, Keystone Roulette, Wheel, Macro Share) work with anyone in your group who has Eternal Table, guild or not.
+- Chess, Wowdle, Death Roll standings, Crafters and wishlists also reach your online friends running Eternal Table. Battle.net friends work on any realm; character friends only on your realm and connected realms. You only see your own friends. Turn it off in Settings > Friends.
+
+## WoW Forever
+
+- Same addon, same download. Pick the Forever version in WoWUp or CurseForge.
+- Keystone Roulette and Bonus roll protection are hidden on Forever (no keys or bonus rolls there).
 
 ## Getting around
 
-- `/tu` (or the minimap button) opens Titan Up on **Home**. Pick a module from the rail on the left; Settings is at the bottom.
+- `/et` (or the minimap button) opens Eternal Table on **Home**. Pick a module from the rail on the left; Settings is at the bottom.
 - Modules with several pages show tabs across the top.
 - The search box in the title bar finds any setting.
-- `/tu help` lists every command.
+- `/et help` lists every command. The old `/tu` and `/tb` still work.
 
 ## Death Roll
 
-- `/tu roll`, set a wager, and challenge someone in your group or open it to anyone.
+- `/et roll`, set a wager, and challenge someone in your group or open it to anyone.
 - Each roll is a real `/roll` from 1 to the last result. Whoever rolls a 1 pays the wager.
 - Payment is a normal trade, detected automatically. The winner can also mark a debt paid.
 - **Standings** show everyone's wins, losses and unpaid gold. Only games both players agree on count, so nobody can fake a result.
@@ -43,7 +48,7 @@ A raid and games toolkit for World of Warcraft (Midnight). Works with your guild
 
 ## Raid Check
 
-`/tu raidcheck`. Heroic and Mythic raids only.
+`/et raidcheck`. Heroic and Mythic raids only.
 
 - On every ready check, and on a typed `/pull`, it checks everyone's buffs, flask, food, weapon enchant, Vantus Rune, potions, healthstone and durability.
 - If someone's missing something, the leader gets a list with **Pull anyway** or **Cancel**.
@@ -51,16 +56,16 @@ A raid and games toolkit for World of Warcraft (Midnight). Works with your guild
 
 ## Loot
 
-`/tu loot`.
+`/et loot`.
 
 - Records raid drops with everyone's rolls, bonus rolls, Mythic+ loot, and trades until the item is equipped.
 - Search by player, item or boss.
-- **Roll window** (Loot settings, off by default): every roll in one window, with BIS / Sidegrade / set tags and notes the raid can see. Closing it hands your rolls back to Blizzard's pop-ups. `/tu rolls` reopens it.
+- **Roll window** (Loot settings, off by default): every roll in one window, with BIS / Sidegrade / set tags and notes the raid can see. Closing it hands your rolls back to Blizzard's pop-ups. `/et rolls` reopens it.
 - **Wishlist** tab: browse any raid or dungeon and mark items BIS, Sidegrade or Want. Click a drop to see who in the guild wants it.
 
 ## Wheel of Fortune
 
-`/tu wheel`.
+`/et wheel`.
 
 - **Play together** with random puzzles, or **Host a game** with your own.
 - Spin, call consonants, buy vowels for $250, or solve. Most money after the last round wins.
@@ -69,9 +74,9 @@ A raid and games toolkit for World of Warcraft (Midnight). Works with your guild
 
 ## Chess
 
-`/tu chess`.
+`/et chess`.
 
-- Challenge a guildmate, a friend or anyone in your group. Guildmates don't need to be online: other guildmates running Titan Up pass your moves along.
+- Challenge a guildmate, a friend or anyone in your group. Guildmates don't need to be online: other guildmates running Eternal Table pass your moves along.
 - Playing someone you were only grouped with? When the group ends you get an **Add friend** button so you can keep playing.
 - Optional timers: days per move, or a live clock that only runs while you're both online.
 - Full chess rules. Games are saved until they end, and follow you to your other characters.
@@ -80,7 +85,7 @@ A raid and games toolkit for World of Warcraft (Midnight). Works with your guild
 
 ## TitanBoard
 
-`/tb` opens the board, `/tb help` lists its commands.
+`/etb` opens the board, `/etb help` lists its commands.
 
 - Left: draw. Right-drag: pan. Right-click: delete. Wheel: zoom.
 - Ctrl+drag: move an item. Ctrl+wheel: resize it. Alt+drag: laser. Ctrl+Z: undo.
@@ -95,12 +100,19 @@ A raid and games toolkit for World of Warcraft (Midnight). Works with your guild
 
 ## Characters
 
-- Your characters in the guild are linked (Settings > Titan Up). Standings show one row per player under their main, and Death Roll debts can be paid from any of your characters.
-- Titan Up asks which character is your main. You can change it in Settings.
+- Your characters in the guild are linked (Settings > Eternal Table). Standings show one row per player under their main, and Death Roll debts can be paid from any of your characters.
+- Eternal Table asks which character is your main. You can change it in Settings.
 
 ## Planned
 
 - Fury of the Dead is still matched by its English name in Raid Check.
+
+## Changes in 0.49.0
+
+- Titan Up is now **Eternal Table**.
+- Works on WoW Forever as well as Midnight. Keystone Roulette and Bonus roll protection are hidden on Forever.
+- Commands are now `/et` and `/etb` for the board. `/tu` and `/tb` still work.
+- New placeholder logo.
 
 ## Changes in 0.48.0
 
@@ -147,59 +159,8 @@ A raid and games toolkit for World of Warcraft (Midnight). Works with your guild
 - Chess: an optional "your move" pop-up (Settings > Chess, off by default).
 - Chess: the latest move's squares are yellow.
 
-## Changes in 0.44.0
-
-- Crafters: see the best quality rank each crafter can make, with and without Concentration.
-
-## Changes in 0.43.0
-
-- Chess: your games follow you to your other characters.
-
-## Changes in 0.42.0
-
-- Closing the Loot Rolls window now gives unmade rolls back to Blizzard's pop-ups.
-- Roll buttons match Blizzard's: Need, Greed or Transmog, and Pass. Greyed buttons say why.
-- Items you pass on shrink to one line.
-- After you roll, the item shows who it's still waiting on.
-- Bonus roll protection has its own big Yes button.
-
-## Changes in 0.41.0
-
-- Wowdle standings were reset. Death Roll is unchanged.
-- A new pop-up asks which character is your main.
-
-## Changes in 0.40.1
-
-- Keystone Roulette is off in raid groups.
-
-## Changes in 0.40.0
-
-- New: Consumables, your raid shopping list.
-- Optional reminder when you zone into a raid short on something (off by default).
-
-## Changes in 0.39.0
-
-- The rail is now Raid Info, Tools and Guild.
-- Combat Timer moved into UI Tweaks. Click a recent fight for its details.
-
-## Changes in 0.38.0
-
-- Death Roll, Wheel of Fortune, Wowdle and Chess are one Games entry.
-- Pages show as tabs across the top and as a list on the rail.
-
-## Changes in 0.37.0
-
-- New: Crafters.
-- New: Loot Wishlist.
-- Your characters are linked in the guild games.
-- Raid Check works on non-English clients.
-
-## Changes in 0.36.0
-
-- Wheel of Fortune: optional bonus round, and a faster wheel.
-
 ## Older versions
 
-Changes before 0.36.0 are in the in-game What's new (`/tu new`, back to 0.25.0) and on CurseForge.
+Changes before 0.45.0 are in the in-game What's new (`/et new`) and on CurseForge.
 
 Bundled libraries: LibStub (public domain), LibSharedMedia-3.0 (LGPL 2.1), CallbackHandler-1.0 (BSD).

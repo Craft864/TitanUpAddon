@@ -1,15 +1,15 @@
--- Titan Up - Keys/Keys.lua
+-- Eternal Table - Keys/Keys.lua
 -- Keystone Roulette (UI Tweaks section): spin a wheel of your group's
 -- Mythic+ keys, or hold a quick vote, and announce the winner.
---   * Keys: yours from the game; Titan Up guildmates' over the guild
+--   * Keys: yours from the game; Eternal Table guildmates' over the guild
 --     channel; everyone else's read locally from BigWigs' LibKeystone and
---     Details' LibOpenRaid if they're installed (Titan Up sends nothing to
+--     Details' LibOpenRaid if they're installed (Eternal Table sends nothing to
 --     non-guildmates itself).
 --   * Filters: a level range, dungeons to leave out, and equal chances or
 --     favoring higher keys.
---   * Vote: Titan Up users click a button; anyone can type the number or
+--   * Vote: Eternal Table users click a button; anyone can type the number or
 --     short name in party chat. Ties are settled by a spin.
---   * Result: posted to group chat, and Titan Up users get a popup with the
+--   * Result: posted to group chat, and Eternal Table users get a popup with the
 --     dungeon and a Teleport button (set up after combat if needed).
 local ADDON, ns = ...
 
@@ -53,6 +53,7 @@ KR.JOKES = {
 -- Setup
 -- ---------------------------------------------------------------------
 function KR:Init()
+    if ns.FOREVER then return end            -- no Mythic+ keys in WoW Forever
     self.fromGuild, self.fromLib = {}, {}
     ns.Listen(PREFIX, "group", function(msg, sender) KR:OnMessage(msg, sender) end)
     for _, ev in ipairs({ "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER", "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER" }) do
@@ -224,7 +225,7 @@ function KR:OnMessage(msg, sender)
     elseif f[1] == "K" then
         local mapID, level = tonumber(f[2]), tonumber(f[3])
         if mapID and level and level > 0 and level < 40 then
-            self.fromGuild[sender] = { mapID = mapID, level = level, source = "Titan Up", at = GetTime() }
+            self.fromGuild[sender] = { mapID = mapID, level = level, source = "Eternal Table", at = GetTime() }
             if ns.KeysUI then ns.KeysUI:Refresh() end
         end
     elseif f[1] == "V" then
@@ -355,10 +356,10 @@ end
 local FALLBACK = { [161] = 159898, [402] = 393273, [399] = 393256 }
 
 -- Part of the dungeon picture to use: left, right, top, bottom. The game's
--- picture file has padding: measured with /tu keys art, the parchment frame
+-- picture file has padding: measured with /et keys art, the parchment frame
 -- spans ~2-72% across and ~2-66% down, and the scene inside it ~4-70% x
 -- ~6-63%. This takes the scene's middle at the popup's 2:1 shape (no
--- stretching, none of the frame or padding). /tu keys art stays available
+-- stretching, none of the frame or padding). /et keys art stays available
 -- in case a patch changes the picture layout.
 KR.ART_CROP = { 0.09, 0.65, 0.06, 0.63 }
 
@@ -653,7 +654,7 @@ function V:Create()
     self.spinBtn = UI.Button(f, 160, 34, "Spin the wheel", nil, function() V:Spin() end)
     self.spinBtn:SetPoint("TOPLEFT", 22, ay)
     UI.SetActive(self.spinBtn, true)
-    self.voteBtn = UI.Button(f, 140, 34, "Vote (" .. VOTE_SECONDS .. "s)", "Everyone picks: Titan Up users click Vote, anyone can type the number or short name in party chat", function()
+    self.voteBtn = UI.Button(f, 140, 34, "Vote (" .. VOTE_SECONDS .. "s)", "Everyone picks: Eternal Table users click Vote, anyone can type the number or short name in party chat", function()
         local ok, err = KR:StartVote(KR:Eligible((KR:Collect())))
         if not ok then V.flash = err end
         V:Refresh()
@@ -856,7 +857,7 @@ function V:Refresh()
     end
     local names = {}
     for _, m in ipairs(missing) do names[#names + 1] = m.short end
-    self.missingText:SetText(#names > 0 and ("No key info: " .. table.concat(names, ", ") .. "\n(they need Titan Up, BigWigs or Details)") or (#keys == 0 and "No keys found in your group yet." or ""))
+    self.missingText:SetText(#names > 0 and ("No key info: " .. table.concat(names, ", ") .. "\n(they need Eternal Table, BigWigs or Details)") or (#keys == 0 and "No keys found in your group yet." or ""))
     -- wheel
     if not self.spinning then
         local list = vote and vote.keys or eligible
@@ -888,7 +889,7 @@ function V:Refresh()
 end
 
 ns.RegisterModule({
-    key = "keys", name = "Keystone Roulette", icon = ns.MEDIA .. "Keys", group = "uitweaks", order = 2,
+    key = "keys", name = "Keystone Roulette", icon = ns.MEDIA .. "Keys", group = "uitweaks", order = 2, retailOnly = true,
     desc = "Spin a wheel of your group's keys - or vote - and teleport straight there.",
     view = V,
 })

@@ -1,4 +1,4 @@
--- Titan Up - WheelOfFortune/WheelUI.lua
+-- Eternal Table - WheelOfFortune/WheelUI.lua
 -- Lobby (host setup + open games) and the game view: puzzle board, the
 -- spinning wheel, three player cards, letter buttons, and host controls.
 local ADDON, ns = ...
@@ -172,7 +172,7 @@ function V:CreateLobby(p)
     end)
     open:SetPoint("TOP", 0, -248)
     UI.SetActive(open, true)
-    local solo = UI.Button(p, 120, 22, "Play solo", "Play against two bots, with a bot host (/tu wheel sim)", function()
+    local solo = UI.Button(p, 120, 22, "Play solo", "Play against two bots, with a bot host (/et wheel sim)", function()
         local g = WF:StartSim(ns.udb.wheel.bonus)
         if g then V:ShowGame(g.id) end
     end)

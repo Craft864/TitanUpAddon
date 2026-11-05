@@ -1,4 +1,4 @@
--- Titan Up - Report/Defensives.lua
+-- Eternal Table - Report/Defensives.lua
 -- The personal defensives the Pull Report checks, by class (reviewed list:
 -- the guild's Class Info sheet cross-checked against Open Raid Library's
 -- Midnight data and Wowhead). Each entry: spell IDs (alternatives - talent

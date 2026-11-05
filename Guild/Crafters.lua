@@ -1,8 +1,8 @@
--- Titan Up - Guild/Crafters.lua
+-- Eternal Table - Guild/Crafters.lua
 -- The Crafters directory (0.37.0, sharing on by default): who in the guild
 -- can make what.
 --   * Your recipes are read from the game when you open a profession window
---     (nothing about recipes is built into Titan Up, so a new patch's or
+--     (nothing about recipes is built into Eternal Table, so a new patch's or
 --     expansion's recipes show up on their own). Only the newest expansion's
 --     recipes by default ("Include older expansions" adds the rest).
 --   * Each character's list is shared with the guild over the background
