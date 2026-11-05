@@ -356,10 +356,10 @@ end
 local FALLBACK = { [161] = 159898, [402] = 393273, [399] = 393256 }
 
 -- Part of the dungeon picture to use: left, right, top, bottom. The game's
--- picture file has padding: measured with /tu keys art, the parchment frame
+-- picture file has padding: measured with /et keys art, the parchment frame
 -- spans ~2-72% across and ~2-66% down, and the scene inside it ~4-70% x
 -- ~6-63%. This takes the scene's middle at the popup's 2:1 shape (no
--- stretching, none of the frame or padding). /tu keys art stays available
+-- stretching, none of the frame or padding). /et keys art stays available
 -- in case a patch changes the picture layout.
 KR.ART_CROP = { 0.09, 0.65, 0.06, 0.63 }
 

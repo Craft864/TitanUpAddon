@@ -62,7 +62,7 @@ function S:Pages()
               get = function() return u.loot.rollWindow end,
               set = function(on) u.loot.rollWindow = on; if not on and ns.LootRolls then ns.LootRolls.V:Hide() end end },
             { button = "Preview the roll window", tip = "Open it with sample items and raiders - nothing is rolled or sent", run = function() ns.LootRolls:Preview() end },
-            { text = "/tu rolls opens it again after you close it (rolls stay listed for 2 hours, the trade window)." },
+            { text = "/et rolls opens it again after you close it (rolls stay listed for 2 hours, the trade window)." },
             { toggle = "Share my loot wishlist", tip = "Let the guild see the items on your wishlist (the Wishlist tab), so the Loot window and the roll window can show who wants a drop. Off: your wishlist stays on your screen only.",
               get = function() return ns.Wishlist:Enabled() end, set = function(on) ns.Wishlist:SetEnabled(on) end },
         } },

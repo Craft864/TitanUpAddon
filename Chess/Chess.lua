@@ -1385,7 +1385,7 @@ function CH:Init()
         hello()
         local n = CH:WaitingCount()
         if n > 0 then
-            ns.Print(("|cff4fc2f7Chess:|r %d game%s waiting on you. |cff8a8f9c/tu chess|r"):format(n, n == 1 and " is" or "s are"))
+            ns.Print(("|cff4fc2f7Chess:|r %d game%s waiting on you. |cff8a8f9c/et chess|r"):format(n, n == 1 and " is" or "s are"))
         end
     end)
 end

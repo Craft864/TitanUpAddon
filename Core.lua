@@ -299,7 +299,7 @@ function ns.TrySend(prefix, msg, channel, target)
 end
 
 -- ---------------------------------------------------------------------
--- Traffic meter (/tu mem): addon messages sent and received per feature,
+-- Traffic meter (/et mem): addon messages sent and received per feature,
 -- in one-minute buckets for the last TRAFFIC_MIN minutes.
 -- ---------------------------------------------------------------------
 local TRAFFIC_MIN = 10
@@ -665,7 +665,7 @@ function ns.InRaidInstance()
 end
 
 -- ---------------------------------------------------------------------
--- /tu mem: where Eternal Table's memory goes. The total is what WoW counts for
+-- /et mem: where Eternal Table's memory goes. The total is what WoW counts for
 -- the addon (after a cleanup pass, so stale garbage doesn't inflate it);
 -- saved data is estimated per area by walking its tables; windows are
 -- listed because once opened they stay built until /reload.
@@ -923,7 +923,7 @@ function ns.IsOwner()
 end
 
 -- Who may draw: the leader, raid assistants, and anyone on the leader's
--- grant list. Solo, only you (plus fake raiders you granted in /tb sim).
+-- grant list. Solo, only you (plus fake raiders you granted in /etb sim).
 function ns.CanDraw(name)
     name = name or ns.me
     if not IsInGroup() then return name == ns.me end
@@ -1022,7 +1022,7 @@ ns.On("ADDON_LOADED", function(name)
     if name ~= ADDON then return end
     TitanBoardDB = TitanBoardDB or {}
     applyDefaults(TitanBoardDB, DEFAULTS)
-    -- a send rate saved before /tb rate was range-checked
+    -- a send rate saved before /etb rate was range-checked
     local bs = TitanBoardDB.settings
     if type(bs) == "table" then
         bs.rate = math.max(0.2, math.min(5, tonumber(bs.rate) or 1))
@@ -1054,7 +1054,7 @@ local function startModules()
             end
         end
     end
-    ns.Print("v" .. ns.VERSION .. " loaded. /tu opens Eternal Table, /tb the board, /tu roll Death Roll.")
+    ns.Print("v" .. ns.VERSION .. " loaded. /et opens Eternal Table, /etb the board, /et roll Death Roll.")
 end
 ns.Started = function() return started end
 
@@ -1117,17 +1117,18 @@ ns.On("GUILD_ROSTER_UPDATE", function() if ns.me and not ns.guildOK then guildCh
 -- Slash commands
 -- ---------------------------------------------------------------------
 local HELP = {
-    "/tb - open or close the board",
-    "/tb mini - toggle combat mini view",
-    "/tb ids - print the instance/encounter IDs of the current board (for custom room images)",
-    "/tb ids all - list every boss in the current instance with its encounter ID",
-    "/tb testroom - toggle the sample custom room image on the current board",
-    "/tb rate <n> - messages per second the send queue refills (0.2 to 5, default 1)",
-    "/tb debug - toggle debug output",
+    "/etb - open or close the board",
+    "/etb mini - toggle combat mini view",
+    "/etb ids - print the instance/encounter IDs of the current board (for custom room images)",
+    "/etb ids all - list every boss in the current instance with its encounter ID",
+    "/etb testroom - toggle the sample custom room image on the current board",
+    "/etb rate <n> - messages per second the send queue refills (0.2 to 5, default 1)",
+    "/etb debug - toggle debug output",
 }
 
-SLASH_TITANUP1 = "/tu"
-SLASH_TITANUP2 = "/titanup"
+SLASH_TITANUP1 = "/et"
+SLASH_TITANUP2 = "/eternaltable"
+SLASH_TITANUP3 = "/tu"            -- the old command keeps working
 SlashCmdList.TITANUP = function(msg)
     if not ns.Started() then return end
     msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
@@ -1171,7 +1172,7 @@ SlashCmdList.TITANUP = function(msg)
         if arg == "sim" and m.sim then m.sim() else m.show() end
     elseif cmd == "rolls" then
         if ns.LootRolls:Enabled() then ns.LootRolls.V:Open()
-        else ns.Print("The loot roll window is off - turn it on in Loot settings (/tu settings).") end
+        else ns.Print("The loot roll window is off - turn it on in Loot settings (/et settings).") end
     elseif cmd == "mem" or cmd == "memory" then
         ns.MemoryReport()
     elseif cmd == "minimap" then
@@ -1179,26 +1180,26 @@ SlashCmdList.TITANUP = function(msg)
         ns.Hub:UpdateMinimapButton()
         ns.Print("Minimap button " .. (ns.udb.minimap.hidden and "hidden" or "shown") .. ".")
     else
-        ns.Print("/tu - open / close Eternal Table (Home and every module on the left-hand rail)")
-        ns.Print("/tb - TitanBoard (/tb help for its commands)")
-        ns.Print("/tu raidcheck - raid readiness (also runs on ready check and /pull)")
-        ns.Print("/tu timer - Combat Timer   |   /tu timer test - run it 10 seconds   |   /tu timer debug - explain what it's doing")
-        ns.Print("/tu loot - loot tracker   |   /tu rolls - the loot roll window (if turned on in Loot settings)")
-        ns.Print("/tu games - Home (the games are on the rail)")
-        ns.Print("/tu roll - Death Roll   |   /tu roll sim - practice   |   /tu roll debug - roll-reading problems")
-        ns.Print("/tu wheel - Wheel of Fortune   |   /tu wheel sim - practice with bots")
-        ns.Print("/tu chess - Chess with a guildmate (saved until the game ends)")
-        ns.Print("/tu minimap - show/hide the minimap button")
-        ns.Print("/tu settings - every module's options on one page")
-        ns.Print("/tu set <words> - search the settings (or type in the box at the top of any Eternal Table window)")
-        ns.Print("/tu versions - which Eternal Table version everyone in your group runs")
-        ns.Print("/tu new - what's new in this version")
-        ns.Print("/tu mem - how much memory Eternal Table is using (saved data, open windows) and how many addon messages it sent")
+        ns.Print("/et - open / close Eternal Table (Home and every module on the left-hand rail)")
+        ns.Print("/etb - TitanBoard (/etb help for its commands)")
+        ns.Print("/et raidcheck - raid readiness (also runs on ready check and /pull)")
+        ns.Print("/et timer - Combat Timer   |   /et timer test - run it 10 seconds   |   /et timer debug - explain what it's doing")
+        ns.Print("/et loot - loot tracker   |   /et rolls - the loot roll window (if turned on in Loot settings)")
+        ns.Print("/et games - Home (the games are on the rail)")
+        ns.Print("/et roll - Death Roll   |   /et roll sim - practice   |   /et roll debug - roll-reading problems")
+        ns.Print("/et wheel - Wheel of Fortune   |   /et wheel sim - practice with bots")
+        ns.Print("/et chess - Chess with a guildmate (saved until the game ends)")
+        ns.Print("/et minimap - show/hide the minimap button")
+        ns.Print("/et settings - every module's options on one page")
+        ns.Print("/et set <words> - search the settings (or type in the box at the top of any Eternal Table window)")
+        ns.Print("/et versions - which Eternal Table version everyone in your group runs")
+        ns.Print("/et new - what's new in this version")
+        ns.Print("/et mem - how much memory Eternal Table is using (saved data, open windows) and how many addon messages it sent")
     end
 end
 
-SLASH_TITANBOARD1 = "/tb"
-SLASH_TITANBOARD2 = "/titanboard"
+SLASH_TITANBOARD1 = "/etb"
+SLASH_TITANBOARD2 = "/tb"         -- the old command keeps working
 SlashCmdList.TITANBOARD = function(msg)
     if not ns.Started() then return end
     msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
@@ -1230,6 +1231,6 @@ SlashCmdList.TITANBOARD = function(msg)
         ns.db.debug = not ns.db.debug
         ns.Print("Debug " .. (ns.db.debug and "ON" or "OFF"))
     else
-        ns.Print("Unknown command. /tb help")
+        ns.Print("Unknown command. /etb help")
     end
 end

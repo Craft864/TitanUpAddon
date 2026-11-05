@@ -480,5 +480,5 @@ function Board:PrintIds(all)
     local room = ns.Rooms:Get(ctx, Model:Page().bg)
     ns.Print(("Instance %s  |  encounter %s  |  floor map %s  |  background: %s"):format(
         tostring(ctx.inst), tostring(ctx.enc), tostring(ctx.map), room and ("room \"" .. room.label .. "\"") or (self.bg and self.bg.kind or "?")))
-    ns.Print("Tip: /tb ids all lists every boss in this instance.")
+    ns.Print("Tip: /etb ids all lists every boss in this instance.")
 end

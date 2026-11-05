@@ -563,7 +563,7 @@ function WF:Host(puzzles, prize, bonus)
         bonusPz = { cat ~= "" and cat or "PHRASE", phrase }
     end
     return self:Launch(list, WF.Clean(prize or "", 48, true), false, bonusPz,
-        "%s is hosting Wheel of Fortune (%d round%s) - open Eternal Table (/tu wheel) to grab a seat!")
+        "%s is hosting Wheel of Fortune (%d round%s) - open Eternal Table (/et wheel) to grab a seat!")
 end
 
 -- Start a game (hosted, or auto = everyone plays): tell the group, and post
@@ -602,7 +602,7 @@ function WF:Play(rounds, theme, bonus)
     if #list == 0 then ns.Print("No puzzles for that theme.") return nil end
     local bonusPz = bonus and WF.RandomBonus(theme, taken)
     return self:Launch(list, nil, true, bonusPz and { bonusPz[1], bonusPz[2] } or nil,
-        "%s started Wheel of Fortune (%d round%s, everyone plays) - open Eternal Table (/tu wheel) to grab a seat!")
+        "%s started Wheel of Fortune (%d round%s, everyone plays) - open Eternal Table (/et wheel) to grab a seat!")
 end
 
 function WF:Join(id)
@@ -901,7 +901,7 @@ function WF:CheckRoster()
 end
 
 -- ---------------------------------------------------------------------
--- Practice (/tu wheel sim): a fake host and two bot players, you take
+-- Practice (/et wheel sim): a fake host and two bot players, you take
 -- the first seat. The referee runs on your client.
 -- ---------------------------------------------------------------------
 local BOTS = { "Selune", "Vexa" }

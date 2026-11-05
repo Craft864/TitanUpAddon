@@ -224,7 +224,7 @@ function LR:HandBack()
         end
     end
     if n > 0 then
-        ns.Print(("Blizzard's roll pop-ups are back for %d item%s - /tu rolls opens this window again."):format(n, n == 1 and "" or "s"))
+        ns.Print(("Blizzard's roll pop-ups are back for %d item%s - /et rolls opens this window again."):format(n, n == 1 and "" or "s"))
     end
     return n
 end
@@ -621,7 +621,7 @@ function V:Create()
     f:Place()
     UI.Text(f, "GameFontNormal", C.accent, "LOOT ROLLS", "TOPLEFT", 14, -14)
     UI.Text(f, "GameFontHighlightSmall", C.muted, "Tag each item for the raid, then roll.  Click an item to see what everyone chose.", "LEFT", f, "TOPLEFT", 110, -21)
-    local x = UI.Button(f, 22, 20, "X", "Close - rolls you haven't made go back to Blizzard's pop-ups. /tu rolls opens this window again.", function() f:Hide() end)
+    local x = UI.Button(f, 22, 20, "X", "Close - rolls you haven't made go back to Blizzard's pop-ups. /et rolls opens this window again.", function() f:Hide() end)
     x:SetPoint("TOPRIGHT", -8, -8)
     f:SetScript("OnShow", function()
         V:Tick()
@@ -636,7 +636,7 @@ function V:Create()
         -- takeOut): the pop-ups come back as soon as combat ends
         if InCombatLockdown() then
             LR.handBackLater = true
-            ns.Print("Rolls you haven't made come back as Blizzard's pop-ups when combat ends - /tu rolls opens this window again.")
+            ns.Print("Rolls you haven't made come back as Blizzard's pop-ups when combat ends - /et rolls opens this window again.")
         else
             LR:HandBack()
         end

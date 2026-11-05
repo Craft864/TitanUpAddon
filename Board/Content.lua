@@ -12,7 +12,7 @@ local Content = {}
 ns.Content = Content
 
 -- If a keystone dungeon's name doesn't match its journal entry, map it
--- here: [normalized name] = journalInstanceID. (/tb debug prints misses.)
+-- here: [normalized name] = journalInstanceID. (/etb debug prints misses.)
 Content.NAME_OVERRIDES = {}
 
 local function norm(s)
@@ -247,7 +247,7 @@ do
 --      2048x1024 (or another power of two), put the art in the top-left
 --      corner, and give the real art size as width/height below. Paths
 --      have no extension - the game finds the .blp or .tga itself.
---   2. Open the board on that boss and type /tb ids for its encounter ID.
+--   2. Open the board on that boss and type /etb ids for its encounter ID.
 --   3. Add an entry below, then /reload.
 --
 -- Each image: key (short, letters/digits only - it's saved in plans),
@@ -274,7 +274,7 @@ local ROOMS = {
     },
 }
 
--- Sample image used by /tb testroom so you can try custom rooms anywhere.
+-- Sample image used by /etb testroom so you can try custom rooms anywhere.
 local TEST_ROOM = { key = "test", label = "Test arena", file = PATH .. "TestArena", width = 512, height = 512, texWidth = 512, texHeight = 512 }
 
 local Rooms = {}

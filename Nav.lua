@@ -178,7 +178,7 @@ function Nav:ItemTarget(it)
     return (last and self.byKey[last] and self.byKey[last].rail == it.rail) and last or it.key
 end
 
--- Open a shared rail entry by its id ("/tu games"); false if there's none.
+-- Open a shared rail entry by its id ("/et games"); false if there's none.
 function Nav:OpenRail(id)
     for _, g in ipairs(self:RailItems()) do
         for _, it in ipairs(g.items) do
@@ -902,7 +902,7 @@ function Hub:CreateMinimapButton()
         GameTooltip:SetText("Eternal Table", 1, 1, 1)
         GameTooltip:AddLine("Left-click: open / close Eternal Table", 0.8, 0.82, 0.86)
         GameTooltip:AddLine("Right-click: TitanBoard", 0.8, 0.82, 0.86)
-        GameTooltip:AddLine("Drag to move   (/tu minimap hides it)", 0.55, 0.58, 0.64)
+        GameTooltip:AddLine("Drag to move   (/et minimap hides it)", 0.55, 0.58, 0.64)
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)

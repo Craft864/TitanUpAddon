@@ -322,7 +322,7 @@ function SR:Flash(region, w)
     f:Show()
 end
 
--- /tu set <words>: Settings, with the search typed in
+-- /et set <words>: Settings, with the search typed in
 function SR:OpenWith(text)
     ns.Settings:Open()
     local h = ns.Settings.header
