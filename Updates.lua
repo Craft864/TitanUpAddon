@@ -17,6 +17,11 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.49.0", {
+        "Titan Up is now Eternal Table. Your settings, games and standings carry over.",
+        "Works on WoW Forever as well as Midnight. Keystone Roulette and Bonus roll protection are hidden on Forever.",
+        "Commands are now /et (and /etb for the board). /tu and /tb still work.",
+    } },
     { "0.48.0", {
         "Titan Up works without a guild: raid and party features work with everyone in your group, and Chess, Wowdle, Death Roll standings, Crafters and wishlists reach your friends who run Titan Up.",
         "In a guild, everything still works with your guild, plus pugs in your group and friends outside it.",

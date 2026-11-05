@@ -2,7 +2,7 @@
 ## Title: Eternal Table
 ## Notes: The Eternal Table guild toolkit: TitanBoard live raid strategy board, a loot tracker, Death Roll, Wheel of Fortune, Chess, and more.
 ## Author: Ryan (Eternal Table)
-## Version: 0.48.0
+## Version: 0.49.0
 ## SavedVariables: TitanUpDB, TitanBoardDB
 ## IconTexture: Interface\AddOns\TitanUp\Media\TitanUp
 ## X-Category: Raid
