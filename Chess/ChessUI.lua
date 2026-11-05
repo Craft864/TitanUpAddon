@@ -1,4 +1,4 @@
--- Titan Up - Chess/ChessUI.lua
+-- Eternal Table - Chess/ChessUI.lua
 -- The Chess window: your games on the left, the board in the middle (your
 -- pieces always at the bottom), the moves and buttons on the right. The
 -- Watch tab (0.45.0) lists the guild's other games instead; watching one
@@ -133,7 +133,7 @@ function V:Create()
     self.listEmpty = UI.Text(list, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", 4, -6)
     self.listEmpty:SetWidth(LIST_W - 8)
     self.listEmpty:SetJustifyH("LEFT")
-    local challenge = UI.Button(f, LIST_W, 26, "Challenge someone", "Start a game with anyone in your guild, your group or on your friends list. If a guildmate is offline, it reaches them through another guildmate running Titan Up.", function() V:AskChallenge() end)
+    local challenge = UI.Button(f, LIST_W, 26, "Challenge someone", "Start a game with anyone in your guild, your group or on your friends list. If a guildmate is offline, it reaches them through another guildmate running Eternal Table.", function() V:AskChallenge() end)
     challenge:SetPoint("BOTTOMLEFT", 12, 14)
     UI.SetActive(challenge, true)
     self.challengeBtn = challenge
@@ -371,7 +371,7 @@ function V:Animate()
     self.slider:Show()
 end
 
--- Your opponent moved while you're elsewhere in Titan Up: the Games entry,
+-- Your opponent moved while you're elsewhere in Eternal Table: the Games entry,
 -- the Chess page under it and the Chess tab blink a few times.
 function V:FlashRail()
     ns.Nav:Flash("chess")
@@ -681,10 +681,10 @@ function V:RefreshSide(g)
         b = { "Forward a move", "Step forward again", false, "forward" }
     elseif not g and self.mode == "watch" then
         status = "Watch the guild play"
-        note = "Pick a game on the left to watch it live. Every guild game your Titan Up has seen go past is listed."
+        note = "Pick a game on the left to watch it live. Every guild game your Eternal Table has seen go past is listed."
     elseif not g then
         status = "Chess with your guild and friends"
-        note = "Pick a game on the left, or challenge someone. Games are saved until they end. Guild moves reach offline players through any guildmate running Titan Up."
+        note = "Pick a game on the left, or challenge someone. Games are saved until they end. Guild moves reach offline players through any guildmate running Eternal Table."
     elseif self.watching then
         status = ("%s vs %s"):format(ns.Short(g.w), ns.Short(g.b))
         note = CH:WatchText(g) .. (g.status == "active" and ("\n" .. col(MUTED, "Watching - moves show up as they're played.")) or "")
@@ -856,7 +856,7 @@ function V:BuildChallenge()
     UI.Text(d, "GameFontNormal", C.accent, "CHALLENGE SOMEONE", "TOPLEFT", 14, -12)
     local close = UI.Button(d, 22, 20, "X", "Close", function() d:Hide() end)
     close:SetPoint("TOPRIGHT", -8, -8)
-    local help = UI.Text(d, "GameFontHighlightSmall", C.muted, "Guildmates, friends and group members with Titan Up Chess. Or type a name below.", "TOPLEFT", 14, -34)
+    local help = UI.Text(d, "GameFontHighlightSmall", C.muted, "Guildmates, friends and group members with Eternal Table Chess. Or type a name below.", "TOPLEFT", 14, -34)
     help:SetWidth(312); help:SetJustifyH("LEFT")
 
     local list = CreateFrame("Frame", nil, d, "BackdropTemplate")
@@ -877,7 +877,7 @@ function V:BuildChallenge()
         d.rows[i] = r
     end
     d.empty = UI.Text(list, "GameFontHighlightSmall", C.muted,
-        "Nobody yet. Guildmates show up here once they've logged in with Titan Up 0.34.0 or newer. You can type a name below.", "TOPLEFT", 10, -10)
+        "Nobody yet. Guildmates show up here once they've logged in with Eternal Table 0.34.0 or newer. You can type a name below.", "TOPLEFT", 10, -10)
     d.empty:SetWidth(296); d.empty:SetJustifyH("LEFT")
 
     UI.Text(d, "GameFontHighlightSmall", C.muted, "Or type a name:", "TOPLEFT", 14, -(66 + DLG_ROWS * 26 + 18))

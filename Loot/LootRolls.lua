@@ -1,10 +1,10 @@
--- Titan Up - Loot/LootRolls.lua
+-- Eternal Table - Loot/LootRolls.lua
 -- The roll window (Loot settings, off by default): one window for every
 -- group-loot roll instead of Blizzard's separate Need / Greed pop-ups.
 --   * Each item: Need / Greed / Transmog / Pass (sent to the game exactly as
 --     Blizzard's buttons do), tags (BIS, Sidegrade, 2pc, 4pc - any mix) and
 --     a short note.
---   * Tags, notes and roll choices are shared with the raid's Titan Up users;
+--   * Tags, notes and roll choices are shared with the raid's Eternal Table users;
 --     click an item to see everyone's, plus the game's live rolls and the
 --     winner - so a Sidegrade win over someone's BIS shows while the item
 --     can still be traded.
@@ -372,7 +372,7 @@ end
 -- What the window shows for one item
 -- ---------------------------------------------------------------------
 
--- one line per raider: you, Titan Up picks, and the game's rolls
+-- one line per raider: you, Eternal Table picks, and the game's rolls
 function LR:Raiders(e)
     local by, list = {}, {}
     local function get(name)
@@ -399,9 +399,9 @@ function LR:Raiders(e)
     local hist = next(e.rolls) ~= nil
     for _, x in ipairs(list) do
         x.won = e.winner == x.name
-        -- passed (in the game, or their Titan Up pick), or never rolled before it ended
+        -- passed (in the game, or their Eternal Table pick), or never rolled before it ended
         x.passed = x.state == PASSED or (not x.state and x.roll == LR.PASS) or (e.closed and x.hist and not x.state and not x.roll) or nil
-        -- still to roll: the game lists who can roll; without its list yet, Titan Up users
+        -- still to roll: the game lists who can roll; without its list yet, Eternal Table users
         x.wait = not e.closed and not x.state and not x.roll and (hist and x.hist or (not hist and x.titan)) or nil
         local text
         if x.passed and not x.state and not x.roll then
@@ -426,7 +426,7 @@ function LR:Raiders(e)
 end
 
 -- Who the item is still waiting on, and how many have rolled:
--- waiting (list), done, total, fromGame (false: Titan Up users only)
+-- waiting (list), done, total, fromGame (false: Eternal Table users only)
 function LR:Waiting(e, list)
     list = list or self:Raiders(e)
     local waiting, total = {}, 0
@@ -943,7 +943,7 @@ function V:RefreshDetail()
         self.dWaitCount:SetText(total > 0 and (done .. " / " .. total .. " ROLLED") or "")
         self.dWaitNames:ClearAllPoints(); self.dWaitNames:SetPoint("TOPLEFT", 8, y - 15)
         local names = #waiting > 0 and nameList(waiting) or "|cff8a8f9cEveryone has rolled.|r"
-        if not fromGame then names = names .. "\n|cff8a8f9c(Titan Up users only - the game's list isn't in yet)|r" end
+        if not fromGame then names = names .. "\n|cff8a8f9c(Eternal Table users only - the game's list isn't in yet)|r" end
         self.dWaitNames:SetText(names)
         y = y - 15 - math.max(14, self.dWaitNames:GetStringHeight() or 14) - 10
     end
@@ -974,7 +974,7 @@ function V:RefreshDetail()
         local sub = LR.TagText(x.tags)
         if (x.note or "") ~= "" then sub = sub .. (sub ~= "" and "  -  " or "") .. "\"" .. x.note .. "\"" end
         if x.wish then sub = sub .. (sub ~= "" and "  -  " or "") .. "|cff4fc3f7wishlist: " .. (ns.Wishlist.TAG_NAME[x.wish] or "") .. "|r" end
-        if sub == "" then sub = x.titan and "no tags" or "|cff5a5f6ano Titan Up tags|r" end
+        if sub == "" then sub = x.titan and "no tags" or "|cff5a5f6ano Eternal Table tags|r" end
         r.sub:SetText(sub)
     end
 

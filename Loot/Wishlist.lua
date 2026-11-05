@@ -1,4 +1,4 @@
--- Titan Up - Loot/Wishlist.lua
+-- Eternal Table - Loot/Wishlist.lua
 -- Loot wishlists (0.37.0, on by default): pick the items you want from the
 -- Adventure Guide (any instance, boss, difficulty), tagged BIS, Sidegrade
 -- or just "want". Everyone's wishlist is shared with the guild over the
@@ -8,7 +8,7 @@
 -- The item lists come straight from the game's Adventure Guide, so a new
 -- season's raids and dungeons work without an update. The Adventure Guide
 -- has one "selected instance / difficulty / filter" shared with Blizzard's
--- own window, so Titan Up only reads it while that window is closed, and
+-- own window, so Eternal Table only reads it while that window is closed, and
 -- puts every selection back the way it was afterwards.
 --
 -- A wishlist (prefix TitanUpLW): item:tag,item:tag,...   (item in base36;

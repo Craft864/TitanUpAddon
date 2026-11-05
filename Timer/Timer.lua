@@ -1,4 +1,4 @@
--- Titan Up - Timer/Timer.lua
+-- Eternal Table - Timer/Timer.lua
 -- Combat Timer: an on-screen timer you can place anywhere and style.
 --   * When it runs (automatic, not an option): inside a raid instance it
 --     times boss encounters (pull to kill/wipe - trash doesn't start it and

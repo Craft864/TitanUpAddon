@@ -1,4 +1,4 @@
--- Titan Up - Share/MacroBuilder.lua
+-- Eternal Table - Share/MacroBuilder.lua
 -- Macro Workstation > Builder: helps players who aren't good with macros.
 -- Pick an ability (your spellbook, or any class's hand-picked list), tick
 -- where it should land (whoever you hover, your focus, the ground under

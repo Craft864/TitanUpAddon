@@ -1,4 +1,4 @@
--- Titan Up - Board/BoardPanels.lua
+-- Eternal Table - Board/BoardPanels.lua
 -- TitanBoard's side panels: the encounter list (left), live viewers (right),
 -- header / status, slides, saved plans and the room picker. Split out of
 -- Board.lua to keep that file manageable; these only use the shared tables

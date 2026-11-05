@@ -1,17 +1,17 @@
--- Titan Up - Guild/Alts.lua
+-- Eternal Table - Guild/Alts.lua
 -- Alt linking (0.37.0, on by default; "Link my characters" in Settings):
 -- the game standings show one row per player, under their main, and Death
 -- Roll records and debts are combined across a player's characters.
 --
--- Titan Up's saved data is per account, so every character you log into
--- with Titan Up is known here (chars). Each one tells the guild, once per
+-- Eternal Table's saved data is per account, so every character you log into
+-- with Eternal Table is known here (chars). Each one tells the guild, once per
 -- login, "my main is M and my characters are A, B, C" (prefix TitanUpAL).
 -- Two characters only count as linked when BOTH say so - each from its own
 -- login, and WoW stamps every addon message with its real sender - so
 -- nobody can claim someone else's character as their alt (or put their
 -- Death Roll debts on someone else). Characters outside your guild are
 -- never listed. Turning it off tells the guild to forget your links.
--- Without a guild (0.48.0) the list goes to your friends running Titan Up
+-- Without a guild (0.48.0) the list goes to your friends running Eternal Table
 -- instead, and names all your characters on this account.
 --
 --   A main part n names       names: comma list; your own realm left off
@@ -122,7 +122,7 @@ function AL:PickMain(name)
 end
 
 -- picked from the guild roster: a character this account hasn't logged into
--- with Titan Up yet. It becomes your main when it logs in (Seen); until then
+-- with Eternal Table yet. It becomes your main when it logs in (Seen); until then
 -- your characters stay under the oldest one. Nothing is claimed for it
 -- before then, so a wrong pick can't merge you with someone else.
 function AL:PickPending(name)

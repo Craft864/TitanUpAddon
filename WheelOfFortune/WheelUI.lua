@@ -1,4 +1,4 @@
--- Titan Up - WheelOfFortune/WheelUI.lua
+-- Eternal Table - WheelOfFortune/WheelUI.lua
 -- Lobby (host setup + open games) and the game view: puzzle board, the
 -- spinning wheel, three player cards, letter buttons, and host controls.
 local ADDON, ns = ...

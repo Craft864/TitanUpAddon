@@ -1,7 +1,7 @@
-## Interface: 120100, 120105
-## Title: Titan Up
-## Notes: The Titan Up guild toolkit: TitanBoard live raid strategy board, a loot tracker, Death Roll, Wheel of Fortune, Chess, and more.
-## Author: Ryan (Titan Up - Medivh)
+## Interface: 120100, 120105, 16001
+## Title: Eternal Table
+## Notes: The Eternal Table guild toolkit: TitanBoard live raid strategy board, a loot tracker, Death Roll, Wheel of Fortune, Chess, and more.
+## Author: Ryan (Eternal Table)
 ## Version: 0.48.0
 ## SavedVariables: TitanUpDB, TitanBoardDB
 ## IconTexture: Interface\AddOns\TitanUp\Media\TitanUp

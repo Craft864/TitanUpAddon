@@ -1,4 +1,4 @@
--- Titan Up - Loot/WishlistUI.lua
+-- Eternal Table - Loot/WishlistUI.lua
 -- The Wishlist tab of the Loot window: pick an expansion, an instance, a
 -- boss (or every drop) and a difficulty; narrow it down with the search box,
 -- a slot and the stats (Both = items with all the ticked stats, Either =

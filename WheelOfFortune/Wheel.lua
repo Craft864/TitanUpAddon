@@ -1,4 +1,4 @@
--- Titan Up - WheelOfFortune/Wheel.lua
+-- Eternal Table - WheelOfFortune/Wheel.lua
 -- Wheel of Fortune. One host runs the game (sets the puzzles, doesn't
 -- play); up to three players take seats.
 --
@@ -65,7 +65,7 @@ WF.BANK = {
     { "PHRASE", "STAND IN THE GOOD STUFF", "wow" },
     { "PHRASE", "ONE MORE PULL", "wow" },
     { "PHRASE", "WHO PULLED THAT", "wow" },
-    { "PHRASE", "TITAN UP", "wow" },
+    { "PHRASE", "ETERNAL TABLE", "wow" },
     { "PHRASE", "NEED BEFORE GREED", "wow" },
     { "PHRASE", "TANK AND SPANK", "wow" },
     { "PHRASE", "RELEASE AND RUN BACK", "wow" },
@@ -563,7 +563,7 @@ function WF:Host(puzzles, prize, bonus)
         bonusPz = { cat ~= "" and cat or "PHRASE", phrase }
     end
     return self:Launch(list, WF.Clean(prize or "", 48, true), false, bonusPz,
-        "%s is hosting Wheel of Fortune (%d round%s) - open Titan Up (/tu wheel) to grab a seat!")
+        "%s is hosting Wheel of Fortune (%d round%s) - open Eternal Table (/tu wheel) to grab a seat!")
 end
 
 -- Start a game (hosted, or auto = everyone plays): tell the group, and post
@@ -602,7 +602,7 @@ function WF:Play(rounds, theme, bonus)
     if #list == 0 then ns.Print("No puzzles for that theme.") return nil end
     local bonusPz = bonus and WF.RandomBonus(theme, taken)
     return self:Launch(list, nil, true, bonusPz and { bonusPz[1], bonusPz[2] } or nil,
-        "%s started Wheel of Fortune (%d round%s, everyone plays) - open Titan Up (/tu wheel) to grab a seat!")
+        "%s started Wheel of Fortune (%d round%s, everyone plays) - open Eternal Table (/tu wheel) to grab a seat!")
 end
 
 function WF:Join(id)

@@ -216,8 +216,8 @@ function UI.Button(parent, w, h, text, tip, onClick)
     return b
 end
 
--- Faint Titan Up logo behind a window's contents.
--- The faded Titan Up logo behind a window's content. It never spills past
+-- Faint Eternal Table logo behind a window's contents.
+-- The faded Eternal Table logo behind a window's content. It never spills past
 -- the window: it shrinks to fit a short or narrow window (with a small
 -- margin), keeps its offset only as far as it still fits, and re-fits
 -- whenever the window changes size.

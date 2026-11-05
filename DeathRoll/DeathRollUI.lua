@@ -1,4 +1,4 @@
--- Titan Up - DeathRoll/DeathRollUI.lua
+-- Eternal Table - DeathRoll/DeathRollUI.lua
 -- Lobby (new challenge, open challenges, your record) and the room view
 -- (player cards, big rolling number, roll button, history), plus the
 -- challenge pop-up and the clickable chat link.

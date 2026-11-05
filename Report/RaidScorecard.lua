@@ -1,4 +1,4 @@
--- Titan Up - Report/RaidScorecard.lua
+-- Eternal Table - Report/RaidScorecard.lua
 -- Raid Scorecard (Raid Tools): over a raid week (or all kept weeks), per
 -- player - how often they died first, were in the first 3 dead, and died
 -- with a defensive available, with counts and percentages. Click a number
@@ -7,7 +7,7 @@
 --     pulls). Deaths after the raid leader's wipe-call mark don't count;
 --     close calls never count. Percentages are over the pulls they were in.
 --   * Kept by raid week (Tuesday reset), 4 weeks; clear a week or all.
---   * Sync from raid leader: asks the leader's Titan Up for their (most
+--   * Sync from raid leader: asks the leader's Eternal Table for their (most
 --     complete) copy of the week, out of combat; merged without duplicates.
 --     The leader answers each week at most once a minute (raiders asking
 --     in between share that answer), one part a second, pausing in combat.

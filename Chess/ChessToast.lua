@@ -1,4 +1,4 @@
--- Titan Up - Chess/ChessToast.lua
+-- Eternal Table - Chess/ChessToast.lua
 -- The "your move" pop-up (0.45.0, off until you turn it on in Settings >
 -- Chess): a small box when it becomes your move in a chess game, or a
 -- guildmate challenges you, while the Chess window is closed. Click it to

@@ -1,4 +1,4 @@
--- Titan Up - Tweaks/BattleRez.lua
+-- Eternal Table - Tweaks/BattleRez.lua
 -- Battle rez tracker (a UI Tweak, off until turned on): the Rebirth icon with
 -- the number of battle-rez charges the group has. At zero it greys out, with
 -- a cooldown sweep and a countdown to the next charge.

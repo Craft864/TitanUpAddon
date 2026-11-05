@@ -1,4 +1,4 @@
--- Titan Up - DeathRoll/Ledger.lua
+-- Eternal Table - DeathRoll/Ledger.lua
 -- Every finished death roll is saved as a game record, by BOTH players:
 --   { id, w = winner, l = loser, g = wager (gold), t = server time,
 --     r = number of rolls, paid = gold paid so far, src = { [name] = true } }
@@ -18,7 +18,7 @@
 -- Everyone announces a small digest of their own games, to their group and
 -- to the guild's (hidden) addon channel; if your copy of someone's games
 -- differs, you ask on the same channel and they send their records. So the
--- standings fill in from any online guildmate with Titan Up, grouped or not. Nobody can send games between two
+-- standings fill in from any online guildmate with Eternal Table, grouped or not. Nobody can send games between two
 -- other people, and if two reports of one game disagree on who won or the
 -- amount, the game is marked disputed and left out of the standings.
 --
@@ -147,7 +147,7 @@ function L:Init()
         ns.On(ev, function() C_Timer.After(delay, function() if not L:Quiet() then L:FlushDeferred() end end) end)
     end
     C_Timer.After(6, function() L:ScheduleDigest(0) end)
-    -- a friend running Titan Up showed up: compare ledgers with them too (0.48.0)
+    -- a friend running Eternal Table showed up: compare ledgers with them too (0.48.0)
     if ns.Friends then ns.Friends:OnNewFriend(function() L:ScheduleDigest(2) end) end
     C_Timer.After(20, function() if not L:Quiet() then L:Archive() end end)     -- fold settled games older than 3 months
     self:Trim()
@@ -423,7 +423,7 @@ function L:OnTradeComplete(partner, gave, got)
             if iAmWinner then
                 ns.Print(("Received %sg from %s - credited to their death roll debt."):format(DR.Fmt(total), ns.Short(partner)))
             else
-                ns.Print(("Paid %sg to %s - it clears once their Titan Up confirms it."):format(DR.Fmt(total), ns.Short(partner)))
+                ns.Print(("Paid %sg to %s - it clears once their Eternal Table confirms it."):format(DR.Fmt(total), ns.Short(partner)))
             end
         end
     end

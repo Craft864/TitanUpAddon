@@ -1,4 +1,4 @@
--- Titan Up - Tweaks/DeathAlerts.lua
+-- Eternal Table - Tweaks/DeathAlerts.lua
 -- Death Alerts (a UI Tweak): when someone in your group dies, a banner
 -- slides in - role icon, class-colored name, and the fight time from the
 -- Combat Timer ("Brakk  2:31"). Up to three stack, newest on top.

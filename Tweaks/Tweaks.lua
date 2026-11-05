@@ -1,4 +1,4 @@
--- Titan Up - Tweaks/Tweaks.lua
+-- Eternal Table - Tweaks/Tweaks.lua
 -- UI Tweaks: small quality-of-life changes to the game's own UI, each with
 -- an on/off switch. New tweaks add an entry to TW.LIST.
 --
@@ -46,11 +46,18 @@ TW.LIST = {
       get = function() return ns.udb.brez.enabled end,
       set = function(on) ns.udb.brez.enabled = on; ns.BattleRez:Check() end,
       page = function() return ns.BattleRez end, title = "BATTLE REZ TRACKER" },
-    { key = "bonusGuard", name = "Bonus roll protection", short = "Bonus roll Roll and Pass ask first.",
+    { key = "bonusGuard", retailOnly = true, name = "Bonus roll protection", short = "Bonus roll Roll and Pass ask first.",
       desc = "Blizzard's bonus roll Roll and Pass buttons ask first - a green \"Spend a bonus roll?\" or a red \"Give up this bonus roll?\" - so a misclick can't waste one.",
       get = function() return ns.udb.tweaks.bonusGuard end,
       set = function(on) ns.udb.tweaks.bonusGuard = on; ns.BonusRollGuard:Check() end },
 }
+
+-- WoW Forever has no bonus rolls: leave those tweaks off its list
+if ns.FOREVER then
+    for i = #TW.LIST, 1, -1 do
+        if TW.LIST[i].retailOnly then table.remove(TW.LIST, i) end
+    end
+end
 
 function TW:Init()
     -- watch for the death dialog (nothing is built until it's needed)

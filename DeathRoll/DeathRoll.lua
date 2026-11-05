@@ -1,4 +1,4 @@
--- Titan Up - DeathRoll/DeathRoll.lua
+-- Eternal Table - DeathRoll/DeathRoll.lua
 -- Death roll: two players take turns /rolling. The first roll is 1-N (N =
 -- the starting roll, usually the wager); every next roll is 1 up to the
 -- previous result. Whoever rolls a 1 loses the wager.
@@ -500,10 +500,10 @@ function DR:Create(wager, target)
     self:Send("N", id, wager, start, target or "")
     if ns.udb.deathroll.announce then
         if target then
-            sayInGroup(("%s challenges %s to a death roll for %sg! Open Titan Up (/tu roll) to accept."):format(
+            sayInGroup(("%s challenges %s to a death roll for %sg! Open Eternal Table (/tu roll) to accept."):format(
                 ns.Short(ns.me), ns.Short(target), self.Fmt(wager)))
         else
-            sayInGroup(("%s started a death roll for %sg - first roll 1-%s. Open Titan Up (/tu roll) to join!"):format(
+            sayInGroup(("%s started a death roll for %sg - first roll 1-%s. Open Eternal Table (/tu roll) to join!"):format(
                 ns.Short(ns.me), self.Fmt(wager), self.Fmt(start)))
         end
     end
@@ -617,7 +617,7 @@ function DR:OpenToAnyone(id)
     room.target, room.declinedBy = nil, nil
     self:Send("O", room.id)
     if ns.udb.deathroll.announce then
-        sayInGroup(("%s's death roll for %sg is now open to anyone! Open Titan Up (/tu roll) to join."):format(
+        sayInGroup(("%s's death roll for %sg is now open to anyone! Open Eternal Table (/tu roll) to join."):format(
             ns.Short(ns.me), self.Fmt(room.wager)))
     end
     changed(room, "opened")

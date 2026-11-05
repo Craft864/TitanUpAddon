@@ -238,7 +238,7 @@ end
 -- ---------------------------------------------------------------------
 -- Version check: your group only. The window opens at once with everyone
 -- "waiting..."; each row fills in as that person answers. No answer after
--- 5 seconds = no Titan Up (older versions answer within 4).
+-- 5 seconds = no Eternal Table (older versions answer within 4).
 -- ---------------------------------------------------------------------
 --   Q version     "what version are you on?" (also says what the asker runs)
 --   V version     the answer
@@ -307,7 +307,7 @@ function UP:OnMessage(msg, sender)
     end
 end
 
--- Someone runs a newer Titan Up than us: remind once per session - once
+-- Someone runs a newer Eternal Table than us: remind once per session - once
 -- two different guildmates report it (one test build or a prank doesn't),
 -- and never mid-fight or inside a raid (held until afterwards).
 function UP:Saw(ver, sender)
@@ -352,14 +352,14 @@ function UP:ResultLines()
             status = "|cff8a8f9ccouldn't send the check|r"
         elseif self.timedOut then
             missing = missing + 1
-            status = "|cffff5a5ano Titan Up|r"
+            status = "|cffff5a5ano Eternal Table|r"
         else
             waiting = waiting + 1
             status = "|cff8a8f9cwaiting...|r"
         end
         lines[#lines + 1] = UI.ClassName(r.name, r.class) .. (r.name == ns.me and " |cff8a8f9c(you)|r" or "") .. "  " .. status
     end
-    local summary = ("Newest: v%s  -  %d of %d have Titan Up, %d behind"):format(latest, have, #list, behind)
+    local summary = ("Newest: v%s  -  %d of %d have Eternal Table, %d behind"):format(latest, have, #list, behind)
     if waiting > 0 then summary = summary .. (", waiting for %d"):format(waiting)
     elseif missing > 0 then summary = summary .. (", %d without it"):format(missing) end
     return lines, summary
@@ -390,8 +390,8 @@ function UP:RefreshResults(force)
 end
 
 function UP:ShowUpdate(ver)
-    local f = self:Panel("update", "TITAN UP UPDATE")
-    f.body:SetText(("A newer Titan Up is out: |cff66e08cv%s|r (you have v%s).\n\nUpdate through CurseForge, then /reload."):format(ver, ns.VERSION))
+    local f = self:Panel("update", "ETERNAL TABLE UPDATE")
+    f.body:SetText(("A newer Eternal Table is out: |cff66e08cv%s|r (you have v%s).\n\nUpdate through CurseForge, then /reload."):format(ver, ns.VERSION))
     self:Fit(f)
     f:Show()
 end
@@ -406,7 +406,7 @@ function UP:WhatsNewCheck()
 end
 
 function UP:ShowWhatsNew(since)
-    local f = self:Panel("whatsnew", "WHAT'S NEW IN TITAN UP v" .. ns.VERSION)
+    local f = self:Panel("whatsnew", "WHAT'S NEW IN ETERNAL TABLE v" .. ns.VERSION)
     f.body:SetText(UP.NotesText(since))
     self:Fit(f)
     f:Show()
@@ -469,14 +469,14 @@ end
 
 function TitanUp_OnAddonCompartmentEnter(_, frame)
     GameTooltip:SetOwner(frame or UIParent, "ANCHOR_LEFT")
-    GameTooltip:SetText("Titan Up " .. ns.VERSION, 1, 1, 1)
-    GameTooltip:AddLine("Left-click: open / close Titan Up   Right-click: settings", 0.8, 0.82, 0.86)
+    GameTooltip:SetText("Eternal Table " .. ns.VERSION, 1, 1, 1)
+    GameTooltip:AddLine("Left-click: open / close Eternal Table   Right-click: settings", 0.8, 0.82, 0.86)
     GameTooltip:Show()
 end
 
 function TitanUp_OnAddonCompartmentLeave() GameTooltip:Hide() end
 
--- key bindings (Bindings.xml): open / close the Titan Up window or a module
+-- key bindings (Bindings.xml): open / close the Eternal Table window or a module
 function TitanUp_Binding(key)
     if key == "hub" then
         if ns.Hub then ns.Hub:Toggle() end
@@ -487,7 +487,7 @@ function TitanUp_Binding(key)
     if m.isShown and m.isShown() then m.hide() else ns.Nav:Switch(key) end
 end
 
-BINDING_HEADER_TITANUP = "Titan Up"
-BINDING_NAME_TITANUP_HUB = "Open / close Titan Up"
+BINDING_HEADER_TITANUP = "Eternal Table"
+BINDING_NAME_TITANUP_HUB = "Open / close Eternal Table"
 BINDING_NAME_TITANUP_BOARD = "Open / close TitanBoard"
 BINDING_NAME_TITANUP_PULLREPORT = "Open / close the Pull Report"

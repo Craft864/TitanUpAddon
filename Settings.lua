@@ -1,8 +1,8 @@
--- Titan Up - Settings.lua
--- Every module's settings, shown in the Titan Up window: a list of pages on
+-- Eternal Table - Settings.lua
+-- Every module's settings, shown in the Eternal Table window: a list of pages on
 -- the left, the page on the right. The cog in a module's title bar opens
 -- its page directly, with a button back to the module (Home's cog opens the
--- Titan Up page). UI Tweaks keep their options in the UI Tweaks module,
+-- Eternal Table page). UI Tweaks keep their options in the UI Tweaks module,
 -- except the Combat Timer's look and chat line, which are a page here
 -- (its Timer settings button opens it). Keystone Roulette's and Death
 -- Roll's choices are per-game, in their windows.
@@ -36,11 +36,11 @@ local ROW_H = 30
 function S:Pages()
     local u = ns.udb
     local pages = {}
-    pages[#pages + 1] = { key = "titanup", title = "Titan Up", group = "TITAN UP", rows = {
-        { text = "Titan Up " .. ns.VERSION .. " - the guild toolkit." },
-        { button = "Check raid versions", tip = "See which Titan Up version everyone in your group runs - the list fills in as they answer", run = function() ns.Updates:Check() end },
+    pages[#pages + 1] = { key = "titanup", title = "Eternal Table", group = "ETERNAL TABLE", rows = {
+        { text = "Eternal Table " .. ns.VERSION .. " - the guild toolkit." },
+        { button = "Check raid versions", tip = "See which Eternal Table version everyone in your group runs - the list fills in as they answer", run = function() ns.Updates:Check() end },
         { button = "Reset alert position", tip = "Put the stack of pop-ups (pull alert, death summary, key vote, What's new) back at the top of the screen", run = function() ns.Dock:Reset() end },
-        { toggle = "Link my characters", tip = "Show your characters as one player under your main: one row in the Wowdle and Death Roll standings, and Death Roll wins and debts combined (pay from any of them). Your guild sees which characters are yours. Each character joins once you've logged into it with Titan Up.",
+        { toggle = "Link my characters", tip = "Show your characters as one player under your main: one row in the Wowdle and Death Roll standings, and Death Roll wins and debts combined (pay from any of them). Your guild sees which characters are yours. Each character joins once you've logged into it with Eternal Table.",
           get = function() return ns.Alts:Enabled() end, set = function(on) ns.Alts:SetEnabled(on) end },
         { cycle = "My main", tip = "The character the others are listed under",
           options = (function()
@@ -50,7 +50,7 @@ function S:Pages()
               return out
           end)(),
           get = function() return ns.Alts:MyMain() end, set = function(v) ns.Alts:SetMain(v) end },
-        { button = "Pick my main", tip = "Choose your main from your characters, or from the guild roster if you haven't logged into it with Titan Up yet", run = function() ns.MainPicker:Show() end },
+        { button = "Pick my main", tip = "Choose your main from your characters, or from the guild roster if you haven't logged into it with Eternal Table yet", run = function() ns.MainPicker:Show() end },
         { notes = true },                       -- what's new, every version, newest first
     } }
     -- the raid tools' pages, keyed by module (shown in the tools' own order)
@@ -58,7 +58,7 @@ function S:Pages()
         loot = u.loot and { title = "Loot", rows = {
             { cycle = "Track items of", options = { { 4, "Epic and up" }, { 3, "Rare and up" } },
               get = function() return u.loot.minQuality end, set = function(v) u.loot.minQuality = v end },
-            { toggle = "Titan Up loot roll window", tip = "One window for every loot roll instead of Blizzard's pop-ups: tag items BIS / Sidegrade / 2pc / 4pc, add a note, and see what the rest of the raid chose (Titan Up users) before you roll",
+            { toggle = "Eternal Table loot roll window", tip = "One window for every loot roll instead of Blizzard's pop-ups: tag items BIS / Sidegrade / 2pc / 4pc, add a note, and see what the rest of the raid chose (Eternal Table users) before you roll",
               get = function() return u.loot.rollWindow end,
               set = function(on) u.loot.rollWindow = on; if not on and ns.LootRolls then ns.LootRolls.V:Hide() end end },
             { button = "Preview the roll window", tip = "Open it with sample items and raiders - nothing is rolled or sent", run = function() ns.LootRolls:Preview() end },
@@ -101,7 +101,7 @@ function S:Pages()
     end
     if u.friends and ns.Friends then
         pages[#pages + 1] = { key = "friends", title = "Friends", group = "GUILD", rows = {
-            { toggle = "Share with friends who run Titan Up", tip = "Chess, Wowdle, Death Roll standings, Crafters and wishlists also reach your online friends running Titan Up, even when you're not in a guild together. Off: only your guild and your group.",
+            { toggle = "Share with friends who run Eternal Table", tip = "Chess, Wowdle, Death Roll standings, Crafters and wishlists also reach your online friends running Eternal Table, even when you're not in a guild together. Off: only your guild and your group.",
               get = function() return ns.Friends:Enabled() end, set = function(on) ns.Friends:SetEnabled(on) end },
             { text = "Battle.net friends work on any realm. Character friends only work on your own and connected realms." },
             { text = "You only see your own friends, not their friends." },

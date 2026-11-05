@@ -1,4 +1,4 @@
--- Titan Up - Tweaks/BonusRollGuard.lua
+-- Eternal Table - Tweaks/BonusRollGuard.lua
 -- Bonus roll protection (a UI Tweak, off until turned on): no more spending
 -- or passing a bonus roll by accident.
 --   * Blizzard's bonus roll Roll and Pass buttons get a cover each. Clicking
@@ -41,6 +41,7 @@ local function inCombat() return InCombatLockdown and InCombatLockdown() end
 function BG:Enabled() return db().bonusGuard and true or false end
 
 function BG:Init()
+    if ns.FOREVER then return end            -- no bonus rolls in WoW Forever
     ns.On("SPELL_CONFIRMATION_PROMPT", function(_, confirmType, _, _, currencyID, currencyCost)
         if ns.IsSecret(confirmType) or confirmType ~= BONUS_ROLL_PROMPT then return end
         BG.currencyID = not ns.IsSecret(currencyID) and currencyID or nil
@@ -129,7 +130,7 @@ local function cover(kind)
     b:SetScript("OnClick", function() BG:Ask(kind) end)
     b:SetScript("OnEnter", function(s)
         GameTooltip:SetOwner(s, "ANCHOR_TOP")
-        GameTooltip:SetText(kind == "roll" and "Titan Up: click to roll - you'll confirm first" or "Titan Up: click to pass - you'll confirm first", 1, 1, 1, 1, true)
+        GameTooltip:SetText(kind == "roll" and "Eternal Table: click to roll - you'll confirm first" or "Eternal Table: click to pass - you'll confirm first", 1, 1, 1, 1, true)
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -395,7 +396,7 @@ function BG:Dock()
     if not st then return end
     self:NoteHome()                                                  -- to put it back
     self.docked = true
-    st.hint:SetText(self:Enabled() and "Roll or pass here - Titan Up asks first." or "Roll or pass here.")
+    st.hint:SetText(self:Enabled() and "Roll or pass here - Eternal Table asks first." or "Roll or pass here.")
     st:Show()
     self:Place()
 end

@@ -1,6 +1,6 @@
--- Titan Up - Guild/Shared.lua
+-- Eternal Table - Guild/Shared.lua
 -- Shared lists: one list per guildmate (their crafting recipes, their loot
--- wishlist), kept by everyone running Titan Up so it shows even when its
+-- wishlist), kept by everyone running Eternal Table so it shows even when its
 -- owner is offline. Used by the Crafters directory and the Loot wishlist.
 --
 -- Everything here travels on the background lane (ns.BulkSend: one
@@ -58,7 +58,7 @@ local function key(self, kind, x) return self.prefix .. ":" .. kind .. ":" .. (x
 -- ---------------------------------------------------------------------
 function Shared:Init()
     ns.Listen(self.prefix, "guild", function(msg, sender) self:OnMessage(msg, sender) end)
-    -- a friend running Titan Up showed up (0.48.0): say hello so they can ask for our list
+    -- a friend running Eternal Table showed up (0.48.0): say hello so they can ask for our list
     if ns.Friends then ns.Friends:OnNewFriend(function() self:Hello() end) end
     self:Prune()
     self:Refresh(true)

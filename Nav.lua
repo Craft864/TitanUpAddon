@@ -1,7 +1,7 @@
--- Titan Up - Nav.lua
--- Module registry and the Titan Up window frame every module shares:
+-- Eternal Table - Nav.lua
+-- Module registry and the Eternal Table window frame every module shares:
 --
---   [emblem] TITAN UP | Section > MODULE      [search]   [cog] | [X]
+--   [emblem] ETERNAL TABLE | Section > MODULE      [search]   [cog] | [X]
 --   ---------------------------------------------------------------
 --   Home             | [Tab] [Tab] [Tab]   (entries with several pages)
 --   RAID INFO        |----------------------------------------------
@@ -57,6 +57,7 @@ function ns.RegisterModule(def)
     end
     assert(def.key and def.name and def.show and def.hide, "module needs key, name, show, hide")
     if Nav.byKey[def.key] then return end
+    if def.retailOnly and ns.FOREVER then return end   -- not in WoW Forever
     def.order = def.order or (100 + #Nav.modules)
     def.group = def.group or "tools"
     Nav.modules[#Nav.modules + 1] = def
@@ -217,9 +218,9 @@ local function hideKey(key)
     end
 end
 
--- The module the Titan Up window is showing now (nil when it's closed).
+-- The module the Eternal Table window is showing now (nil when it's closed).
 -- A window whose title bar and rail are hidden (TitanBoard's mini view and
--- viewer mode) is on its own, not in the Titan Up window.
+-- viewer mode) is on its own, not in the Eternal Table window.
 function Nav:ShellKey()
     for key, h in pairs(self.headers) do
         if h.frame:IsShown() and h.tab:IsShown() then return key end
@@ -244,8 +245,8 @@ function Nav:Switch(toKey, fromKey)
 end
 
 -- A window just opened (or its title bar came back): make it the one the
--- Titan Up window shows. Whatever else it was showing closes, and the
--- window goes where the Titan Up window is.
+-- Eternal Table window shows. Whatever else it was showing closes, and the
+-- window goes where the Eternal Table window is.
 function Nav:Activate(key)
     local h = self.headers[key]
     if not (h and h.frame:IsShown() and h.tab:IsShown()) then return end
@@ -264,7 +265,7 @@ function Nav:Activate(key)
 end
 
 -- ---------------------------------------------------------------------
--- Where the Titan Up window is
+-- Where the Eternal Table window is
 -- ---------------------------------------------------------------------
 -- Saved as the top-left corner of the whole window (rail and title bar
 -- included), so modules of any size open with the rail in the same spot.
@@ -389,7 +390,7 @@ function Nav:CreateHeader(frame, key, opts)
     h.emblem:SetTexture(ns.MEDIA .. "TitanUp")
     h.emblem:SetSize(18, 18)
     h.emblem:SetPoint("LEFT", 11, 0)
-    h.brand = UI.Text(bar, "GameFontNormal", C.accent, "TITAN UP", "LEFT", h.emblem, "RIGHT", 6, 0)
+    h.brand = UI.Text(bar, "GameFontNormal", C.accent, "ETERNAL TABLE", "LEFT", h.emblem, "RIGHT", 6, 0)
     h.crumb = UI.Text(bar, "GameFontHighlightSmall", C.muted, nil)
     h.title = UI.Text(bar, "GameFontNormal", C.text, nil, "LEFT", h.crumb, "RIGHT", 6, 0)
     local sec = m and self.sectionByKey[m.group]
@@ -642,7 +643,7 @@ function Nav:RefreshChrome(h)
     end
 end
 
--- Something new in module `key` while another Titan Up window is open
+-- Something new in module `key` while another Eternal Table window is open
 -- (a chess move): its rail entry, its page under the entry and its tab
 -- blink a few times.
 function Nav:Flash(key)
@@ -694,7 +695,7 @@ end
 function Hub:Show() self:EnsureHome():Show() end
 function Hub:ShowSection() self:Show() end        -- sections are rail headings now
 
--- Open Titan Up on Home, or close it (whatever module it's showing).
+-- Open Eternal Table on Home, or close it (whatever module it's showing).
 function Hub:Toggle()
     local cur = ns.Nav:ShellKey()
     if cur then
@@ -796,7 +797,7 @@ function Hub:Build()
     local f = Nav:Window(self, "TitanUpHub", "home", "HOME", Nav.STD_W, Nav.STD_H, { mark = { 360, 0.05, -20 },
         cog = { "Settings - every module's options", function() ns.Settings:Open("titanup") end } })
     self.frame = f
-    local ver = UI.Text(f, "GameFontDisableSmall", nil, "Titan Up v" .. ns.VERSION, "BOTTOMRIGHT", -14, 10)
+    local ver = UI.Text(f, "GameFontDisableSmall", nil, "Eternal Table v" .. ns.VERSION, "BOTTOMRIGHT", -14, 10)
     ver:SetTextColor(0.55, 0.57, 0.62)
 
     UI.Text(f, "GameFontNormalSmall", C.accent, "TONIGHT", "TOPLEFT", 16, -14)
@@ -898,8 +899,8 @@ function Hub:CreateMinimapButton()
     b:SetScript("OnDragStop", function(s) s:SetScript("OnUpdate", nil) end)
     b:SetScript("OnEnter", function(s)
         GameTooltip:SetOwner(s, "ANCHOR_LEFT")
-        GameTooltip:SetText("Titan Up", 1, 1, 1)
-        GameTooltip:AddLine("Left-click: open / close Titan Up", 0.8, 0.82, 0.86)
+        GameTooltip:SetText("Eternal Table", 1, 1, 1)
+        GameTooltip:AddLine("Left-click: open / close Eternal Table", 0.8, 0.82, 0.86)
         GameTooltip:AddLine("Right-click: TitanBoard", 0.8, 0.82, 0.86)
         GameTooltip:AddLine("Drag to move   (/tu minimap hides it)", 0.55, 0.58, 0.64)
         GameTooltip:Show()
@@ -922,7 +923,7 @@ end
 -- the key vote, What's new, challenges, shared macros) stack in one place,
 -- newest on top, instead of each landing somewhere near the middle of the
 -- screen. Drag any of them to move the whole stack; the spot is saved
--- (Settings > Titan Up resets it).
+-- (Settings > Eternal Table resets it).
 do
 local Dock = { frames = {}, seq = 0 }
 ns.Dock = Dock
