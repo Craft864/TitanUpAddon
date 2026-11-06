@@ -491,7 +491,7 @@ function V:Create()
     clear:SetPoint("LEFT", export, "RIGHT", 6, 0)
     self.bossBtn = UI.Button(c1, 160, 22, "", "Show one boss, or all of them", function() V:BossMenu() end)
     self.bossBtn:SetPoint("LEFT", clear, "RIGHT", 6, 0)
-    self.diffBtn = UI.Button(c1, 130, 22, "", "Show Heroic, Mythic, or both", function() V:DiffMenu() end)
+    self.diffBtn = UI.Button(c1, 130, 22, "", ns.FOREVER and "Every raid counts (WoW Forever has one difficulty)" or "Show Heroic, Mythic, or both", function() V:DiffMenu() end)
     self.diffBtn:SetPoint("LEFT", self.bossBtn, "RIGHT", 6, 0)
     self.clearBtn = clear
     self.shortText = UI.Text(c1, "GameFontHighlightSmall", C.muted, nil, "BOTTOMLEFT", 16, 26)   -- its own line, above the note
@@ -532,7 +532,7 @@ function V:Create()
     self.empty:SetTextColor(1, 1, 1)
     self.empty:SetPoint("BOTTOMRIGHT", -16, 10)
     self.empty:SetJustifyH("RIGHT")
-    self.note = UI.Text(c1, "GameFontHighlightSmall", C.muted, "Heroic & Mythic only. Close calls and deaths after the wipe call don't count.", "BOTTOMLEFT", 16, 10)
+    self.note = UI.Text(c1, "GameFontHighlightSmall", C.muted, (ns.FOREVER and "Raids only." or "Heroic & Mythic only.") .. " Close calls and deaths after the wipe call don't count.", "BOTTOMLEFT", 16, 10)
 
     -- the drill-down panel, over the table's right side: the pulls behind a
     -- number, then (click one) that pull's death order

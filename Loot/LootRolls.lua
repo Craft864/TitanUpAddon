@@ -36,6 +36,13 @@ LR.TAGS = {
     { "2", "2pc", "Completes my 2-piece set bonus" },
     { "4", "4pc", "Completes my 4-piece set bonus" },
 }
+if ns.FOREVER then                -- classic sets aren't 2 / 4 pieces: one "Set" tag
+    LR.TAGS = {
+        { "B", "BIS", "Best in slot for me" },
+        { "S", "Sidegrade", "An upgrade, but not my best in slot" },
+        { "2", "Set", "A piece of my tier set" },
+    }
+end
 
 LR.NEED = LOOT_ROLL_TYPE_NEED or 1
 LR.GREED = LOOT_ROLL_TYPE_GREED or 2
@@ -52,6 +59,11 @@ local pending = {}               -- picks that arrived before their roll started
 local Num, Text, Bool = ns.Safe.Num, ns.Safe.Text, ns.Safe.Bool
 local function db() return ns.udb.loot end
 function LR:Enabled() return db().rollWindow and true or false end
+-- dungeon roll bars (Loot settings, off by default): in a party (not a
+-- raid), small bars where Blizzard's pop-ups sit instead of this window
+function LR:BarsOn() return db().dungeonBars and true or false end
+function LR:UseBars() return self:BarsOn() and not IsInRaid() end
+function LR:Active() return self:Enabled() or self:BarsOn() end
 
 local function clean(note) return ns.CleanField(note, NOTE_MAX) end
 local function cleanTags(s)
@@ -65,7 +77,10 @@ function LR.TagText(tags)
     return table.concat(parts, ", ")
 end
 
-local function refresh() if LR.V.frame and LR.V.frame:IsShown() then LR.V:Refresh() end end
+local function refresh()
+    if LR.V.frame and LR.V.frame:IsShown() then LR.V:Refresh() end
+    if LR.Bars then LR.Bars:Refresh() end
+end
 
 -- ---------------------------------------------------------------------
 -- Setup
@@ -79,6 +94,9 @@ function LR:Init()
         hooksecurefunc("ConfirmLootRoll", function(rollID, rollType) LR:OnConfirmed(rollID, rollType) end)
     end
     ns.On("LOOT_HISTORY_UPDATE_DROP", function(encounterID, lootListID) LR:OnHistory(encounterID, lootListID) end)
+    -- the game's roll lines in chat ("Mossy has selected Need for: ..."):
+    -- who picked what where the loot history isn't there (WoW Forever)
+    ns.On("CHAT_MSG_LOOT", function(msg) LR:OnLootChat(msg) end)
     ns.On("PLAYER_REGEN_ENABLED", function()
         LR:FreeSlots()
         if LR.handBackLater then
@@ -116,7 +134,8 @@ function LR:Prune()
 end
 
 function LR:OnStart(rollID, rollTime)
-    if not self:Enabled() or not Num(rollID) or self:Find(rollID) then return end
+    local bars = self:UseBars()
+    if not (self:Enabled() or bars) or not Num(rollID) or self:Find(rollID) then return end
     local ok, icon, name, count, quality, bop, canNeed, canGreed, canDE, reasonNeed, reasonGreed, _, _, canTransmog =
         pcall(GetLootRollItemInfo, rollID)
     if not ok or not Text(name) then return end
@@ -133,6 +152,12 @@ function LR:OnStart(rollID, rollTime)
         total = math.max(1, (Num(rollTime) or 60000) / 1000),      -- the roll's full length (the time bar)
         tags = "", note = "", picks = {}, rolls = {},
     }
+    -- no loot history to read (WoW Forever): everyone in the group can roll,
+    -- and the chat lines fill in their choices
+    if self:ChatRolls() then
+        e.chat = true
+        for _, m in ipairs(ns.GroupRoster()) do e.rolls[m.name] = { s = NO_ROLL, c = ns.ClassOf(m.name) } end
+    end
     self.items[#self.items + 1] = e
     -- picks raiders sent before this client saw the roll
     for i = #pending, 1, -1 do
@@ -140,7 +165,12 @@ function LR:OnStart(rollID, rollTime)
         if GetTime() - p.at > 120 then table.remove(pending, i)
         elseif p.item == e.item then e.picks[p.sender] = p.pick; table.remove(pending, i) end
     end
-    self.V:Open()
+    if bars then
+        e.bar = true
+        self.Bars:Add(e)
+    else
+        self.V:Open()
+    end
     self:HideBlizzard()
     if C_Timer then C_Timer.After(0, function() LR:HideBlizzard() end) end
 end
@@ -183,7 +213,8 @@ function LR:FreeSlots()
 end
 
 function LR:HideBlizzard()
-    if self.hiding or not (self.V.frame and self.V.frame:IsShown()) then return end
+    local shown = (self.V.frame and self.V.frame:IsShown()) or (self.Bars and self.Bars:Showing())
+    if self.hiding or not shown then return end
     self.hiding = true
     for _ = 1, 8 do
         local hid = false
@@ -215,7 +246,7 @@ end
 function LR:HandBack()
     local n = 0
     for _, e in ipairs(self.items) do
-        if not e.sim and not e.rolled and not e.closed and not e.handedBack then
+        if not e.sim and not e.rolled and not e.closed and not e.handedBack and not (e.bar and self.Bars:Showing()) then
             local left = ns.Safe.Num(ns.Safe.Call(GetLootRollTimeLeft, e.rollID))
             if left and left > 0 then
                 e.handedBack = true
@@ -310,7 +341,7 @@ end
 -- Everyone else's
 -- ---------------------------------------------------------------------
 function LR:OnMessage(text, sender)
-    if not self:Enabled() then return end
+    if not self:Active() then return end
     local f = ns.Split(text, "^")
     if f[1] ~= "P" then return end
     local item, rollID = tonumber(f[2]), tonumber(f[3])
@@ -336,7 +367,7 @@ end
 
 -- The game's loot history: everyone's live roll choices, then the winner.
 function LR:OnHistory(encounterID, lootListID)
-    if not self:Enabled() or #self.items == 0 then return end
+    if not self:Active() or #self.items == 0 then return end
     if not (C_LootHistory and C_LootHistory.GetSortedInfoForDrop) or not Num(encounterID) or not Num(lootListID) then return end
     local ok, drop = pcall(C_LootHistory.GetSortedInfoForDrop, encounterID, lootListID)
     if not ok or type(drop) ~= "table" or not Text(drop.itemHyperlink) then return end
@@ -365,6 +396,115 @@ function LR:OnHistory(encounterID, lootListID)
         e.closed, e.pending = true, nil
     end
     if Bool(drop.allPassed) then e.allPassed, e.closed, e.pending = true, true, nil end
+    refresh()
+end
+
+-- ---------------------------------------------------------------------
+-- The game's roll lines in chat (where there's no loot history: WoW
+-- Forever). Every line names the player and links the item, so this works
+-- for the whole group, Eternal Table or not.
+-- ---------------------------------------------------------------------
+function LR:ChatRolls()
+    return ns.FOREVER or not (C_LootHistory and C_LootHistory.GetSortedInfoForDrop)
+end
+
+-- a game format string ("%s has selected Need for: %s") as a pattern, and
+-- the order its values come in (languages can move them: "%2$s ... %1$s")
+local function chatPattern(fmt)
+    if type(fmt) ~= "string" or fmt == "" then return nil end
+    local order, n = {}, 0
+    local p = fmt:gsub("%%(%d*)%$?([sd])", function(pos, t)
+        n = n + 1
+        order[n] = tonumber(pos) or n
+        return t == "d" and "\001" or "\002"
+    end)
+    p = p:gsub("([%%%(%)%.%+%-%*%?%[%]%^%$])", "%%%1")
+    p = p:gsub("\001", "(%%d+)"):gsub("\002", "(.+)")
+    return "^" .. p .. "$", order
+end
+
+-- kind, roll state, the values in English order, the global, its English text
+-- (the "Everyone", "You ..." and "automatically" lines first: they'd match the others too)
+local CHAT_LINES = {
+    { "allpassed", nil, { "item" }, "LOOT_ROLL_ALL_PASSED", "Everyone passed on: %s" },
+    { "pick", 5, { "item" }, "LOOT_ROLL_PASSED_SELF_AUTO", "You automatically passed on: %s because you cannot loot that item.", me = true },
+    { "pick", 5, { "who", "item" }, "LOOT_ROLL_PASSED_AUTO", "%s automatically passed on: %s because he cannot loot that item." },
+    { "pick", 5, { "who", "item" }, "LOOT_ROLL_PASSED_AUTO_FEMALE", "%s automatically passed on: %s because she cannot loot that item." },
+    { "pick", 0, { "item" }, "LOOT_ROLL_NEED_SELF", "You have selected Need for: %s", me = true },
+    { "pick", 3, { "item" }, "LOOT_ROLL_GREED_SELF", "You have selected Greed for: %s", me = true },
+    { "pick", 5, { "item" }, "LOOT_ROLL_PASSED_SELF", "You passed on: %s", me = true },
+    { "pick", 0, { "who", "item" }, "LOOT_ROLL_NEED", "%s has selected Need for: %s" },
+    { "pick", 3, { "who", "item" }, "LOOT_ROLL_GREED", "%s has selected Greed for: %s" },
+    { "pick", 5, { "who", "item" }, "LOOT_ROLL_PASSED", "%s passed on: %s" },
+    { "roll", 0, { "roll", "item", "who" }, "LOOT_ROLL_ROLLED_NEED", "Need Roll - %d for %s by %s" },
+    { "roll", 3, { "roll", "item", "who" }, "LOOT_ROLL_ROLLED_GREED", "Greed Roll - %d for %s by %s" },
+    { "won", nil, { "item" }, "LOOT_ROLL_YOU_WON", "You won: %s", me = true },
+    { "won", nil, { "who", "item" }, "LOOT_ROLL_WON", "%s won: %s" },
+}
+local chatDefs
+local function getChatDefs()
+    if chatDefs then return chatDefs end
+    chatDefs = {}
+    for _, d in ipairs(CHAT_LINES) do
+        local fmt = Text(_G[d[4]]) or d[5]
+        local pat, order = chatPattern(fmt)
+        if pat then chatDefs[#chatDefs + 1] = { kind = d[1], state = d[2], fields = d[3], pat = pat, order = order, me = d.me } end
+    end
+    return chatDefs
+end
+LR.ChatPattern = chatPattern
+
+-- the newest roll of that item; one still open (or without a winner) first
+local function chatEntry(item, wantOpen)
+    local fallback
+    for i = #LR.items, 1, -1 do
+        local e = LR.items[i]
+        if e.item == item and (e.chat or e.sim) then
+            if not e.winner and not e.allPassed and (not wantOpen or not e.closed) then return e end
+            fallback = fallback or e
+        end
+    end
+    return fallback
+end
+
+function LR:OnLootChat(msg)
+    msg = Text(msg)
+    if not msg or #self.items == 0 or not self:Active() or not self:ChatRolls() then return end
+    for _, d in ipairs(getChatDefs()) do
+        local caps = { msg:match(d.pat) }
+        if caps[1] then
+            local a = {}
+            for k, v in ipairs(caps) do
+                local field = d.fields[d.order[k] or k]
+                if field then a[field] = v end
+            end
+            return self:ChatLine(d.kind, d.state, d.me and ns.me or ns.NormalizeSender(a.who), a.item, tonumber(a.roll))
+        end
+    end
+end
+
+-- one roll line: kind pick / roll / won / allpassed
+function LR:ChatLine(kind, state, who, link, roll)
+    local item = link and ns.Loot.ItemID(link)
+    if not item then return end
+    local e = chatEntry(item, kind == "pick")
+    if not e then return end
+    if kind == "allpassed" then
+        e.allPassed, e.closed, e.pending = true, true, nil
+    elseif who then
+        local r = e.rolls[who] or { c = ns.ClassOf(who) }
+        e.rolls[who] = r
+        if kind == "pick" then
+            r.s = state
+            if who == ns.me and (e.pending or e.trying) then self:Rolled(e, e.pending or e.trying) end
+        elseif kind == "roll" then
+            r.s, r.r = state, roll
+        elseif kind == "won" then
+            if not e.winner then e.flashAt = GetTime() end
+            e.winner, e.wstate, e.wroll = who, r.s, r.r
+            e.closed, e.pending = true, nil
+        end
+    end
     refresh()
 end
 
@@ -471,6 +611,18 @@ local SAMPLE_PICKS = {
     { { "Kev-Medivh", "", 4, "" }, { "Selune-Medivh", "S", 2, "" } },
     { { "Mossy-Medivh", "2", 1, "my 2pc" }, { "Selune-Medivh", "B4", 1, "" } },
 }
+if ns.FOREVER then
+    SAMPLE = {
+        { "Helm of Endless Rage", "Interface\\Icons\\INV_Helmet_03", 76, true },
+        { "Band of Accuria", "Interface\\Icons\\INV_Jewelry_Ring_03", 78 },
+        { "Cloak of the Shrouded Mists", "Interface\\Icons\\INV_Misc_Cape_18", 76 },
+        { "Hand of Justice", "Interface\\Icons\\INV_Misc_Gem_Variety_01", 58 },
+    }
+    SAMPLE_PICKS[1][1] = { "Kev-Medivh", "B2", 1, "set piece for me" }
+    SAMPLE_PICKS[3][1] = { "Kev-Medivh", "", 2, "" }
+    SAMPLE_PICKS[4][1] = { "Mossy-Medivh", "2", 1, "my set" }
+    SAMPLE_PICKS[4][2] = { "Selune-Medivh", "B", 1, "" }
+end
 local PREVIEW_SECONDS = 45
 local SAMPLE_WINS = { { "Mossy-Medivh", 0, 91 }, { "Brakk-Medivh", 0, 77 }, { "Selune-Medivh", 3, 64 }, { "Selune-Medivh", 0, 88 } }
 
@@ -817,6 +969,7 @@ local function nameList(people, max)
     end
     return table.concat(out, max and ", " or "   ")
 end
+LR.Reason, LR.Status, LR.NameList = reason, status, nameList       -- (the dungeon bars use them too)
 
 -- the item shown in a row (the full shape or the thin "passed" line)
 function V:DrawRow(row, e, now)

@@ -64,7 +64,7 @@ end
 -- Where things are
 -- ---------------------------------------------------------------------
 local BI = Enum and Enum.BagIndex or {}
-local REAGENT_BAG = BI.ReagentBag or 5
+local REAGENT_BAG = BI.ReagentBag or (not ns.FOREVER and 5) or nil      -- (WoW Forever: no reagent bag)
 local NUM_BAGS = NUM_BAG_SLOTS or 4
 
 local function listOf(prefix, n)
@@ -75,7 +75,7 @@ end
 local CHAR_TABS = listOf("CharacterBankTab_", 6)
 local ACCOUNT_TABS = listOf("AccountBankTab_", 5)
 local LEGACY_BANK = { BANK_CONTAINER or -1 }
-for i = 1, (NUM_BANKBAGSLOTS or 7) do LEGACY_BANK[#LEGACY_BANK + 1] = NUM_BAGS + 1 + i end   -- 6..12 (5 is the reagent bag)
+for i = 1, (NUM_BANKBAGSLOTS or 7) do LEGACY_BANK[#LEGACY_BANK + 1] = NUM_BAGS + (REAGENT_BAG and 1 or 0) + i end   -- 6..12 (5 is the reagent bag)
 
 local function has(list, v) for _, x in ipairs(list) do if x == v then return true end end return false end
 
@@ -690,7 +690,8 @@ function SS:BuildPage(parent)
         self.presetBoxes[i] = b
     end
     y = y - 40
-    local help = UI.Text(pg, "GameFontHighlightSmall", C.muted, "Shift-click any stack in your bags, bank, Warband bank or guild bank. At vendors the game's own box is used.", "TOPLEFT", 18, y)
+    local help = UI.Text(pg, "GameFontHighlightSmall", C.muted, ns.FOREVER and "Shift-click any stack in your bags, bank or guild bank. At vendors the game's own box is used."
+        or "Shift-click any stack in your bags, bank, Warband bank or guild bank. At vendors the game's own box is used.", "TOPLEFT", 18, y)
     help:SetWidth(400); help:SetJustifyH("LEFT")
     self.pageHeight = -y + 40
     return pg

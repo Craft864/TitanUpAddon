@@ -98,6 +98,51 @@ D.CHEAT_DEATHS = {
     WARRIOR = { { aura = "Kill or Be Killed", spell = 1265361, name = "Kill or Be Killed" } },
 }
 
+-- WoW Forever: the classic defensives (Shamans have no personal one), and
+-- no cheat-death talents.
+if ns.FOREVER then
+    D.DEFENSIVES = {
+        DRUID = {
+            { ids = { 22812 }, name = "Barkskin", tier = "major" },
+            { ids = { 22842 }, name = "Frenzied Regeneration", tier = "minor" },
+        },
+        HUNTER = {
+            { ids = { 19263 }, name = "Deterrence", tier = "major" },
+            { ids = { 5384 }, name = "Feign Death", tier = "minor" },
+        },
+        MAGE = {
+            { ids = { 11958 }, name = "Ice Block", tier = "major" },
+            { ids = { 11426 }, name = "Ice Barrier", tier = "minor" },
+            { ids = { 1463 }, name = "Mana Shield", tier = "minor" },
+        },
+        PALADIN = {
+            { ids = { 642, 1020 }, name = "Divine Shield", tier = "major" },
+            { ids = { 498, 5573 }, name = "Divine Protection", tier = "major" },
+            { ids = { 1022 }, name = "Blessing of Protection", tier = "minor" },
+            { ids = { 633 }, name = "Lay on Hands", tier = "minor" },
+        },
+        PRIEST = {
+            { ids = { 17 }, name = "Power Word: Shield", tier = "major" },
+            { ids = { 13908 }, name = "Desperate Prayer", tier = "minor" },
+            { ids = { 586 }, name = "Fade", tier = "minor" },
+        },
+        ROGUE = {
+            { ids = { 5277 }, name = "Evasion", tier = "major" },
+            { ids = { 1856 }, name = "Vanish", tier = "minor" },
+        },
+        WARLOCK = {
+            { ids = { 6229 }, name = "Shadow Ward", tier = "minor" },
+            { ids = { 6789 }, name = "Death Coil", tier = "minor" },
+        },
+        WARRIOR = {
+            { ids = { 871 }, name = "Shield Wall", tier = "major" },
+            { ids = { 12975 }, name = "Last Stand", tier = "major" },
+            { ids = { 20230 }, name = "Retaliation", tier = "minor" },
+        },
+    }
+    D.CHEAT_DEATHS = {}
+end
+
 -- Consumables, found in your bags by name (every quality counts).
 D.HEALTH_POTIONS = ns.RaidCheck.HEALTH_POTIONS        -- one list, Raid Check's (update it each tier)
 D.HEALTHSTONES = ns.RaidCheck.HEALTHSTONES             -- (by item and spell number, 0.37.0)

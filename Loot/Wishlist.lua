@@ -258,6 +258,14 @@ WL.STATS = {
     { key = "ITEM_MOD_MASTERY_RATING_SHORT", name = "Mastery" },
     { key = "ITEM_MOD_VERSATILITY", name = "Versatility" },
 }
+if ns.FOREVER then                -- classic gear: no secondary ratings, so the main stats
+    WL.STATS = {
+        { key = "ITEM_MOD_STRENGTH_SHORT", name = "Strength" },
+        { key = "ITEM_MOD_AGILITY_SHORT", name = "Agility" },
+        { key = "ITEM_MOD_INTELLECT_SHORT", name = "Intellect" },
+        { key = "ITEM_MOD_SPIRIT_SHORT", name = "Spirit" },
+    }
+end
 for _, s in ipairs(WL.STATS) do
     local g = _G[s.key]
     if type(g) == "string" and g ~= "" then s.name = g end
@@ -310,7 +318,7 @@ function WL:Loot(instanceID, encounterID, diff, mySpec)
         if diff and EJ_SetDifficulty then EJ_SetDifficulty(diff) end
         if mySpec and EJ_SetLootFilter then
             local _, _, classID = UnitClass("player")
-            local spec = GetSpecialization and GetSpecialization()
+            local spec = not ns.FOREVER and GetSpecialization and GetSpecialization()     -- (Forever: by class)
             local specID = spec and GetSpecializationInfo and GetSpecializationInfo(spec)
             EJ_SetLootFilter(classID or 0, specID or 0)
         elseif EJ_ResetLootFilter then

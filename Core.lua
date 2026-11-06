@@ -4,7 +4,7 @@
 -- permissions and slash commands; every module hangs off the shared `ns`.
 local ADDON, ns = ...
 
-ns.VERSION = "0.49.0"
+ns.VERSION = "0.50.0"
 ns.PREFIX = "TitanBoard"     -- board sync channel (unchanged, so it stays compatible)
 ns.MEDIA = "Interface\\AddOns\\" .. ADDON .. "\\Media\\"
 -- WoW Forever runs the modern API on a 1.x client (interface 16001); retail is 12.x.
@@ -744,7 +744,7 @@ function ns.MemoryReport()
             ns.Print(("    %s  |cff8a8f9csent %d (%.1f KB), received %d (%.1f KB)|r"):format(r.name, r.sent, r.sentBytes / 1024, r.got, r.gotBytes / 1024))
         end
         local q = ns.BulkQueued()
-        if q > 0 then ns.Print(("    |cff8a8f9c%d background message%s waiting%s|r"):format(q, q == 1 and "" or "s", ns.BulkPaused() and " (paused: combat, raid or Mythic+)" or "")) end
+        if q > 0 then ns.Print(("    |cff8a8f9c%d background message%s waiting%s|r"):format(q, q == 1 and "" or "s", ns.BulkPaused() and (ns.FOREVER and " (paused: combat or raid)" or " (paused: combat, raid or Mythic+)") or "")) end
     end
 end
 
@@ -990,7 +990,7 @@ local SUITE_DEFAULTS = {
     nav = { railMin = false },              -- the Eternal Table window: pos (top-left, once dragged), rail narrowed to icons
     dock = {},                              -- the alert stack: pos once dragged
     deathroll = { announce = true, games = {} },
-    loot = { drops = {}, minQuality = 4, rollWindow = false },
+    loot = { drops = {}, minQuality = 4, rollWindow = false, dungeonBars = false },
     raidcheck = { potMin = 5, hpotMin = 5, durMin = 20, pullCheck = true },
     raidHistory = { weeks = {} },
     tweaks = { releaseGuard = false, bonusGuard = false },

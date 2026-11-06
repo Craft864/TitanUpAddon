@@ -33,6 +33,10 @@ T.LINGER = { { 5, "5 seconds" }, { 15, "15 seconds" }, { 60, "1 minute" }, { -1,
 -- the chat line: which fights, and the shortest one worth a line
 T.WHERE = { { "raid", "Raid boss", "Raid boss fights" }, { "mplus", "Mythic+", "Mythic+ runs (any fight in the key)" },
             { "dungeon", "Dungeon", "Other dungeons (any fight)" }, { "world", "Other", "Everywhere else (open world, delves, ...)" } }
+if ns.FOREVER then                 -- no Mythic+ or delves in WoW Forever
+    T.WHERE = { { "raid", "Raid boss", "Raid boss fights" }, { "dungeon", "Dungeon", "Dungeons (any fight)" },
+                { "world", "Other", "Everywhere else (open world, ...)" } }
+end
 T.CHAT_MIN = { { 0, "Any length" }, { 10, "10 seconds" }, { 30, "30 seconds" }, { 60, "1 minute" }, { 120, "2 minutes" } }
 
 local function db() return ns.udb.timer end

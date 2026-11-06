@@ -1,4 +1,4 @@
-# Eternal Table v0.49.0
+# Eternal Table v0.50.0
 
 A raid and games toolkit for the Eternal Table guild. Runs on World of Warcraft (Midnight) and WoW Forever. Works with your guild, your group and your friends.
 
@@ -29,7 +29,10 @@ A raid and games toolkit for the Eternal Table guild. Runs on World of Warcraft 
 ## WoW Forever
 
 - Same addon, same download. Pick the Forever version in WoWUp or CurseForge.
-- Keystone Roulette and Bonus roll protection are hidden on Forever (no keys or bonus rolls there).
+- Retail-only parts are hidden on Forever: Keystone Roulette, Bonus roll protection, the Battle rez tracker, Mythic+ options, Vantus Rune and weekly buff checks, the Raidstrats import, and retail's What's new history.
+- Forever gets its own lists: classic raid buffs and consumables in Raid Check and Consumables, classic defensives in the Pull Report, and classic spells and interrupts in Macro Workstation.
+- Crafters reads Forever's professions (skill 1-300, First Aid included, no quality ranks).
+- Raid Check, the Pull Report archive and the Raid Scorecard run in every Forever raid (there's one difficulty).
 
 ## Getting around
 
@@ -48,7 +51,7 @@ A raid and games toolkit for the Eternal Table guild. Runs on World of Warcraft 
 
 ## Raid Check
 
-`/et raidcheck`. Heroic and Mythic raids only.
+`/et raidcheck`. Heroic and Mythic raids only (every raid on Forever).
 
 - On every ready check, and on a typed `/pull`, it checks everyone's buffs, flask, food, weapon enchant, Vantus Rune, potions, healthstone and durability.
 - If someone's missing something, the leader gets a list with **Pull anyway** or **Cancel**.
@@ -61,6 +64,7 @@ A raid and games toolkit for the Eternal Table guild. Runs on World of Warcraft 
 - Records raid drops with everyone's rolls, bonus rolls, Mythic+ loot, and trades until the item is equipped.
 - Search by player, item or boss.
 - **Roll window** (Loot settings, off by default): every roll in one window, with BIS / Sidegrade / set tags and notes the raid can see. Closing it hands your rolls back to Blizzard's pop-ups. `/et rolls` reopens it.
+- **Dungeon roll bars** (Loot settings, off by default): in a party, small bars replace Blizzard's roll pop-ups, with a breakdown beside them of who's waiting, who picked Need or Greed, and who passed. Drag the breakdown to move them.
 - **Wishlist** tab: browse any raid or dungeon and mark items BIS, Sidegrade or Want. Click a drop to see who in the guild wants it.
 
 ## Wheel of Fortune
@@ -106,6 +110,13 @@ A raid and games toolkit for the Eternal Table guild. Runs on World of Warcraft 
 ## Planned
 
 - Fury of the Dead is still matched by its English name in Raid Check.
+
+## Changes in 0.50.0
+
+- **Dungeon roll bars** (Loot settings): compact roll bars for parties, with a who's-rolling breakdown on the side. On Forever it reads the game's roll lines, so everyone shows, addon or not.
+- WoW Forever: retail-only parts hidden, and Forever's own buffs, consumables, defensives and spells.
+- WoW Forever: Crafters reads the 1-300 professions, including First Aid.
+- WoW Forever: Raid Check, the Pull Report archive and the Raid Scorecard now run in raids. Fixed Raid Check marking everyone missing Skyfury when a Shaman was in the raid.
 
 ## Changes in 0.49.0
 

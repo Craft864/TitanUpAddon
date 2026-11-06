@@ -39,7 +39,7 @@ function S:Pages()
     pages[#pages + 1] = { key = "titanup", title = "Eternal Table", group = "ETERNAL TABLE", rows = {
         { text = "Eternal Table " .. ns.VERSION .. " - the guild toolkit." },
         { button = "Check raid versions", tip = "See which Eternal Table version everyone in your group runs - the list fills in as they answer", run = function() ns.Updates:Check() end },
-        { button = "Reset alert position", tip = "Put the stack of pop-ups (pull alert, death summary, key vote, What's new) back at the top of the screen", run = function() ns.Dock:Reset() end },
+        { button = "Reset alert position", tip = "Put the stack of pop-ups (pull alert, death summary, " .. (ns.FOREVER and "" or "key vote, ") .. "What's new) back at the top of the screen", run = function() ns.Dock:Reset() end },
         { toggle = "Link my characters", tip = "Show your characters as one player under your main: one row in the Wowdle and Death Roll standings, and Death Roll wins and debts combined (pay from any of them). Your guild sees which characters are yours. Each character joins once you've logged into it with Eternal Table.",
           get = function() return ns.Alts:Enabled() end, set = function(on) ns.Alts:SetEnabled(on) end },
         { cycle = "My main", tip = "The character the others are listed under",
@@ -58,16 +58,19 @@ function S:Pages()
         loot = u.loot and { title = "Loot", rows = {
             { cycle = "Track items of", options = { { 4, "Epic and up" }, { 3, "Rare and up" } },
               get = function() return u.loot.minQuality end, set = function(v) u.loot.minQuality = v end },
-            { toggle = "Eternal Table loot roll window", tip = "One window for every loot roll instead of Blizzard's pop-ups: tag items BIS / Sidegrade / 2pc / 4pc, add a note, and see what the rest of the raid chose (Eternal Table users) before you roll",
+            { toggle = "Eternal Table loot roll window", tip = "One window for every loot roll instead of Blizzard's pop-ups: tag items BIS / Sidegrade / " .. (ns.FOREVER and "set piece" or "2pc / 4pc") .. ", add a note, and see what the rest of the raid chose (Eternal Table users) before you roll",
               get = function() return u.loot.rollWindow end,
               set = function(on) u.loot.rollWindow = on; if not on and ns.LootRolls then ns.LootRolls.V:Hide() end end },
             { button = "Preview the roll window", tip = "Open it with sample items and raiders - nothing is rolled or sent", run = function() ns.LootRolls:Preview() end },
             { text = "/et rolls opens it again after you close it (rolls stay listed for 2 hours, the trade window)." },
+            { toggle = "Dungeon roll bars", tip = "In a party (not a raid): small bars where Blizzard's roll pop-ups sit, with a breakdown beside them of who's waiting, who picked Need or Greed, and who passed - the big window stays for raids. Drag the breakdown to move them.",
+              get = function() return u.loot.dungeonBars end, set = function(on) u.loot.dungeonBars = on end },
+            { button = "Preview the dungeon bars", tip = "Show sample items with a sample party rolling - nothing is rolled or sent", run = function() ns.LootRolls.Bars:Preview() end },
             { toggle = "Share my loot wishlist", tip = "Let the guild see the items on your wishlist (the Wishlist tab), so the Loot window and the roll window can show who wants a drop. Off: your wishlist stays on your screen only.",
               get = function() return ns.Wishlist:Enabled() end, set = function(on) ns.Wishlist:SetEnabled(on) end },
         } },
         raidcheck = u.raidcheck and { title = "Raid Check", rows = {
-            { toggle = "Check before /pull", tip = "When you (leader / assist) type /pull in a Heroic or Mythic raid, check everyone first",
+            { toggle = "Check before /pull", tip = "When you (leader / assist) type /pull in a " .. (ns.FOREVER and "raid" or "Heroic or Mythic raid") .. ", check everyone first",
               get = function() return u.raidcheck.pullCheck end, set = function(on) u.raidcheck.pullCheck = on end },
         } },
         pullreport = u.pullReport and { title = "Pull Report", rows = {
@@ -114,11 +117,19 @@ function S:Pages()
         pages[#pages + 1] = { key = "crafters", title = "Crafters", group = "GUILD", rows = {
             { toggle = "Share my recipes", tip = "Let the guild see what this character can craft (read when you open a profession window). Off: the guild forgets this character's recipes.",
               get = function() return ns.Crafters:Enabled() end, set = function(on) ns.Crafters:SetEnabled(on) end },
-            { toggle = "Include older expansions", tip = "Also share recipes from earlier expansions (about three times as much). Open each profession window once afterwards.",
+            { retailOnly = true, toggle = "Include older expansions", tip = "Also share recipes from earlier expansions (about three times as much). Open each profession window once afterwards.",
               get = function() return u.crafters.oldTiers end, set = function(on) ns.Crafters:SetOldTiers(on) end },
             { text = "Your recipes are read each time you open a profession window, so new recipes show up on their own." },
             { text = "Outside crafters you add are shown to the whole guild; you (or an officer) can remove them." },
         } }
+    end
+    -- WoW Forever: drop rows for things it doesn't have
+    if ns.FOREVER then
+        for _, p in ipairs(pages) do
+            if p.rows then
+                for i = #p.rows, 1, -1 do if p.rows[i].retailOnly then table.remove(p.rows, i) end end
+            end
+        end
     end
     return pages
 end

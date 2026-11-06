@@ -83,6 +83,43 @@ MB.SPELLS = {
     WARRIOR     = { { 3411, "Intervene", "help" }, { 64382, "Shattering Throw", "harm" }, { 6544, "Heroic Leap", "ground" }, { 97462, "Rallying Cry", "self" },
                     { 23920, "Spell Reflection", "self" } },
 }
+-- WoW Forever: the nine classic classes and their classic spells
+if ns.FOREVER then
+    MB.CLASS_ORDER = { "DRUID", "HUNTER", "MAGE", "PALADIN", "PRIEST", "ROGUE", "SHAMAN", "WARLOCK", "WARRIOR" }
+    MB.INTERRUPTS = {               -- (Hunters and Paladins have none)
+        DRUID   = { { 16979, "Feral Charge", "Feral (Bear Form)" } },
+        MAGE    = { { 2139, "Counterspell" } },
+        PRIEST  = { { 15487, "Silence", "Shadow" } },
+        ROGUE   = { { 1766, "Kick" } },
+        SHAMAN  = { { 8042, "Earth Shock" } },
+        WARLOCK = { { 19244, "Spell Lock", "needs the Felhunter" } },
+        WARRIOR = { { 6552, "Pummel", "Berserker Stance" }, { 72, "Shield Bash", "a shield" } },
+    }
+    MB.SPELLS = {
+        DRUID   = { { 20484, "Rebirth", "rez" }, { 29166, "Innervate", "help" }, { 2782, "Remove Curse", "help" }, { 2893, "Abolish Poison", "help" },
+                    { 2637, "Hibernate", "harm" }, { 339, "Entangling Roots", "harm" }, { 2908, "Soothe Animal", "harm" }, { 17116, "Nature's Swiftness", "self" },
+                    { 22812, "Barkskin", "self" } },
+        HUNTER  = { { 19801, "Tranquilizing Shot", "harm" }, { 19503, "Scatter Shot", "harm" }, { 1513, "Scare Beast", "harm" }, { 1543, "Flare", "ground" },
+                    { 1499, "Freezing Trap", "self" }, { 13809, "Frost Trap", "self" }, { 5384, "Feign Death", "self" }, { 19263, "Deterrence", "self" } },
+        MAGE    = { { 118, "Polymorph", "harm" }, { 475, "Remove Lesser Curse", "help" }, { 1459, "Arcane Intellect", "help" }, { 130, "Slow Fall", "help" },
+                    { 122, "Frost Nova", "self" }, { 1953, "Blink", "self" }, { 12051, "Evocation", "self" }, { 11958, "Ice Block", "self" } },
+        PALADIN = { { 6940, "Blessing of Sacrifice", "help" }, { 1044, "Blessing of Freedom", "help" }, { 1022, "Blessing of Protection", "help" },
+                    { 633, "Lay on Hands", "help" }, { 4987, "Cleanse", "help" }, { 1152, "Purify", "help" }, { 7328, "Redemption", "rez" },
+                    { 853, "Hammer of Justice", "harm" }, { 498, "Divine Protection", "self" }, { 642, "Divine Shield", "self" } },
+        PRIEST  = { { 17, "Power Word: Shield", "help" }, { 10060, "Power Infusion", "help" }, { 6346, "Fear Ward", "help" }, { 527, "Dispel Magic", "help" },
+                    { 528, "Cure Disease", "help" }, { 552, "Abolish Disease", "help" }, { 2006, "Resurrection", "rez" }, { 9484, "Shackle Undead", "harm" },
+                    { 8122, "Psychic Scream", "self" }, { 586, "Fade", "self" } },
+        ROGUE   = { { 2094, "Blind", "harm" }, { 408, "Kidney Shot", "harm" }, { 6770, "Sap", "harm" }, { 1776, "Gouge", "harm" },
+                    { 5277, "Evasion", "self" }, { 1856, "Vanish", "self" } },
+        SHAMAN  = { { 370, "Purge", "harm" }, { 526, "Cure Poison", "help" }, { 2870, "Cure Disease", "help" }, { 2008, "Ancestral Spirit", "rez" },
+                    { 2484, "Earthbind Totem", "self" }, { 8143, "Tremor Totem", "self" }, { 8166, "Poison Cleansing Totem", "self" },
+                    { 8170, "Disease Cleansing Totem", "self" }, { 16188, "Nature's Swiftness", "self" } },
+        WARLOCK = { { 5782, "Fear", "harm" }, { 710, "Banish", "harm" }, { 6789, "Death Coil", "harm" }, { 20707, "Soulstone Resurrection", "help" },
+                    { 5484, "Howl of Terror", "self" }, { 6229, "Shadow Ward", "self" } },
+        WARRIOR = { { 355, "Taunt", "harm" }, { 676, "Disarm", "harm" }, { 5246, "Intimidating Shout", "self" }, { 2565, "Shield Block", "self" },
+                    { 871, "Shield Wall", "self" }, { 12975, "Last Stand", "self" }, { 18499, "Berserker Rage", "self" } },
+    }
+end
 -- every hand-picked name -> its kind (also used for your own spellbook)
 MB.KIND_BY_NAME = {}
 for _, list in pairs(MB.SPELLS) do for _, s in ipairs(list) do MB.KIND_BY_NAME[s[2]] = s[3] end end

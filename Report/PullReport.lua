@@ -204,17 +204,22 @@ end
 -- healthstones through the healthstone spell (Demonic Healthstone if talented).
 D.HEALTH_POTION_SPELL = 1295247
 D.HEALTHSTONE_SPELL, D.DEMONIC_HEALTHSTONE_SPELL, D.DEMONIC_TALENT = 6262, 452930, 386689
+if ns.FOREVER then                -- classic: Major Healing Potion's spell; healthstones by their own item cooldown
+    D.HEALTH_POTION_SPELL = 17534
+    D.HEALTHSTONE_SPELL, D.DEMONIC_HEALTHSTONE_SPELL, D.DEMONIC_TALENT = nil, nil, nil
+end
 
 function PR.Consumables()
     local bags = ns.RaidCheck.BagCounts({ p = D.HEALTH_POTIONS, h = D.HEALTHSTONES })      -- one pass over the bags
     local pc, pids, hc, hids = bags.p.count, bags.p.ids, bags.h.count, bags.h.ids
     local function ready(count, spell, ids)
         if count <= 0 then return false end
+        if not spell then return itemReady(ids) end
         local r = PR.Ready(spell)
         if r ~= nil then return r end
         return itemReady(ids)                         -- fallback: the item's own cooldown
     end
-    local demonic = known(D.DEMONIC_TALENT)
+    local demonic = D.DEMONIC_TALENT and known(D.DEMONIC_TALENT)
     return { pc = pc, pr = ready(pc, D.HEALTH_POTION_SPELL, pids),
              hc = hc, hr = ready(hc, demonic and D.DEMONIC_HEALTHSTONE_SPELL or D.HEALTHSTONE_SPELL, hids) }
 end

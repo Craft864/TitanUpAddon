@@ -32,11 +32,15 @@ function Board:BuildEntries()
         inst({ id = here.inst, name = here.instName or "Current instance" })
     end
     header("RAIDS")
-    for _, i in ipairs(ns.Content:Raids()) do inst(i) end
-    header("MYTHIC+ POOL")
-    local d = ns.Content:Dungeons()
-    if #d == 0 then e[#e + 1] = { kind = "note", text = "Loading keystone pool..." } end
-    for _, i in ipairs(d) do inst(i) end
+    local raids = ns.Content:Raids()
+    if #raids == 0 and ns.FOREVER then e[#e + 1] = { kind = "note", text = "No raids in the Adventure Guide yet." } end
+    for _, i in ipairs(raids) do inst(i) end
+    if not ns.FOREVER then                        -- no Mythic+ in WoW Forever
+        header("MYTHIC+ POOL")
+        local d = ns.Content:Dungeons()
+        if #d == 0 then e[#e + 1] = { kind = "note", text = "Loading keystone pool..." } end
+        for _, i in ipairs(d) do inst(i) end
+    end
     local world = ns.Content:WorldBosses()
     if #world > 0 then
         header("WORLD BOSSES")
