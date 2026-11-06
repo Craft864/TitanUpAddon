@@ -42,7 +42,7 @@ function CR:Enabled() return db().share and true or false end
 CR.PROF_NAMES = {
     [171] = "Alchemy", [164] = "Blacksmithing", [333] = "Enchanting", [202] = "Engineering", [182] = "Herbalism",
     [773] = "Inscription", [755] = "Jewelcrafting", [165] = "Leatherworking", [186] = "Mining", [393] = "Skinning",
-    [197] = "Tailoring", [185] = "Cooking", [356] = "Fishing",
+    [197] = "Tailoring", [185] = "Cooking", [356] = "Fishing", [129] = "First Aid",
 }
 
 function CR.ProfName(base)
@@ -220,8 +220,56 @@ local function newestTier()
     return best
 end
 
+-- WoW Forever with the classic profession window (no C_TradeSkillUI): the
+-- skill line by its name (English, or the game's own name for it), every
+-- recipe in the list by its spell (the recipe link), skill 1-300. Enchanting
+-- may use the separate craft window (GetNumCrafts).
+local function baseByName(name)
+    if type(name) ~= "string" then return nil end
+    for base, english in pairs(CR.PROF_NAMES) do
+        if english == name or CR.ProfName(base) == name then return base end
+    end
+end
+
+local function spellFromLink(link)
+    link = ns.Safe.Text(link)
+    return link and tonumber(link:match("enchant:(%d+)") or link:match("spell:(%d+)")) or nil
+end
+
+function CR:ScanClassic()
+    local craft = CraftFrame and CraftFrame:IsShown() and GetNumCrafts and GetCraftDisplaySkillLine
+    local line = craft and GetCraftDisplaySkillLine or GetTradeSkillLine
+    if not line then return false end
+    local ok, name, skill, max = pcall(line)
+    if not ok then return false end
+    local baseID = baseByName(ns.Safe.Text(name))
+    if not baseID then return false end
+    local recipes, n = {}, 0
+    local count = craft and ns.Safe.Call(GetNumCrafts) or (GetNumTradeSkills and ns.Safe.Call(GetNumTradeSkills)) or 0
+    for i = 1, count do
+        local ok2, kind, _
+        if craft then ok2, _, _, kind = pcall(GetCraftInfo, i) else ok2, _, kind = pcall(GetTradeSkillInfo, i) end
+        if ok2 and ns.Safe.Text(kind) and kind ~= "header" then
+            local link = craft and GetCraftRecipeLink and ns.Safe.Call(GetCraftRecipeLink, i)
+                or (not craft and GetTradeSkillRecipeLink and ns.Safe.Call(GetTradeSkillRecipeLink, i))
+            local id = spellFromLink(link)
+            if id then recipes[id] = true; n = n + 1 end
+        end
+    end
+    if n == 0 then return false end
+    local m = myProfs()
+    m.profs[baseID] = { recipes = recipes, tier = 0, name = ns.Safe.Text(name), skill = ns.Safe.Num(skill) or 0,
+                        max = ns.Safe.Num(max) or 0, t = ns.Now() }
+    self.lastScan = { base = baseID, count = n }
+    self.sync:Refresh()
+    return true, n
+end
+
 function CR:Scan()
-    if not self:CanScan() then return false end
+    if not self:CanScan() then
+        if ns.FOREVER and not (C_TradeSkillUI and C_TradeSkillUI.GetAllRecipeIDs) then return self:ScanClassic() end
+        return false
+    end
     local T = C_TradeSkillUI
     local base = ns.Safe.Call(T.GetBaseProfessionInfo)
     local baseID = base and ns.Safe.Num(base.professionID)
@@ -231,7 +279,7 @@ function CR:Scan()
     local ids = ns.Safe.Call(T.GetAllRecipeIDs)
     if type(ids) ~= "table" or #ids == 0 then return false end
     local recipes, newest, n = {}, {}, 0
-    local old = db().oldTiers
+    local old = db().oldTiers or ns.FOREVER            -- (Forever: one set of recipes, all of them)
     for _, id in ipairs(ids) do
         local info = ns.Safe.Call(T.GetRecipeInfo, id)
         if type(info) == "table" and info.learned == true and not info.isDummyRecipe then
@@ -249,7 +297,8 @@ function CR:Scan()
     local skill = tier and ns.Safe.Num(tier.skillLevel) or ns.Safe.Num(base.skillLevel) or 0
     -- the window fires many list updates: work the ranks out again at most every 30 s
     local q, qt = prev and prev.q, prev and prev.qt
-    if not q or not qt or ns.Now() - qt >= 30 or prev.skill ~= skill then
+    if ns.FOREVER then q, qt = nil, nil                  -- no quality ranks in WoW Forever
+    elseif not q or not qt or ns.Now() - qt >= 30 or prev.skill ~= skill then
         q, qt = self:PredictQuality(newest), ns.Now()       -- this expansion's recipes only
     end
     m.profs[baseID] = { recipes = recipes, tier = tierID, name = ns.Safe.Text(base.professionName), skill = skill,
@@ -348,8 +397,28 @@ function CR:OnCrafted(data)
 end
 
 -- drop professions this character no longer has
+-- (the classic way: the skill list's profession names)
+local function classicProfessions()
+    if not (GetNumSkillLines and GetSkillLineInfo) then return nil end
+    local have, any = {}, false
+    for i = 1, ns.Safe.Call(GetNumSkillLines) or 0 do
+        local base = baseByName(ns.Safe.Text((ns.Safe.Call(GetSkillLineInfo, i))))
+        if base then have[base] = true; any = true end
+    end
+    return any and have or nil
+end
+
 function CR:CheckProfessions()
-    if not GetProfessions or not GetProfessionInfo then return end
+    if not GetProfessions or not GetProfessionInfo then
+        local have = ns.FOREVER and classicProfessions()
+        if not have then return end
+        local m, changed = myProfs(), false
+        for base in pairs(m.profs) do
+            if not have[base] then m.profs[base] = nil; changed = true end
+        end
+        if changed then self.sync:Refresh() end
+        return
+    end
     local ok, a, b, arch, fish, cook = pcall(GetProfessions)
     if not ok then return end
     local have, any = {}, false
@@ -380,6 +449,9 @@ function CR:Init()
     self.sync:Init()
     local function later() ns.Debounce("crafters-scan", 1.5, function() CR:Scan() end) end
     for _, ev in ipairs({ "TRADE_SKILL_SHOW", "TRADE_SKILL_LIST_UPDATE", "TRADE_SKILL_DATA_SOURCE_CHANGED" }) do ns.On(ev, later) end
+    if ns.FOREVER then                          -- (the classic profession and craft windows)
+        for _, ev in ipairs({ "TRADE_SKILL_UPDATE", "CRAFT_SHOW", "CRAFT_UPDATE" }) do ns.On(ev, later) end
+    end
     self.castFrame = CreateFrame("Frame")
     self.castFrame:SetScript("OnEvent", function(_, _, _, _, spellID) CR:OnCast(spellID) end)
     self.castFrame:RegisterUnitEvent("UNIT_SPELLCAST_START", "player")

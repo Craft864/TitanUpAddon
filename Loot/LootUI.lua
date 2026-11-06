@@ -56,7 +56,9 @@ function V:Create()
     self.filter = "all"
     self.filterBtns = {}
     local x = 12
-    for _, def in ipairs({ { "all", "All" }, { "raid", "Raid" }, { "mplus", "Mythic+" } }) do
+    local tabs = { { "all", "All" }, { "raid", "Raid" }, { "mplus", "Mythic+" } }
+    if ns.FOREVER then tabs[3] = nil end            -- no Mythic+ in WoW Forever
+    for _, def in ipairs(tabs) do
         local key = def[1]
         local b = UI.Button(f, 74, 24, def[2], nil, function() V.filter = key; V.session = nil; V:Refresh() end)
         b:SetPoint("TOPLEFT", x, -10)
@@ -98,7 +100,8 @@ function V:Create()
     self.empty = UI.Text(right, "GameFontHighlightSmall", C.muted, nil, "TOPLEFT", 10, -34)
     self.empty:SetWidth(W - LEFT_W - 60)
     self.empty:SetJustifyH("LEFT")
-    self.empty:SetText("No loot recorded yet. Raid drops are recorded automatically when rolls finish; Mythic+ loot when the chest is opened.")
+    self.empty:SetText(ns.FOREVER and "No loot recorded yet. Raid drops are recorded automatically when rolls finish."
+        or "No loot recorded yet. Raid drops are recorded automatically when rolls finish; Mythic+ loot when the chest is opened.")
     self.dropRows = {}
     for i = 1, math.floor((H - 90) / ROW_H) do
         local row = CreateFrame("Frame", nil, right)
@@ -267,7 +270,8 @@ end
 
 ns.RegisterModule({
     key = "loot", name = "Loot", icon = ns.MEDIA .. "Loot", group = "tools", order = 2,
-    desc = "Raid drops and rolls, Mythic+ loot, trades until equipped. Click a drop to see who has it on their wishlist.",
+    desc = ns.FOREVER and "Raid drops and rolls, trades until equipped. Click a drop to see who has it on their wishlist."
+        or "Raid drops and rolls, Mythic+ loot, trades until equipped. Click a drop to see who has it on their wishlist.",
     rail = "loot", railName = "Loot", tab = "Drops",
     railDesc = "Raid drops and rolls, trades until equipped, and the guild's loot wishlists.",
     view = V,

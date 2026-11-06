@@ -17,6 +17,12 @@ local PREFIX = "TitanUpVC"
 -- What's new, per version, newest first. After an update the pop-up shows
 -- every version since you last played; Settings > Titan Up lists them too.
 UP.NOTES = {
+    { "0.50.0", {
+        "New: Dungeon roll bars (Settings > Loot). In a party, small bars replace Blizzard's roll pop-ups, with a breakdown beside them of who's waiting, who picked Need or Greed, and who passed.",
+        "WoW Forever: parts of the addon that only make sense on retail are hidden, and Raid Check, Consumables, the Pull Report and Macro Workstation use Forever's buffs, consumables, defensives and spells.",
+        "WoW Forever: Crafters reads your professions (skill up to 300, First Aid included).",
+        "WoW Forever: Raid Check, the Pull Report archive and the Raid Scorecard work in raids. Raid Check no longer marks everyone missing Skyfury when a Shaman is in the raid.",
+    } },
     { "0.49.0", {
         "Titan Up is now Eternal Table. Your settings, games and standings carry over.",
         "Works on WoW Forever as well as Midnight. Keystone Roulette and Bonus roll protection are hidden on Forever.",
@@ -211,7 +217,8 @@ UP.NOTES = {
 function UP.NotesText(since)
     local out = {}
     for _, v in ipairs(UP.NOTES) do
-        if not since or ns.VersionNewer(v[1], since) then
+        -- WoW Forever starts at 0.49.0: the earlier notes are about the retail game
+        if (not since or ns.VersionNewer(v[1], since)) and not (ns.FOREVER and ns.VersionNewer("0.49.0", v[1])) then
             if #out > 0 then out[#out + 1] = "" end
             out[#out + 1] = "|cff4fc3f7v" .. v[1] .. "|r"
             for _, line in ipairs(v[2]) do out[#out + 1] = "-  " .. line end

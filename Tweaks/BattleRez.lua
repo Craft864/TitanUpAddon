@@ -24,6 +24,7 @@ BR.SIZES = { { "small", "Small", 32 }, { "medium", "Medium", 44 }, { "large", "L
 local function db() return ns.udb.brez end
 
 function BR:Init()
+    if ns.FOREVER then return end            -- no shared battle-rez charges in WoW Forever
     -- a finished key can still report itself active until you leave
     ns.On("CHALLENGE_MODE_START", function() BR.keyDone = nil; BR:Check() end)
     for _, ev in ipairs({ "CHALLENGE_MODE_COMPLETED", "CHALLENGE_MODE_RESET" }) do
@@ -45,6 +46,7 @@ local function inRaidEncounter() return BR.encounter and ns.InRaidInstance() end
 -- Should it be on screen right now? The whole encounter or key - in or out
 -- of combat, alive or dead.
 function BR:Wanted()
+    if ns.FOREVER then return false end
     if self.unlocked then return true end
     if not db().enabled then return false end
     return (inRaidEncounter() or inKey()) and true or false

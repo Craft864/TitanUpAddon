@@ -70,7 +70,8 @@ function V:Create()
     self.bothBtn:SetPoint("LEFT", x, "RIGHT", 10, 0)
     self.eitherBtn = UI.Button(f, 54, 24, "Either", "Either: items with any of the stats you ticked", function() V:SetBoth(false) end)
     self.eitherBtn:SetPoint("LEFT", self.bothBtn, "RIGHT", 2, 0)
-    self.specBtn = UI.Button(f, 74, 24, "My spec", "Only items your current specialization can use", function()
+    self.specBtn = UI.Button(f, 74, 24, ns.FOREVER and "My class" or "My spec",
+        ns.FOREVER and "Only items your class can use" or "Only items your current specialization can use", function()
         V.mySpec = not V.mySpec; V:Reload()
     end)
     self.specBtn:SetPoint("TOPRIGHT", -12, -40)
@@ -270,6 +271,9 @@ function V:Reload()
             end
         end
     end
+    if ok and not self.inst and ns.FOREVER then
+        self.why = "The Adventure Guide doesn't list WoW Forever's loot yet, so there's nothing to browse here for now."
+    end
     self.loot = nil
     if ok and self.inst then
         local loot, err = WL:Loot(self.inst.id, self.boss and self.boss.id, self.diff, self.mySpec)
@@ -325,7 +329,7 @@ function V:Refresh()
         self.status:SetText("Pick an expansion and an instance.")
     else
         local total = #(self.loot or {})
-        self.status:SetText(("%d of %d items%s%s"):format(#shown, total, self.mySpec and "  -  for your spec" or "",
+        self.status:SetText(("%d of %d items%s%s"):format(#shown, total, self.mySpec and (ns.FOREVER and "  -  for your class" or "  -  for your spec") or "",
             not WL:Enabled() and "  -  |cffffa340your wishlist isn't shared (Loot settings)|r" or ""))
     end
     self.offset = math.max(0, math.min(math.max(0, #shown - #self.rows), self.offset or 0))

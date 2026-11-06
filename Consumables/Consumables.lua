@@ -45,6 +45,16 @@ CO.BUILTIN = {
                               242767, 242768, 242769, 242770, 242771, 242772, 242773, 242774, 242775, 242776, 266985,
                               266996, 268679, 268680, 275259, 275262, 275263, 275267, 275268, 275269 } },   -- hearty food and feasts
 }
+-- WoW Forever: the classic raid consumables (no quality ranks)
+if ns.FOREVER then
+    CO.BUILTIN = {
+        { group = "flask", ids = { 13510, 13511, 13512, 13513 } },    -- Titans, Distilled Wisdom, Supreme Power, Chromatic Resistance
+        { group = "potion", ids = { 13444, 13442, 5634, 3387, 13457, 13456, 13458, 13459, 13461 } },  -- Major Mana, Mighty Rage, Free Action, Limited Invulnerability, Greater Protection
+        { group = "health", ids = { 13446, 3928 } },                  -- Major / Superior Healing Potion
+        { group = "food", ids = { 13928, 13931, 18254, 20452, 21023, 12218, 18045 } },  -- stat foods
+        { group = "other", ids = { 13452, 13454, 9206, 9187, 18262, 12404, 20749, 20748 } },  -- elixirs, stones, oils
+    }
+end
 CO.MAX_WANT = 999
 CO.MAX_MINE = 60
 
@@ -117,7 +127,7 @@ end
 function CO:BagCounts()
     local out = {}
     if not (C_Container and C_Container.GetContainerNumSlots) then return out end
-    for bag = 0, 5 do
+    for bag = 0, (ns.FOREVER and (NUM_BAG_SLOTS or 4) or 5) do      -- (+ the reagent bag; Forever has none)
         for slot = 1, C_Container.GetContainerNumSlots(bag) or 0 do
             local info = C_Container.GetContainerItemInfo(bag, slot)
             local id = info and ns.Safe.Num(info.itemID)

@@ -81,7 +81,8 @@ function IE:ShowImport()
     end
     ns.UI.Prompt({
         title = "Import plan",
-        help = "Paste a TitanBoard plan string, or a Raidstrats.gg string (!raidstrats-addon-...). It's added as a new saved plan for its encounter - nothing gets overwritten.",
+        help = ns.FOREVER and "Paste a TitanBoard plan string. It's added as a new saved plan for its encounter - nothing gets overwritten."
+            or "Paste a TitanBoard plan string, or a Raidstrats.gg string (!raidstrats-addon-...). It's added as a new saved plan for its encounter - nothing gets overwritten.",
         accept = "Import",
         onAccept = function(text) IE:Import(text) end,
     })

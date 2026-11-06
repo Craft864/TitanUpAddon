@@ -41,7 +41,7 @@ TW.LIST = {
       get = function() return ns.udb.splitter.enabled end,
       set = function(on) ns.udb.splitter.enabled = on end,
       page = function() return ns.StackSplitter end, title = "STACK SPLITTER" },
-    { key = "brez", name = "Battle rez tracker", short = "The group's battle-rez charges on screen.",
+    { key = "brez", retailOnly = true, name = "Battle rez tracker", short = "The group's battle-rez charges on screen.",
       desc = "The group's battle-rez charges on screen during Mythic+ keys and raid boss fights (even while you're dead) - grey at zero, with a countdown to the next.",
       get = function() return ns.udb.brez.enabled end,
       set = function(on) ns.udb.brez.enabled = on; ns.BattleRez:Check() end,
@@ -52,7 +52,8 @@ TW.LIST = {
       set = function(on) ns.udb.tweaks.bonusGuard = on; ns.BonusRollGuard:Check() end },
 }
 
--- WoW Forever has no bonus rolls: leave those tweaks off its list
+-- WoW Forever has no bonus rolls or shared battle-rez charges: leave those
+-- tweaks off its list
 if ns.FOREVER then
     for i = #TW.LIST, 1, -1 do
         if TW.LIST[i].retailOnly then table.remove(TW.LIST, i) end

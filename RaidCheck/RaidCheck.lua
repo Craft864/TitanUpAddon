@@ -1,5 +1,6 @@
 -- Eternal Table - RaidCheck/RaidCheck.lua
--- Raid readiness for Heroic and Mythic raids (never Normal/LFR).
+-- Raid readiness for Heroic and Mythic raids (never Normal/LFR); on WoW
+-- Forever (one raid difficulty) every raid.
 --
 -- Every Eternal Table player's addon reports on its OWN character (the game
 -- always lets an addon read its own buffs, bags and durability; other
@@ -66,12 +67,63 @@ RC.CHECKS = {
     { key = "dur", label = "Durability (20%+)" },
 }
 
+-- WoW Forever: classic raid buffs (a single or group cast counts, any
+-- Paladin blessing counts), classic consumables, no Vantus Runes or weekly
+-- buff. Matched by name too, so a changed spell number still counts.
+if ns.FOREVER then
+    RC.RAID_BUFFS = {
+        { key = "int", spell = 1459, name = "Arcane Intellect", class = "MAGE", also = { 23028 }, alsoNames = { "Arcane Brilliance" } },
+        { key = "fort", spell = 1243, name = "Power Word: Fortitude", class = "PRIEST", also = { 21562 }, alsoNames = { "Prayer of Fortitude" } },
+        { key = "motw", spell = 1126, name = "Mark of the Wild", class = "DRUID", also = { 21849 }, alsoNames = { "Gift of the Wild" } },
+        { key = "shout", spell = 6673, name = "Battle Shout", class = "WARRIOR" },
+        { key = "bless", spell = 20217, name = "Paladin blessing", class = "PALADIN",
+          also = { 25898, 19740, 25782, 19742, 25894, 1038, 25895, 19977, 25890, 20911, 25899 },
+          alsoNames = { "Blessing of Kings", "Blessing of Might", "Blessing of Wisdom", "Blessing of Salvation", "Blessing of Light", "Blessing of Sanctuary",
+                        "Greater Blessing of Kings", "Greater Blessing of Might", "Greater Blessing of Wisdom", "Greater Blessing of Salvation",
+                        "Greater Blessing of Light", "Greater Blessing of Sanctuary" } },
+    }
+    RC.FLASKS = { names = { "Flask of the Titans", "Flask of Distilled Wisdom", "Flask of Supreme Power", "Flask of Chromatic Resistance", "Flask of Petrification" },
+                  items = { 13510, 13511, 13512, 13513, 13506 } }
+    RC.POTIONS = { names = { "Major Mana Potion", "Mighty Rage Potion", "Free Action Potion", "Limited Invulnerability Potion",
+                             "Greater Fire Protection Potion", "Greater Frost Protection Potion", "Greater Nature Protection Potion",
+                             "Greater Shadow Protection Potion", "Greater Arcane Protection Potion", "Greater Stoneshield Potion" },
+                   items = { 13444, 13442, 5634, 3387, 13457, 13456, 13458, 13459, 13461, 13455 } }
+    RC.HEALTH_POTIONS = { names = { "Major Healing Potion", "Superior Healing Potion", "Greater Healing Potion" }, items = { 13446, 3928, 1710 } }
+    RC.HEALTHSTONES = { names = { "Healthstone" }, items = { 5512 }, contains = { item = 5512, english = "healthstone" } }
+    RC.FOOD = { spells = { 19705 }, english = { "Well Fed" } }
+    RC.CHECKS = {
+        { key = "flask", label = "Flask" },
+        { key = "food", label = "Food buff" },
+        { key = "weapon", label = "Weapon oil / stone" },
+        { key = "pots", label = "Combat potions (5+)" },
+        { key = "hpots", label = "Health potions (5+)" },
+        { key = "hs", label = "Healthstone", needsClass = "WARLOCK" },
+        { key = "dur", label = "Durability (20%+)" },
+    }
+end
+
 local function settings() return ns.udb.raidcheck end
 
 -- Heroic and Mythic raids (difficulty IDs): Raid Check, the Pull Report's
 -- archive and the Raid Scorecard all count only these.
 RC.HEROIC_MYTHIC = { [15] = "Heroic", [16] = "Mythic" }
+-- WoW Forever has one raid difficulty: any raid difficulty counts there
+-- (by the game's own difficulty info), named "Raid".
+if ns.FOREVER then
+    local raid = {}
+    setmetatable(RC.HEROIC_MYTHIC, { __index = function(_, diff)
+        if type(diff) ~= "number" or diff == 0 then return nil end
+        if raid[diff] == nil then
+            local ok, _, groupType = pcall(GetDifficultyInfo or error, diff)
+            if ok and groupType ~= nil then raid[diff] = groupType == "raid"
+            else raid[diff] = diff ~= 1 and diff ~= 2 end            -- (no info: anything but a 5-player dungeon)
+        end
+        return raid[diff] and "Raid" or nil
+    end })
+end
 function RC.HeroicOrMythic(diff) return RC.HEROIC_MYTHIC[diff] ~= nil end
+-- "Heroic and Mythic raids" (retail) / "raids" (Forever), for help text
+RC.WHERE = ns.FOREVER and "raids" or "Heroic and Mythic raids"
 
 -- ---------------------------------------------------------------------
 -- When it applies
@@ -224,7 +276,7 @@ function RC.BagCounts(lists)
         ms[key] = m
     end
     if not (C_Container and C_Container.GetContainerNumSlots) then return out end
-    for bag = 0, 5 do
+    for bag = 0, (ns.FOREVER and (NUM_BAG_SLOTS or 4) or 5) do      -- (+ the reagent bag; Forever has none)
         for slot = 1, C_Container.GetContainerNumSlots(bag) or 0 do
             local info = C_Container.GetContainerItemInfo(bag, slot)
             if info then
@@ -264,7 +316,10 @@ function RC:Snapshot()
     for _, a in ipairs(auras) do byName[a.name] = a end
     local buffs = {}
     for i, b in ipairs(self.RAID_BUFFS) do
-        buffs[i] = byName[spellName(b.spell, b.name)] and "1" or "0"
+        local has = byName[spellName(b.spell, b.name)]
+        for _, id in ipairs(b.also or {}) do has = has or byName[spellName(id) or ""] end
+        for _, n in ipairs(b.alsoNames or {}) do has = has or byName[n] end
+        buffs[i] = has and "1" or "0"
     end
     local flask, food, vantus, weekly = 0, 0, 0, 0
     local flasks = RC.Matcher(self.FLASKS)
